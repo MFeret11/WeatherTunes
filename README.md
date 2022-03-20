@@ -1,2 +1,2 @@
 # WeatherTunes
-Calls to NWS weather API to produce unique melodies
+Calls NWS weather API to produce unique melodies
