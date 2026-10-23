@@ -156,10 +156,16 @@ export class Engine {
     tr.swingSubdivision = "16n";
     tr.loop = true;
     tr.loopStart = 0;
-    tr.loopEnd = `${score.meta.bars + 1}:0:0`; // a bar of silence before it repeats
+    const steps = score.meta.steps ?? 16; // sixteenths per hour slot
+    const realBars = Math.ceil((score.meta.bars * steps) / 16);
+    tr.loopEnd = `${realBars + 1}:0:0`; // a bar of silence before it repeats
     this.reverb.wet.value = score.automation.reverbWet;
 
-    const at = (bar, pos) => `${bar}:${Math.floor(pos / 4)}:${pos % 4}`;
+    // `bar` in the score is an hour slot of `steps` sixteenths.
+    const at = (bar, pos) => {
+      const t = bar * steps + pos;
+      return `${Math.floor(t / 16)}:${Math.floor((t % 16) / 4)}:${t % 4}`;
+    };
 
     for (const n of score.melody) {
       tr.schedule((t) => this.melody.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel), at(n.bar, n.pos));
@@ -181,11 +187,11 @@ export class Engine {
       if (f.type === "swell") tr.schedule((t) => this.swell.triggerAttackRelease(2.5, t, 0.6), at(f.bar, f.pos));
     }
 
-    // Per-bar automation and the playhead.
+    // Per-hour automation and the playhead.
     const A = score.automation;
     score.atmosphere.forEach((a, bar) => {
       tr.schedule((t) => {
-        const ramp = this.s16(4);
+        const ramp = this.s16(2); // an hour is 8 sixteenths
         this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
         if (bar === 0) this.band.volume.setValueAtTime(A.gainDb[0], t);
         else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
@@ -204,7 +210,7 @@ export class Engine {
       for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, this.s16(8), t);
       this.windGain.gain.rampTo(0, this.s16(8), t);
       if (this.onBar) Tone().getDraw().schedule(() => this.onBar(null), t);
-    }, at(score.meta.bars, 0));
+    }, `${realBars}:0:0`);
   }
 
   start(when) {

@@ -180,7 +180,7 @@ export function compose(f, { units = "metric" } = {}) {
     const last = b === M.BARS - 1;
     const n = last ? 1
       : M.DENSITY[busierRow(M.DENSITY, M.DENSITY.findIndex((r) => h.gust < r.maxGust), b)].notes;
-    const rhythm = last ? [16] : pick(M.RHYTHMS[n]);
+    const rhythm = last ? [M.STEPS] : pick(M.RHYTHMS[n]);
     const anchor = anchors[b];
     const next = last ? anchor : anchors[b + 1];
     const sectionEnd = M.SECTIONS.some((s) => s.start === b + 1) || last;
@@ -202,7 +202,7 @@ export function compose(f, { units = "metric" } = {}) {
           idx = prev + clamp(target - prev, -2, 2);
         }
         idx = inRange(idx);
-        if (pos === 8) idx = snapTo(idx, chordPcs(b)); // beat 3 is a chord tone
+        if (pos === M.STEPS / 2) idx = snapTo(idx, chordPcs(b)); // the hour's second beat is a chord tone
         if (sectionEnd && k === rhythm.length - 1) {
           const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
           // Root or fifth if the chord has one, otherwise any chord tone (a half cadence).
@@ -230,14 +230,14 @@ export function compose(f, { units = "metric" } = {}) {
     const pc = chordPcs(b)[0];
     const m = 36 + pc; // root between C2 and B2
     const pattern = b === M.BARS - 1
-      ? [[0, 16, 0]]
+      ? [[0, M.STEPS, 0]]
       : M.BASS.patterns[busierRow(M.BASS.patterns, M.BASS.patterns.findIndex((p) => H[b].wind < p.maxWind), b)].hits;
     for (const [pos, dur, iv] of pattern) {
       bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: M.BASS.vel, gate: gateFor(H[b]) });
     }
   }
 
-  // ---- Pad: one held chord every 2 bars ----------------------------------
+  // ---- Pad: one held chord per chord change (every 2 hours) ----------------------------------
   const pad = [];
   for (let b = 0; b < M.BARS; b += M.BARS_PER_CHORD) {
     const cloud = mean(H.slice(b, b + M.BARS_PER_CHORD).map((h) => h.cloud)) / 100;
@@ -247,7 +247,7 @@ export function compose(f, { units = "metric" } = {}) {
       return midiToNote(m);
     });
     pad.push({
-      bar: b, pos: 0, dur: 16 * M.BARS_PER_CHORD, notes,
+      bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, notes,
       vel: +Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
         + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0)).toFixed(3),
     });
@@ -262,7 +262,7 @@ export function compose(f, { units = "metric" } = {}) {
     if (h.pop < M.RAIN.minPop && h.precip === 0) continue;
     if (M.SNOW_CODES.includes(h.code)) {
       const count = Math.max(1, Math.round((h.pop / 100) * M.BELLS.maxHits));
-      const slots = shuffle([0, 2, 4, 6, 8, 10, 12, 14], rng).slice(0, count).sort((x, y) => x - y);
+      const slots = shuffle([0, 2, 4, 6], rng).slice(0, count).sort((x, y) => x - y);
       for (const pos of slots) {
         const midi = pick(bellPitches);
         bells.push({ bar: b, pos, dur: 4, midi, note: midiToNote(midi), vel: M.BELLS.vel });
@@ -272,8 +272,8 @@ export function compose(f, { units = "metric" } = {}) {
     let count = Math.round((h.pop / 100) * M.RAIN.maxHits);
     if (h.precip > 0) count = Math.max(1, count);
     // Off-beat sixteenths first, so shakers sit between the melody's strong beats.
-    const off = shuffle([1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15], rng);
-    const on = shuffle([0, 4, 8, 12], rng);
+    const off = shuffle([1, 2, 3, 5, 6, 7], rng);
+    const on = shuffle([0, 4], rng);
     const slots = off.concat(on).slice(0, count).sort((x, y) => x - y);
     const v = Math.min(M.RAIN.velMax, M.RAIN.velBase + M.RAIN.velPerMm * h.precip);
     for (const pos of slots) {
@@ -298,12 +298,12 @@ export function compose(f, { units = "metric" } = {}) {
   // ---- One-off effects ----------------------------------------------------
   const fx = [];
   H.forEach((h, b) => {
-    if (A.stormHour(h)) fx.push({ bar: b, pos: 8, type: "thunder" });
+    if (A.stormHour(h)) fx.push({ bar: b, pos: M.STEPS / 2, type: "thunder" });
   });
   for (const [label, t] of [["sunrise", f.sunrise], ["sunset", f.sunset]]) {
     if (t == null) continue;
     const bar = Math.floor(t);
-    fx.push({ bar, pos: clamp(Math.round((t - bar) * 16), 0, 15), type: "swell", label });
+    fx.push({ bar, pos: clamp(Math.round((t - bar) * M.STEPS), 0, M.STEPS - 1), type: "swell", label });
   }
 
   // ---- Per-bar automation ---------------------------------------------------
@@ -323,7 +323,7 @@ export function compose(f, { units = "metric" } = {}) {
   const meta = {
     name: f.name, date: f.date, seed,
     root, rootName: keyName(root), mode, modeLabel: MODE_LABELS[mode],
-    bpm: A.bpm, bars: M.BARS, sections: M.SECTIONS,
+    bpm: A.bpm, bars: M.BARS, steps: M.STEPS, sections: M.SECTIONS,
     trend: A.trend, progressionDegrees: progression,
     progression: progression.map((d) => chordLabel(mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
@@ -354,7 +354,7 @@ export function hourLabel(h) {
   return mm ? `${h12}:${String(mm).padStart(2, "0")} ${suffix}` : `${h12} ${suffix}`;
 }
 
-/** Group bar numbers into readable ranges: [3,4,5,9] → "bars 4–6 and 10" (1-based). */
+/** Group hour slots into readable ranges: [3,4,5,9] → "3–5 am and 9 am". */
 function barRanges(bars) {
   const r = [];
   for (const b of bars) {
@@ -362,9 +362,8 @@ function barRanges(bars) {
     if (lastR && b === lastR[1] + 1) lastR[1] = b;
     else r.push([b, b]);
   }
-  const parts = r.map(([a, z]) => (a === z ? `${a + 1}` : `${a + 1}–${z + 1}`));
-  const word = bars.length === 1 ? "bar" : "bars";
-  return `${word} ` + (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0]);
+  const parts = r.map(([a, z]) => (a === z ? hourLabel(a) : `${hourLabel(a)}–${hourLabel(z)}`));
+  return (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0]);
 }
 
 const MODE_HINTS = {
@@ -395,8 +394,8 @@ function dynamicsNote(f, A, units) {
   if (h.gust >= D.gustFrom) why.push(`gusts of ${formatSpeed(h.gust, units)}`);
   const loud = A.energy.map((e, b) => (e >= D.busier ? b : -1)).filter((b) => b >= 0);
   const head = `Weather peaks at ${hourLabel(at)} (${why.join(", ")})`;
-  if (!loud.length) return `${head} → the band lifts a little around bar ${at + 1}.`;
-  return `${head} → the band builds, swells and plays busier in ${barRanges(loud)}, then settles.`;
+  if (!loud.length) return `${head} → the band lifts a little around ${hourLabel(at)}.`;
+  return `${head} → the band builds, swells and plays busier around ${barRanges(loud)}, then settles.`;
 }
 
 function linerNotes(f, A, meta, layers, units) {
@@ -413,7 +412,7 @@ function linerNotes(f, A, meta, layers, units) {
   notes.push(`Average pressure ${Math.round(s.pressure)} hPa → key of ${meta.rootName}.`);
   notes.push(`Average wind ${formatSpeed(s.wind, units)} → ${A.bpm} BPM. ` +
     `Gusts up to ${formatSpeed(s.gustMax, units)} set how busy the melody gets.`);
-  notes.push(`High of ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)} is the melody's peak (bar ${s.tMaxHour + 1}); ` +
+  notes.push(`High of ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)} is the melody's peak; ` +
     `the low of ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} is where it sits lowest.`);
   const change = r1(s.pressureChange);
   const v = A.voices;
@@ -432,15 +431,15 @@ function linerNotes(f, A, meta, layers, units) {
   const kindText = { fog: "Fog → a faint hiss", drizzle: "Drizzle → light white noise",
     rain: "Rain → pink-noise rainfall", showers: "Showers → bursts of pink noise",
     snow: "Snow → bells and a muffled hush", storm: "Storm hours → deep brown noise and thunder" };
-  for (const [k, bars] of Object.entries(kinds)) notes.push(`${kindText[k]} in ${barRanges(bars)}.`);
+  for (const [k, bars] of Object.entries(kinds)) notes.push(`${kindText[k]} at ${barRanges(bars)}.`);
   const shakerBars = [...new Set(layers.rain.map((n) => n.bar))];
-  if (shakerBars.length) notes.push(`Chance of rain → shakers in ${barRanges(shakerBars)}; the likelier the rain, the more hits.`);
+  if (shakerBars.length) notes.push(`Chance of rain → shakers at ${barRanges(shakerBars)}; the likelier the rain, the more hits.`);
   const windy = layers.atmosphere.filter((a) => a.wind > 0).map((a) => a.bar);
-  if (windy.length) notes.push(`Strong gusts → wind noise in ${barRanges(windy)}.`);
+  if (windy.length) notes.push(`Strong gusts → wind noise at ${barRanges(windy)}.`);
 
   if (f.sunrise != null) {
-    notes.push(`Sunrise at ${hourLabel(f.sunrise)} (bar ${Math.floor(f.sunrise) + 1}) and sunset at ` +
-      `${hourLabel(f.sunset)} (bar ${Math.floor(f.sunset) + 1}) each get a cymbal swell.`);
+    notes.push(`Sunrise at ${hourLabel(f.sunrise)} and sunset at ` +
+      `${hourLabel(f.sunset)} each get a cymbal swell.`);
   } else {
     const dark = f.hours.every((h) => !h.isDay);
     notes.push(dark ? "No sunrise today (polar night), so the whole piece keeps its night-time tone."

@@ -68,7 +68,7 @@ test("every melody note is in the scale", () => each((n, s) => {
 
 test("beats 1 and 3 are chord tones", () => each((n, s) => {
   for (const x of s.melody) {
-    if (x.pos !== 0 && x.pos !== 8) continue;
+    if (x.pos !== 0 && x.pos !== M.STEPS / 2) continue;
     assert(chordAt(s, x.bar).includes(x.midi % 12), `${n} bar ${x.bar} pos ${x.pos} ${x.note} vs chord ${s.meta.chords[x.bar]}`);
   }
 }));
@@ -108,7 +108,7 @@ test("rhythms fit their bars without overlapping", () => each((n, s) => {
         assert(x.pos >= end, `${n} ${layer} bar ${b} overlaps`);
         end = x.pos + x.dur;
       }
-      assert(end <= 16, `${n} ${layer} bar ${b} runs over`);
+      assert(end <= M.STEPS, `${n} ${layer} bar ${b} runs over`);
     }
   }
 }));

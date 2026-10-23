@@ -1,9 +1,13 @@
 // Every tunable number in the weather → music mapping lives here, so the
 // sound can be adjusted by ear without touching compose.js.
 
-export const BARS = 24;              // one bar per hour, midnight to 11 pm
-export const BARS_PER_CHORD = 2;     // 4-chord loop = 8 bars, played 3 times
-export const SECTIONS = [            // 8-bar phrases, named in the liner notes
+// Time is counted in hour slots: each forecast hour gets STEPS sixteenths
+// (half a bar), so the 24-hour song is 12 bars, about 20–24 seconds.
+// The score's `bar` field is the hour slot; the engine turns it into time.
+export const BARS = 24;              // hour slots, midnight to 11 pm
+export const STEPS = 8;              // sixteenths per hour (2 beats)
+export const BARS_PER_CHORD = 2;     // hours per chord: 4-chord loop = 8 hours, played 3 times
+export const SECTIONS = [            // 8-hour phrases, named in the liner notes
   { name: "Night", start: 0 },
   { name: "Day", start: 8 },
   { name: "Evening", start: 16 },
@@ -33,7 +37,7 @@ export const THUNDER_CODES = [95, 96, 99];
 export const SNOW_CODES = [71, 73, 75, 77, 85, 86];
 
 // ---- Key, tempo, register ------------------------------------------------
-export const TEMPO = { base: 72, perKmh: 1.5, min: 72, max: 132 };
+export const TEMPO = { base: 120, perKmh: 1, min: 120, max: 156 };
 export const MELODY = {
   spanSteps: 10,       // the day's temperature range covers this many scale steps
   minSpanC: 8,         // flat days are spread over at least this many °C
@@ -45,23 +49,19 @@ export const MELODY = {
   velLow: 0.6, velHigh: 0.9, accent: 0.05,
 };
 
-// Notes per bar from wind gusts (km/h): first row whose maxGust exceeds the gust.
+// Notes per hour from wind gusts (km/h): first row whose maxGust exceeds the gust.
 export const DENSITY = [
-  { maxGust: 10, notes: 2 },
-  { maxGust: 20, notes: 3 },
-  { maxGust: 30, notes: 4 },
-  { maxGust: 45, notes: 5 },
-  { maxGust: 60, notes: 6 },
-  { maxGust: Infinity, notes: 8 },
+  { maxGust: 15, notes: 1 },
+  { maxGust: 30, notes: 2 },
+  { maxGust: 50, notes: 3 },
+  { maxGust: Infinity, notes: 4 },
 ];
-// Rhythm patterns in sixteenth notes (each sums to 16), picked by the seed.
+// Rhythm patterns in sixteenth notes (each sums to STEPS = 8), picked by the seed.
 export const RHYTHMS = {
-  2: [[8, 8], [12, 4], [10, 6]],
-  3: [[8, 4, 4], [4, 4, 8], [6, 6, 4], [8, 6, 2]],
-  4: [[4, 4, 4, 4], [6, 2, 4, 4], [4, 4, 6, 2], [6, 2, 6, 2]],
-  5: [[4, 2, 2, 4, 4], [6, 2, 4, 2, 2], [4, 4, 2, 2, 4]],
-  6: [[4, 2, 2, 4, 2, 2], [2, 2, 4, 2, 2, 4], [4, 2, 2, 2, 2, 4]],
-  8: [[2, 2, 2, 2, 2, 2, 2, 2], [3, 1, 2, 2, 3, 1, 2, 2]],
+  1: [[8]],
+  2: [[4, 4], [6, 2], [5, 3]],
+  3: [[4, 2, 2], [2, 2, 4], [3, 3, 2]],
+  4: [[2, 2, 2, 2], [3, 1, 2, 2]],
 };
 export const REST_PER_CLOUD = 0.3;   // rest chance = this × cloud cover (0–1)
 export const NEIGHBOR_CHANCE = 0.7;  // when the line would repeat a note, step away instead
@@ -107,19 +107,19 @@ export const PRESSURE_TREND_HPA = 1.5; // change over the day that counts as ris
 
 // ---- Other layers --------------------------------------------------------
 export const BASS = {
-  // Pattern by the hour's mean wind (km/h): [pos16, dur16, interval] where
-  // interval is 0 root, 7 fifth, 12 octave.
+  // Pattern per hour by its mean wind (km/h): [pos16, dur16, interval] where
+  // interval is 0 root, 7 fifth, 12 octave. Positions fit in STEPS = 8.
   patterns: [
-    { maxWind: 12, hits: [[0, 16, 0]] },
-    { maxWind: 25, hits: [[0, 8, 0], [8, 8, 0]] },
-    { maxWind: 40, hits: [[0, 4, 0], [6, 2, 12], [8, 4, 0], [14, 2, 7]] },
-    { maxWind: Infinity, hits: [[0, 2, 0], [2, 2, 0], [4, 2, 12], [6, 2, 0], [8, 2, 0], [10, 2, 7], [12, 2, 12], [14, 2, 0]] },
+    { maxWind: 12, hits: [[0, 8, 0]] },
+    { maxWind: 25, hits: [[0, 4, 0], [4, 4, 0]] },
+    { maxWind: 40, hits: [[0, 3, 0], [3, 1, 12], [4, 3, 0], [7, 1, 7]] },
+    { maxWind: Infinity, hits: [[0, 2, 0], [2, 2, 12], [4, 2, 0], [6, 2, 7]] },
   ],
   vel: 0.75,
 };
 export const PAD = { velMin: 0.25, velPerCloud: 0.45, center: 60 };
-export const RAIN = { minPop: 10, maxHits: 8, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
-export const BELLS = { maxHits: 3, vel: 0.35, low: 79, high: 96 };
+export const RAIN = { minPop: 10, maxHits: 5, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
+export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 
 // ---- Atmosphere: a noise bed that follows each hour's conditions ----------
 // White = hiss (fog, drizzle), pink = fuller (rain, snow), brown = deep (storms).
@@ -139,8 +139,8 @@ export const WIND_NOISE = { from: 45, full: 100, max: 0.5 };
 
 // ---- Dynamics: the song swells and settles with the day's weather ----------
 // Each hour gets an intensity (0–1): the strongest of its rain, gusts and thunder.
-// It's spread so the music builds for a couple of bars before rough weather
-// arrives and settles over a few bars after it passes. Intensity then:
+// It's spread so the music builds for a couple of hours before rough weather
+// arrives and settles over a few hours after it passes. Intensity then:
 //   raises the band (melody, bass, pad) by up to maxBoostDb
 //   plays harder (velocity + velBoost × intensity)
 //   at `busier` or above, steps melody density and bass pattern up one row
@@ -148,13 +148,13 @@ export const WIND_NOISE = { from: 45, full: 100, max: 0.5 };
 export const DYNAMICS = {
   rainFullMm: 6,               // this much rain (or snow water) in an hour = full intensity
   gustFrom: 35, gustFull: 85,  // gusts (km/h) start counting at gustFrom, full at gustFull
-  lead: [0.35, 0.7],           // weights 2 bars and 1 bar before an event
-  tail: [0.75, 0.5, 0.25],     // weights 1, 2 and 3 bars after
+  lead: [0.35, 0.7],           // weights 2 hours and 1 hour before an event
+  tail: [0.75, 0.5, 0.25],     // weights 1, 2 and 3 hours after
   maxBoostDb: 5,
   velBoost: 0.15,
   busier: 0.5,
   padOpenOctaves: 1.2,
-  introDb: -4,                 // the first bar eases in
+  introDb: -4,                 // the first hour eases in
   calm: 0.15,                  // a day whose peak stays below this reads as calm
 };
 
@@ -172,7 +172,7 @@ export const GROOVE = {
   gateMin: 0.3,
 };
 
-// ---- Sound shaping (per-bar automation) ----------------------------------
+// ---- Sound shaping (per-hour automation) ----------------------------------
 export const FILTER = { clearHz: 6000, overcastHz: 2000, nightFactor: 0.6 };
 export const REVERB = { min: 0.1, max: 0.6, rhLow: 30, rhHigh: 100 };
 export const PAN_WIDTH = 0.6;

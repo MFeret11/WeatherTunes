@@ -2,7 +2,7 @@
 
 Turns a day's weather forecast into a short piece of music you can play in the browser.
 
-Each hour of the day is one bar. The temperature curve shapes the melody, cloud and rain pick the scale (bright Lydian on sunny days down to dark Phrygian in storms), air pressure picks the key, wind sets the tempo, and rain, snow, fog and storms add their own sounds. Music-theory rules keep it in tune: every note is in the scale, strong beats land on chord tones, and phrases resolve. The same place and day always gives the same song.
+Each hour of the day gets two beats (half a bar), so a song lasts about 20 seconds. The temperature curve shapes the melody, cloud and rain pick the scale (bright Lydian on sunny days down to dark Phrygian in storms), air pressure picks the key, wind sets the tempo, and rain, snow, fog and storms add their own sounds. Music-theory rules keep it in tune: every note is in the scale, strong beats land on chord tones, and phrases resolve. The same place and day always gives the same song.
 
 Every song comes with liner notes explaining why it sounds the way it does.
 

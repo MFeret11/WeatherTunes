@@ -4,7 +4,7 @@ Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the comp
 
 ## 1. The pitch
 
-Open the page, allow location (or type a city), press Play. Today's forecast where you are becomes a one-minute piece of music. Each hour of the day is one bar. The temperature curve shapes the melody, the sky picks the scale, the wind sets the tempo, and rain adds percussion. Then you can play with it: change the waveform, EQ, filter and effects, mute layers, or play along on your keyboard in the day's key.
+Open the page, allow location (or type a city), press Play. Today's forecast where you are becomes a 20-second piece of music. Each hour of the day gets two beats (half a bar). The temperature curve shapes the melody, the sky picks the scale, the wind sets the tempo, and rain adds percussion. Then you can play with it: change the waveform, EQ, filter and effects, mute layers, or play along on your keyboard in the day's key.
 
 Same place and same day always gives the same song, so a link can be shared. A different city or a different day gives a different song.
 
@@ -113,7 +113,7 @@ Score = {
 All numbers live in `mapping.js` so they can be tuned by ear without touching the logic. The rule of thumb is **weather picks the musical choices, music theory keeps them in tune.**
 
 ### 6.1 Form
-- 24 hourly values give **24 bars of 4/4**, from midnight to 11 pm local time. That's about 60 s at 96 BPM.
+- 24 hourly values give **24 half-bar slots (12 bars of 4/4)**, from midnight to 11 pm local time. That's about 20–24 s at 120–156 BPM. Every hour keeps its own slot, so a storm that passes in an hour still gets its moment.
 - Three 8-bar sections: Night (0–7), Day (8–15), Evening (16–23). These line up with the 4-chord loop at 2 bars per chord, which a 6-bar section would not.
 - The piece loops by default with a 1-bar gap. A toggle switches to play-once.
 
@@ -123,7 +123,7 @@ All numbers live in `mapping.js` so they can be tuned by ear without touching th
 |---|---|---|
 | **Mode (scale)** | "Brightness" = 1 − cloud − rain chance − rainfall − storm | Modes ranked bright to dark: **Lydian → Ionian (major) → Mixolydian → Dorian → Aeolian (minor) → Phrygian**. Lydian also needs a warm day (mean ≥ 15 °C), so a clear polar day is plain major. Sunny is Lydian or Ionian, overcast is Dorian, rainy is Aeolian, storms are Phrygian. A **storm day** is any thunder code, any hour with ≥ 8 mm of rain, or ≥ 75 km/h gusts with rain. Thunder codes alone aren't enough because the forecast model rarely issues them. Snow days keep the mode's chords but play a **pentatonic** melody (soft, bell-like). |
 | **Key (root)** | Mean sea-level pressure (hPa) | `root = round(meanPressure) mod 12`. Pressure ranges from about 980 to 1040 hPa, so every key turns up. |
-| **Tempo** | Mean wind speed | `bpm = clamp(72 + 1.5 × wind_kmh, 72, 132)` |
+| **Tempo** | Mean wind speed | `bpm = clamp(120 + wind_kmh, 120, 156)` |
 | **Register** | Daily mean temperature | Cold days sit lower and hot days higher, shifting by up to ±3 scale steps |
 | **Chord progression** | Pressure trend over the day (rising, steady, falling) | Each mode has two proven 4-chord loops per trend, and the day's seed picks one. Rising (clearing) loops climb or resolve, like I–V–vi–IV or i–ii–♭III–IV. Falling (worsening) loops descend, like IV–♭III–ii–i or i–♭VII–♭VI–v. Diminished chords are left out. The chord changes every 2 bars, the loop runs 3 times, and the last 2 bars always return to the tonic chord. |
 | **Reverb amount** | Mean humidity | 10 % at 30 % RH up to 60 % at 100 % RH, so muggy days sound wetter |
@@ -261,5 +261,5 @@ M1 is the riskiest part (does it sound good?), so it comes before any UI work.
 
 1. **Units shown:** °F and mph for US visitors, °C and km/h elsewhere, based on the browser locale, with a toggle that is remembered. *(Built in M2. Units change only the liner notes, never the music.)*
 2. **Default before location:** a rotating "song of the day" from 14 world cities, one per day, so Play works right away. *(Built in M2.)*
-3. **Length:** 24 bars (about 1 min), looping. Could offer a "long" version with 2 bars per hour.
+3. **Length:** 12 bars (about 20 s), looping. Could offer a "long" version with a bar or more per hour.
 4. **Time of day:** always play the whole day from midnight. A later option could start at the current hour.
