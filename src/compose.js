@@ -179,6 +179,40 @@ export function storyArc(H, A) {
   return { chordModes, chapters, brightness: br };
 }
 
+/**
+ * The day's dramatic arc, per hour: "calm", "build", "peak" or "release".
+ * moments lists where the phase changes, for the page and the liner notes.
+ */
+export function dayArc(H, A) {
+  const R = M.ARC;
+  const raw = A.intensity;
+  const top = Math.max(...raw);
+  const dramatic = top >= R.dramaMin;
+  const phases = H.map(() => "calm");
+  const breeze = H.map(() => false);
+  if (dramatic) {
+    let peaks = raw.map((r, b) => (r >= top * R.peakShare ? b : -1)).filter((b) => b >= 0);
+    peaks = peaks.flatMap((p, i) => {
+      const next = peaks[i + 1];
+      return next != null && next - p <= R.mergeGap ? Array.from({ length: next - p }, (_, k) => p + k) : [p];
+    });
+    H.forEach((h, b) => {
+      if (peaks.includes(b)) phases[b] = "peak";
+      else if (peaks.some((p) => p > b && p - b <= R.buildHours)) phases[b] = "build";
+      else if (peaks.some((p) => p < b && b - p <= R.releaseHours)) {
+        phases[b] = "release";
+        const p = Math.max(...peaks.filter((x) => x < b));
+        breeze[b] = H[p].temp - h.temp >= R.coolDropC || h.gust >= M.DYNAMICS.gustFrom;
+      }
+    });
+  }
+  const moments = [];
+  phases.forEach((ph, b) => {
+    if (b === 0 || ph !== phases[b - 1]) moments.push({ bar: b, phase: ph, breeze: breeze[b] });
+  });
+  return { dramatic, stormy: top >= R.drumsMin, phases, breeze, moments, peakBar: dramatic ? raw.indexOf(top) : null };
+}
+
 /** The chord (scale degree, in its own mode) for every bar, following the chapters. */
 export function storyChords(arc, A, seed) {
   const n = M.BARS / M.BARS_PER_CHORD;
@@ -250,6 +284,9 @@ export function compose(f, { units = "metric" } = {}) {
 
   // ---- Story: a mode and chord for every bar -------------------------------
   const arc = storyArc(H, A);
+  const day = dayArc(H, A);
+  const R = M.ARC;
+  const lift = (b) => Math.round(R.liftSteps * energy[b]);
   const barChords = storyChords(arc, A, seed);
   const modeAt = (b) => barChords[b].mode;
   // The song's main mode is the one heard longest; its opening loop names the progression.
@@ -300,13 +337,15 @@ export function compose(f, { units = "metric" } = {}) {
   const melody = [];
   let prev = null;
   let prevMidi = null;
-  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp), b), chordPcs(b), b));
+  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp) + lift(b), b), chordPcs(b), b));
 
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
     const last = b === M.BARS - 1;
+    const row = M.DENSITY.findIndex((r) => h.gust < r.maxGust);
+    // The release after a peak breathes out: one row sparser, never busier.
     const n = last ? 1
-      : M.DENSITY[busierRow(M.DENSITY, M.DENSITY.findIndex((r) => h.gust < r.maxGust), b)].notes;
+      : M.DENSITY[day.phases[b] === "release" ? Math.max(0, row - 1) : busierRow(M.DENSITY, row, b)].notes;
     const rhythm = last ? [M.STEPS] : pick(M.RHYTHMS[n]);
     const anchor = anchors[b];
     const next = last ? anchor : anchors[b + 1];
@@ -318,6 +357,10 @@ export function compose(f, { units = "metric" } = {}) {
       let idx;
       if (k === 0) {
         idx = last ? snapTo(anchor, [root], b) : anchor;
+        if (!last && sectionEnd && rhythm.length === 1) { // a one-note bar that ends a section still cadences
+          const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
+          idx = snapTo(idx, pcs.length ? pcs : chordPcs(b), b);
+        }
       } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) && !(sectionEnd && k === rhythm.length - 1)) {
         pos += dur;
         return; // rest
@@ -343,7 +386,7 @@ export function compose(f, { units = "metric" } = {}) {
       }
       const midi = pitchAt(b, idx);
       melody.push({
-        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : gateFor(h),
+        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : Math.min(0.98, gateFor(h) + (day.phases[b] === "release" ? R.releaseGate : 0)),
         vel: +Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)).toFixed(3),
       });
       prev = idx;
@@ -368,6 +411,22 @@ export function compose(f, { units = "metric" } = {}) {
       bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: M.BASS.vel, gate: gateFor(H[b]) });
     }
   }
+
+  // ---- Drums: a low pulse that gathers into a roll as a peak approaches ----
+  const drums = [];
+  for (let b = 0; b < M.BARS; b++) {
+    const ph = day.phases[b];
+    if (!day.stormy || (ph !== "build" && ph !== "peak")) continue;
+    const row = R.drums.find((r) => energy[b] >= r.minEnergy);
+    if (!row) continue;
+    const [v0, v1] = R.drumVel;
+    row.hits.forEach((pos, k) => {
+      // Within a roll the hits crescendo too.
+      const vel = v0 + (v1 - v0) * energy[b] * (0.7 + (0.3 * k) / row.hits.length);
+      drums.push({ bar: b, pos, dur: 1, midi: 36 + root, vel: +vel.toFixed(3) }); // timpani-like, on the home note
+    });
+  }
+  for (const d of drums) d.note = midiToNote(d.midi);
 
   // ---- Pad: one held chord per chord change (every 2 hours) ----------------------------------
   const pad = [];
@@ -419,7 +478,8 @@ export function compose(f, { units = "metric" } = {}) {
     if (A.stormHour(h)) row = M.ATMOSPHERE.find((r) => r.kind === "storm");
     else if (!row && h.precip >= 0.1) row = M.ATMOSPHERE.find((r) => r.kind === "rain");
     const W = M.WIND_NOISE;
-    const wind = +(clamp((h.gust - W.from) / (W.full - W.from), 0, 1) * W.max).toFixed(3);
+    const wind = +Math.max(clamp((h.gust - W.from) / (W.full - W.from), 0, 1) * W.max,
+      day.breeze[b] ? R.breezeLevel : 0).toFixed(3);
     if (!row) return { bar: b, kind: null, color: null, level: 0, cutoff: 6000, wind };
     return {
       bar: b, kind: row.kind, color: row.color, cutoff: row.cutoff, wind,
@@ -436,6 +496,12 @@ export function compose(f, { units = "metric" } = {}) {
   for (const ch of arc.chapters) {
     if (ch.turn === "brighter") fx.push({ bar: ch.chord * M.BARS_PER_CHORD - 1, pos: 0, type: "swell", label: "clearing" });
   }
+  // The storm breaks: a swell where the release begins (unless a clearing already swells there).
+  for (const mo of day.moments) {
+    if (mo.phase === "release" && !fx.some((x) => x.type === "swell" && Math.abs(x.bar - mo.bar) <= 1)) {
+      fx.push({ bar: mo.bar, pos: 0, type: "swell", label: "release" });
+    }
+  }
   for (const [label, t] of [["sunrise", f.sunrise], ["sunset", f.sunset]]) {
     if (t == null) continue;
     const bar = Math.floor(t);
@@ -444,20 +510,23 @@ export function compose(f, { units = "metric" } = {}) {
 
   // ---- Per-bar automation ---------------------------------------------------
   const F = M.FILTER;
-  const R = M.REVERB;
+  const RV = M.REVERB;
   const automation = {
     pan: H.map((h) => +(M.PAN_WIDTH * Math.sin((h.dir * Math.PI) / 180)).toFixed(3)),
     cutoff: H.map((h) => Math.round(
       (F.clearHz - (F.clearHz - F.overcastHz) * (h.cloud / 100)) * (h.isDay ? 1 : F.nightFactor))),
     energy,
-    gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (b === 0 ? D.introDb : 0)).toFixed(2)),
+    // Dramatic days dip in their calm hours, so the storm is a real crescendo.
+    gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
+      + (b === 0 ? D.introDb : 0)).toFixed(2)),
+    reverbLift: day.phases.map((ph) => (ph === "release" ? R.reverbLift : 0)),
     padOpen: energy.map((e) => +(D.padOpenOctaves * e).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
     eqHigh: H.map((h) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0),
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
-    reverbWet: +(R.min + (R.max - R.min) * clamp((stats.rh - R.rhLow) / (R.rhHigh - R.rhLow), 0, 1)).toFixed(3),
+    reverbWet: +(RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1)).toFixed(3),
   };
 
   const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
@@ -476,8 +545,10 @@ export function compose(f, { units = "metric" } = {}) {
     capeMax: Math.max(...f.hours.map((h) => h.cape ?? 0)),
     drive: +(M.DRIVE.amount + (M.DRIVE.maxAmount - M.DRIVE.amount) * capeLevel(Math.max(...f.hours.map((h) => h.cape ?? 0)))).toFixed(3),
   };
+  meta.arc = day;
+  meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
   meta.notes = linerNotes(f, A, meta, { melody, rain, bells, atmosphere, fx, automation }, units);
-  return { meta, melody, bass, pad, rain, bells, atmosphere, fx, automation };
+  return { meta, melody, bass, pad, drums, rain, bells, atmosphere, fx, automation };
 }
 
 function shuffle(arr, rng) {
@@ -558,6 +629,17 @@ function storyNote(meta) {
   return `The day's story: ${parts.join(" → ")}.`;
 }
 
+/** One line for the shape of the day: "Calm until 9 am → builds → peaks at 1 pm → a cool breeze from 3 pm." */
+export function arcSummary(arc) {
+  if (!arc.dramatic) return "A calm day: one steady mood from start to finish.";
+  const words = { calm: (b) => (b === 0 ? "Calm start" : `settles from ${hourLabel(b)}`),
+    build: (b) => `builds from ${hourLabel(b)}`, peak: (b) => `peaks from ${hourLabel(b)}`,
+    release: (b, m) => (m.breeze ? `breaks into a cool breeze at ${hourLabel(b)}` : `eases off at ${hourLabel(b)}`) };
+  const parts = arc.moments.map((m) => words[m.phase](m.bar, m));
+  const s = parts.join(" → ");
+  return s[0].toUpperCase() + s.slice(1) + ".";
+}
+
 function linerNotes(f, A, meta, layers, units) {
   const s = A.stats;
   const r1 = (x) => Math.round(x * 10) / 10;
@@ -583,6 +665,7 @@ function linerNotes(f, A, meta, layers, units) {
   notes.push(`Pressure ${A.trend === "steady" ? "holds steady" : A.trend} over the day ` +
     `(${change > 0 ? "+" : ""}${change} hPa) → chords ${meta.progression.join("–")}.`);
 
+  notes.push(`The day's shape: ${arcSummary(meta.arc)}${meta.arc.dramatic ? " Drums gather as the weather builds; the release plays sparser, longer notes in a bigger room." : ""}`);
   notes.push(dynamicsNote(f, A, units));
   const story = storyNote(meta);
   if (story) notes.push(story);

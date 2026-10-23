@@ -2,7 +2,7 @@
 // city or a sample day), get today's forecast, play it, explain it.
 
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, roundCoord } from "./weather.js";
-import { compose, hourLabel, formatTemp, formatSpeed } from "./compose.js";
+import { compose, hourLabel, formatTemp, formatSpeed, arcSummary } from "./compose.js";
 import { Engine, LAYERS } from "./engine.js";
 import { weatherIcon, tempColor } from "./icons.js";
 
@@ -19,7 +19,7 @@ const SAMPLES = [
   ["reykjavik-wind", "Reykjavik · gale"],
 ];
 const LAYER_LABELS = {
-  melody: "Melody", bass: "Bass", pad: "Pad", rain: "Rain & bells",
+  melody: "Melody", bass: "Bass", pad: "Pad", drums: "Storm drums", rain: "Rain & bells",
   atmosphere: "Atmosphere", fx: "Thunder & swells",
 };
 const KIND_LABELS = {
@@ -151,10 +151,67 @@ function render() {
     col.innerHTML = `<span class="icon${i % 3 ? " minor" : ""}">${icon.svg}</span><span class="temp"></span><span class="rain"></span><span class="lbl">${i % 6 === 0 ? hourLabel(i) : ""}</span>`;
     return col;
   }));
+  renderArc();
+}
+
+// ---- The day's arc: a ribbon of phases under the strip, with the intensity curve ----
+
+const PHASE_LABELS = { calm: "Calm", build: "Building", peak: "Peak", release: "Release" };
+
+function renderArc() {
+  const arc = score.meta.arc;
+  const e = score.automation.energy;
+  const n = e.length;
+  // Intensity curve, one point per hour centre, drawn in a 0–100 × 0–40 box.
+  const pts = e.map((v, i) => [((i + 0.5) / n) * 100, 38 - v * 34]);
+  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+  const area = `${line} L100 40 L0 40 Z`;
+  const cells = arc.phases.map((ph, i) => `<span class="cell ${ph}" style="grid-column:${i + 1}"></span>`).join("");
+  const labels = arc.moments.map((m, i) => {
+    const text = m.phase === "release" && m.breeze ? "Cool breeze" : PHASE_LABELS[m.phase];
+    const span = (arc.moments[i + 1]?.bar ?? n) - m.bar;
+    return `<span class="mark ${m.phase}" style="grid-column:${m.bar + 1} / span ${span}" title="${text} from ${hourLabel(m.bar)}">${text}</span>`;
+  }).join("");
+  $("arc").innerHTML = `
+    <svg class="curve" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+      <path class="area" d="${area}"/><path class="line" d="${line}" vector-effect="non-scaling-stroke"/>
+    </svg>
+    <div class="ribbon">${cells}</div>
+    <div class="marks">${labels}</div>`;
+  $("arc").setAttribute("aria-label", `The day's shape: ${arcSummary(arc)}`);
+  $("arc-text").textContent = arcSummary(arc);
+}
+
+// ---- Live sky: the player darkens, rains and flashes with the hour being played ----
+
+function skyAt(bar) {
+  const card = document.querySelector(".player");
+  if (bar == null) {
+    card.style.removeProperty("--dim");
+    card.style.removeProperty("--energy");
+    card.style.removeProperty("--wet");
+    card.dataset.phase = "";
+    return;
+  }
+  const h = forecast.hours[bar];
+  card.style.setProperty("--dim", (1 - score.meta.hourBrightness[bar]).toFixed(2));
+  card.style.setProperty("--energy", score.automation.energy[bar].toFixed(2));
+  card.style.setProperty("--wet", Math.min(1, h.precip / 4 + (h.precip > 0 ? 0.2 : 0)).toFixed(2));
+  card.dataset.phase = score.meta.arc.phases[bar];
+}
+
+function onEvent(type) {
+  if (type !== "thunder" || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const f = document.querySelector(".sky .flash");
+  f.classList.remove("on");
+  void f.offsetWidth; // restart the animation
+  f.classList.add("on");
 }
 
 function highlight(bar) {
   for (const [i, el] of [...$("hours").children].entries()) el.classList.toggle("now", i === bar);
+  for (const [i, el] of [...document.querySelectorAll("#arc .cell")].entries()) el.classList.toggle("now", i === bar);
+  skyAt(bar);
 }
 
 // ---- Playback ------------------------------------------------------------------
@@ -164,7 +221,7 @@ async function play() {
   playBtn.textContent = "Stop";
   await Tone.start();
   if (!engine) {
-    engine = new Engine({ onBar: highlight });
+    engine = new Engine({ onBar: highlight, onEvent });
     await engine.ready;
     for (const l of LAYERS) engine.setMute(l, !!muted[l]);
   }

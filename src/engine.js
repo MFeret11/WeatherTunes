@@ -2,7 +2,7 @@
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
 //   melody → trim → vibrato → lowpass → panner → comp ─┐
-//   bass ──────────────────────────────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
+//   bass, drums ───────────────────────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
 //   pad → trim → tremolo → lowpass → comp ─────────────┘        │
 //   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
 //   bells ──────────────────────────────────────────────────────┘
@@ -12,14 +12,15 @@
 
 const Tone = () => window.Tone;
 
-export const LAYERS = ["melody", "bass", "pad", "rain", "atmosphere", "fx"];
-const BAND = ["melody", "bass", "pad"];
-export const DEFAULT_LEVELS = { melody: 0, bass: -17, pad: -17, rain: -2, atmosphere: -8, fx: -10 };
+export const LAYERS = ["melody", "bass", "pad", "drums", "rain", "atmosphere", "fx"];
+const BAND = ["melody", "bass", "pad", "drums"];
+export const DEFAULT_LEVELS = { melody: 0, bass: -17, pad: -17, drums: -8, rain: -2, atmosphere: -8, fx: -10 };
 
 export class Engine {
-  constructor({ onBar } = {}) {
+  constructor({ onBar, onEvent } = {}) {
     const T = Tone();
     this.onBar = onBar;
+    this.onEvent = onEvent; // (type) for visuals: "thunder", "swell"
     this.transport = T.getTransport();
     this.score = null;
 
@@ -69,6 +70,12 @@ export class Engine {
       envelope: { attack: 0.01, decay: 0.3, sustain: 0.6, release: 0.4 },
       filterEnvelope: { attack: 0.01, decay: 0.25, sustain: 0.4, release: 0.5, baseFrequency: 120, octaves: 2.5 },
     }).connect(this.vol.bass);
+
+    // Storm drums: a low, timpani-like membrane.
+    this.drums = new T.MembraneSynth({
+      pitchDecay: 0.06, octaves: 3,
+      envelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
+    }).connect(new T.Filter({ type: "lowpass", frequency: 900 }).connect(this.vol.drums));
 
     this.shakerFilter = new T.Filter({ type: "highpass", frequency: 4000 }).connect(this.vol.rain);
     this.shaker = new T.NoiseSynth({
@@ -179,6 +186,9 @@ export class Engine {
     for (const c of score.pad) {
       tr.schedule((t) => this.pad.triggerAttackRelease(c.notes, this.s16(c.dur) * 0.95, t, c.vel), at(c.bar, c.pos));
     }
+    for (const n of score.drums ?? []) {
+      tr.schedule((t) => this.drums.triggerAttackRelease(n.note, this.s16(n.dur) * 2, t, n.vel), at(n.bar, n.pos));
+    }
     for (const n of score.rain) {
       tr.schedule((t) => this.shaker.triggerAttackRelease(0.05, t, n.vel), at(n.bar, n.pos));
     }
@@ -186,8 +196,9 @@ export class Engine {
       tr.schedule((t) => this.bells.triggerAttackRelease(n.note, this.s16(n.dur), t, n.vel), at(n.bar, n.pos));
     }
     for (const f of score.fx) {
-      if (f.type === "thunder") tr.schedule((t) => this.thunder.triggerAttackRelease(3, t, 0.9), at(f.bar, f.pos));
-      if (f.type === "swell") tr.schedule((t) => this.swell.triggerAttackRelease(2.5, t, 0.6), at(f.bar, f.pos));
+      const note = (t) => { if (this.onEvent) Tone().getDraw().schedule(() => this.onEvent(f.type), t); };
+      if (f.type === "thunder") tr.schedule((t) => { this.thunder.triggerAttackRelease(3, t, 0.9); note(t); }, at(f.bar, f.pos));
+      if (f.type === "swell") tr.schedule((t) => { this.swell.triggerAttackRelease(2.5, t, 0.6); note(t); }, at(f.bar, f.pos));
     }
 
     // Per-hour automation and the playhead.
@@ -201,6 +212,7 @@ export class Engine {
         this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
         this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
         this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);
+        this.reverb.wet.rampTo(Math.min(0.85, A.reverbWet + (A.reverbLift?.[bar] ?? 0)), ramp * 3, t);
         this.eq.high.rampTo(A.eqHigh[bar], ramp * 2, t);
         this.eq.low.rampTo(A.eqLow[bar], ramp * 2, t);
         for (const c of ["white", "pink", "brown"]) {

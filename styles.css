@@ -22,6 +22,11 @@
   --hot: #d9542b;
   --cold: #2f7fc4;
   --sky-top: rgba(2, 119, 189, 0.07);
+  --storm-sky: #2a2f4a;
+  --ph-calm: #b8c7b0;
+  --ph-build: #e9a23b;
+  --ph-peak: #c2413a;
+  --ph-release: #2aa198;
   --radius: 14px;
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -53,6 +58,11 @@
     --hot: #ff8a65;
     --cold: #6cb8f5;
     --sky-top: rgba(79, 195, 247, 0.08);
+    --storm-sky: #000000;
+    --ph-calm: #4f5e4c;
+    --ph-build: #f0b04a;
+    --ph-peak: #ff6b5e;
+    --ph-release: #3fd0c1;
     color-scheme: dark;
   }
 }
@@ -80,6 +90,11 @@
   --hot: #ff8a65;
   --cold: #6cb8f5;
   --sky-top: rgba(79, 195, 247, 0.08);
+  --storm-sky: #000000;
+  --ph-calm: #4f5e4c;
+  --ph-build: #f0b04a;
+  --ph-peak: #ff6b5e;
+  --ph-release: #3fd0c1;
   color-scheme: dark;
 }
 
@@ -238,6 +253,59 @@ select, .btn {
 .hour.now { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hour.now .temp { background: var(--accent); }
 
+/* ---------- Live sky: follows the hour being played ---------- */
+.player {
+  --dim: 0; --energy: 0; --wet: 0;
+  position: relative;
+  background: color-mix(in srgb, var(--storm-sky) calc(var(--energy) * 22% + var(--dim) * 6%), var(--surface));
+  transition: background-color 1.2s ease;
+}
+.player[data-phase="peak"] { box-shadow: var(--glow), 0 0 0 2px color-mix(in srgb, var(--ph-peak) 50%, transparent); }
+.player[data-phase="release"] { box-shadow: var(--glow), 0 0 0 2px color-mix(in srgb, var(--ph-release) 45%, transparent); }
+.stage { position: relative; }
+.sky {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(to bottom, var(--storm-sky), transparent 75%);
+  opacity: calc(var(--dim) * 0.18 + var(--energy) * 0.32);
+  transition: opacity 1.2s ease;
+}
+.sky .rainfx {
+  position: absolute;
+  inset: -40px 0 0;
+  background: repeating-linear-gradient(105deg, transparent 0 11px, var(--rain) 11px 12.5px, transparent 12.5px 23px);
+  opacity: calc(var(--wet) * 2.2);
+  transition: opacity 1s ease;
+  animation: rainfall 0.45s linear infinite;
+}
+@keyframes rainfall { to { transform: translateY(40px); } }
+.sky .flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
+.sky .flash.on { animation: flash 0.7s ease-out; }
+@keyframes flash { 0% { opacity: 0; } 8% { opacity: 0.9; } 20% { opacity: 0.1; } 30% { opacity: 0.7; } 100% { opacity: 0; } }
+
+/* ---------- The day's arc ---------- */
+.arc { margin-top: 6px; }
+.arc .curve { display: block; width: 100%; height: 34px; }
+.arc .area { fill: color-mix(in srgb, var(--ph-peak) 18%, transparent); }
+.arc .line { fill: none; stroke: var(--ph-peak); stroke-width: 2; stroke-linejoin: round; }
+.ribbon, .marks { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; }
+.ribbon .cell { height: 8px; border-radius: 3px; background: var(--ph-calm); opacity: 0.8; }
+.ribbon .cell.build { background: var(--ph-build); }
+.ribbon .cell.peak { background: var(--ph-peak); }
+.ribbon .cell.release { background: var(--ph-release); }
+.ribbon .cell.now { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.marks { margin-top: 4px; }
+.marks .mark { grid-row: 1; font-size: 0.72rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mark.calm { color: var(--muted); }
+.mark.build { color: var(--ph-build); }
+.mark.peak { color: var(--ph-peak); }
+.mark.release { color: var(--ph-release); }
+.arc-text { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
+
 /* ---------- Notes and mix ---------- */
 .notes { margin: 0; padding-left: 1.2em; }
 .notes li { margin: 0.3em 0; }
@@ -251,9 +319,12 @@ select, .btn {
   .hours { gap: 1px; height: 170px; padding: 4px 0 0; }
   .hour .icon.minor { display: none; }
   .hour .icon { width: 22px; }
+  .ribbon, .marks { gap: 1px; }
+  .marks .mark { font-size: 0.62rem; }
   .hour .lbl { font-size: 0.6rem; }
   .now .btn.primary, #geo { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+  .sky .rainfx { animation: none; }
 }

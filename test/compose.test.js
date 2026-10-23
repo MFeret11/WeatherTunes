@@ -225,9 +225,10 @@ test("dynamics: automation is in range and fills every bar", () => each((n, s) =
   const A = s.automation;
   for (const k of ["energy", "gainDb", "padOpen"]) equal(A[k].length, M.BARS, `${n} ${k}`);
   for (const v of A.energy) assert(v >= 0 && v <= 1, `${n} energy ${v}`);
-  for (const v of A.gainDb) assert(v <= M.DYNAMICS.maxBoostDb && v >= M.DYNAMICS.introDb, `${n} gainDb ${v}`);
+  for (const v of A.gainDb) assert(v <= M.DYNAMICS.maxBoostDb && v >= M.DYNAMICS.introDb + M.DYNAMICS.quietDb, `${n} gainDb ${v}`);
   for (const v of A.padOpen) assert(v >= 0 && v <= M.DYNAMICS.padOpenOctaves, `${n} padOpen ${v}`);
-  assert(Math.abs(A.gainDb[0] - (M.DYNAMICS.introDb + M.DYNAMICS.maxBoostDb * A.energy[0])) < 0.01, `${n} bar 1 eases in`);
+  const dip = s.meta.arc.dramatic ? M.DYNAMICS.quietDb * (1 - A.energy[0]) : 0;
+  assert(Math.abs(A.gainDb[0] - (M.DYNAMICS.introDb + M.DYNAMICS.maxBoostDb * A.energy[0] + dip)) < 0.01, `${n} bar 1 eases in`);
 }));
 
 test("dynamics: busy bars step up a density row", () => {
@@ -322,4 +323,22 @@ test("story: the mood follows the sky and clearings resolve", () => {
     ? { ...h, cloud: 100, pop: 100, precip: 12, code: 95, gust: 80 } : h)) };
   const turns = compose(stormy).meta.chapters.map((c) => c.turn);
   assert(turns.includes("darker") && turns.indexOf("brighter") > turns.indexOf("darker"), `storm then clearing: ${turns}`);
+});
+
+test("arc: calm days stay calm, storms build, peak and release", () => {
+  for (const n of ["phoenix-heat", "mcmurdo-cold", "philadelphia-autumn"]) {
+    const a = scores[n].meta.arc;
+    assert(!a.dramatic && a.phases.every((p) => p === "calm"), `${n} is calm all day`);
+    equal(scores[n].drums.length, 0, `${n} has no storm drums`);
+  }
+  const s = scores["houston-storms"];
+  const ph = s.meta.arc.phases;
+  assert(s.meta.arc.dramatic, "Houston is dramatic");
+  const firstPeak = ph.indexOf("peak");
+  assert(firstPeak > 0 && ph[firstPeak - 1] === "build", "a build leads into the peak");
+  assert(ph.lastIndexOf("release") > ph.lastIndexOf("peak"), "the storm releases after its last peak");
+  assert(s.drums.length > 0 && s.drums.every((d) => ph[d.bar] !== "release" && ph[d.bar] !== "calm"), "drums only while building or peaking");
+  const quiet = s.automation.gainDb[ph.indexOf("calm") > 0 ? ph.indexOf("calm") : 1];
+  assert(Math.max(...s.automation.gainDb) - quiet >= 6, "the peak is clearly louder than the calm");
+  assert(s.fx.some((f) => f.label === "release" || f.label === "clearing"), "the storm breaking gets a swell");
 });

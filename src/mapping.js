@@ -177,14 +177,42 @@ export const DYNAMICS = {
   capeWeight: 0.8,             // unstable air alone can push intensity this high, even before rain arrives
   rainFullMm: 6,               // this much rain (or snow water) in an hour = full intensity
   gustFrom: 35, gustFull: 85,  // gusts (km/h) start counting at gustFrom, full at gustFull
-  lead: [0.35, 0.7],           // weights 2 hours and 1 hour before an event
-  tail: [0.75, 0.5, 0.25],     // weights 1, 2 and 3 hours after
+  lead: [0.2, 0.4, 0.62, 0.85], // weights 4, 3, 2 and 1 hours before an event: a crescendo
+  tail: [0.6, 0.32, 0.12],     // weights 1, 2 and 3 hours after: a quicker release
   maxBoostDb: 5,
+  quietDb: -6,                 // on a dramatic day the calm hours drop this far, so the peak stands out
   velBoost: 0.15,
   busier: 0.5,
   padOpenOctaves: 1.2,
   introDb: -4,                 // the first hour eases in
   calm: 0.15,                  // a day whose peak stays below this reads as calm
+};
+
+// ---- The day's arc: calm → build → peak → release ---------------------------
+// A day whose peak intensity reaches dramaMin is "dramatic". Each hour gets a phase:
+//   peak     intensity at least peakShare × the day's peak (gaps up to mergeGap filled in)
+//   build    a peak is coming within buildHours
+//   release  a peak passed within releaseHours (a "cool breeze" if the air cools
+//            by coolDropC or more from the peak, and the wind keeps blowing)
+//   calm     everything else (a calm day is calm all day: one steady mood)
+// The phases drive:
+//   lift          melody climbs up to liftSteps scale steps with the energy
+//   drums         a low drum that grows from one hit to a roll as a peak approaches
+//   release       melody plays sparser and longer, reverb opens by reverbLift,
+//                 a soft breeze (breezeLevel) blows when the air cools
+export const ARC = {
+  dramaMin: 0.45, peakShare: 0.7, buildHours: 4, releaseHours: 4, coolDropC: 1.5,
+  mergeGap: 3,         // peaks this many hours apart or closer are one long climax
+  drumsMin: 0.6,       // drums only on a day whose peak reaches this (a real storm)
+  liftSteps: 3,
+  drums: [ // first row whose minEnergy the hour's energy reaches
+    { minEnergy: 0.85, hits: [0, 1, 2, 3, 4, 5, 6, 7] },
+    { minEnergy: 0.6, hits: [0, 2, 4, 6] },
+    { minEnergy: 0.4, hits: [0, 4] },
+    { minEnergy: 0.2, hits: [0] },
+  ],
+  drumVel: [0.35, 0.95],
+  releaseGate: 0.15, reverbLift: 0.25, breezeLevel: 0.22,
 };
 
 // ---- Groove and articulation ------------------------------------------------
