@@ -1,6 +1,6 @@
 import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
-import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel } from "../src/compose.js";
+import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels } from "../src/compose.js";
 import { MODES, melodyDegrees, triadPcs, chordLabel } from "../src/theory.js";
 import * as M from "../src/mapping.js";
 
@@ -99,7 +99,7 @@ test("all notes stay between C2 and C7", () => each((n, s) => {
 }));
 
 test("rhythms fit their bars without overlapping", () => each((n, s) => {
-  for (const layer of ["melody", "bass"]) {
+  for (const layer of ["melody"]) {
     for (let b = 0; b < M.BARS; b++) {
       const notes = s[layer].filter((x) => x.bar === b);
       assert(notes.length > 0, `${n} ${layer} bar ${b} is empty`);
@@ -110,6 +110,21 @@ test("rhythms fit their bars without overlapping", () => each((n, s) => {
       }
       assert(end <= M.STEPS, `${n} ${layer} bar ${b} runs over`);
     }
+  }
+}));
+
+test("bass fits each chord without overlapping (half-time spans the chord)", () => each((n, s) => {
+  const span = M.STEPS * M.BARS_PER_CHORD;
+  for (let c = 0; c < M.BARS; c += M.BARS_PER_CHORD) {
+    const notes = s.bass.filter((x) => x.bar >= c && x.bar < c + M.BARS_PER_CHORD)
+      .map((x) => ({ start: (x.bar - c) * M.STEPS + x.pos, dur: x.dur }));
+    assert(notes.length > 0, `${n} bass chord at ${c} is empty`);
+    let end = 0;
+    for (const x of notes) {
+      assert(x.start >= end, `${n} bass chord ${c} overlaps`);
+      end = x.start + x.dur;
+    }
+    assert(end <= span, `${n} bass chord ${c} runs over`);
   }
 }));
 
@@ -266,4 +281,21 @@ test("CAPE: unstable air raises intensity before it rains", () => {
   assert(Math.abs(charged.raw[12] - M.DYNAMICS.capeWeight) < 1e-9, "full CAPE → capeWeight");
   assert(charged.energy[10] > 0 && charged.energy[11] > charged.energy[10], "swell builds ahead of it");
   equal(capeLevel(undefined), 0, "missing CAPE counts as stable");
+});
+
+test("bass feel follows the weather, never the clock", () => {
+  each((n, s) => {
+    const f = s.meta.bassFeel;
+    equal(f.length, M.BARS, `${n} bassFeel length`);
+    for (let b = 0; b < M.BARS; b += M.BARS_PER_CHORD) equal(f[b], f[b + 1], `${n} feel changes only on a chord`);
+    assert(f[M.BARS - 1] !== "half", `${n} ends on a held root`);
+  });
+  assert(scores["houston-storms"].meta.bassFeel.includes("double"), "storm → double-time");
+  assert(scores["mcmurdo-cold"].meta.bassFeel.filter((x) => x === "half").length >= M.BARS - M.BARS_PER_CHORD, "freezing → half-time");
+  // Same weather at a different hour gives the same feel.
+  const H = forecasts["philadelphia-autumn"].hours.map((h) => ({ ...h, gust: 5, precip: 0, code: 0, isDay: 1 }));
+  const night = H.map((h) => ({ ...h, isDay: 0 }));
+  const e = H.map(() => 0);
+  const st = { tMean: 10 };
+  equal(JSON.stringify(bassFeels(H, e, st)), JSON.stringify(bassFeels(night, e, st)), "day/night has no effect");
 });

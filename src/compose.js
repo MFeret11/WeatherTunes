@@ -109,6 +109,26 @@ export function dynamicsCurve(H) {
   return { raw, energy };
 }
 
+/**
+ * Bass feel per hour ("half", "normal" or "double"), decided once per chord from
+ * the weather in its hours. The final chord is never half-time, so the last bar can hold the root.
+ */
+export function bassFeels(H, energy, stats) {
+  const F = M.BASS_FEEL;
+  const out = [];
+  for (let b = 0; b < M.BARS; b += M.BARS_PER_CHORD) {
+    const hrs = H.slice(b, b + M.BARS_PER_CHORD);
+    const en = energy.slice(b, b + M.BARS_PER_CHORD);
+    let feel = "normal";
+    if (Math.max(...en) >= F.doubleEnergy) feel = "double";
+    else if (b + M.BARS_PER_CHORD < M.BARS && (stats.tMean < F.halfMeanTemp
+      || hrs.some((h) => F.halfCodes.includes(h.code))
+      || hrs.every((h) => h.gust < F.calmGust && h.precip === 0))) feel = "half";
+    for (let i = 0; i < hrs.length; i++) out.push(feel);
+  }
+  return out;
+}
+
 /** Scale degree of the chord under a bar. The last two bars always resolve home. */
 export function chordDegreeAt(bar, progression) {
   if (bar >= M.BARS - M.BARS_PER_CHORD) return 0;
@@ -233,12 +253,16 @@ export function compose(f, { units = "metric" } = {}) {
 
   // ---- Bass --------------------------------------------------------------
   const bass = [];
+  const bassFeel = bassFeels(H, energy, stats);
   for (let b = 0; b < M.BARS; b++) {
     const pc = chordPcs(b)[0];
     const m = 36 + pc; // root between C2 and B2
-    const pattern = b === M.BARS - 1
-      ? [[0, M.STEPS, 0]]
-      : M.BASS.patterns[busierRow(M.BASS.patterns, M.BASS.patterns.findIndex((p) => H[b].wind < p.maxWind), b)].hits;
+    const feel = bassFeel[b];
+    let pattern;
+    if (b === M.BARS - 1) pattern = [[0, M.STEPS, 0]];
+    else if (feel === "half") pattern = b % M.BARS_PER_CHORD === 0 ? M.BASS_FEEL.half : [];
+    else if (feel === "double") pattern = M.BASS_FEEL.double;
+    else pattern = M.BASS.patterns[busierRow(M.BASS.patterns, M.BASS.patterns.findIndex((p) => H[b].wind < p.maxWind), b)].hits;
     for (const [pos, dur, iv] of pattern) {
       bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: M.BASS.vel, gate: gateFor(H[b]) });
     }
@@ -340,6 +364,7 @@ export function compose(f, { units = "metric" } = {}) {
     progression: progression.map((d) => chordLabel(mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
     stats, voices: A.voices, swing,
+    bassFeel,
     capeMax: Math.max(...f.hours.map((h) => h.cape ?? 0)),
     drive: +(M.DRIVE.amount + (M.DRIVE.maxAmount - M.DRIVE.amount) * capeLevel(Math.max(...f.hours.map((h) => h.cape ?? 0)))).toFixed(3),
   };
@@ -440,6 +465,11 @@ function linerNotes(f, A, meta, layers, units) {
 
   notes.push(dynamicsNote(f, A, units));
   notes.push(grooveNote(s, meta, layers.melody));
+  for (const [feel, why] of [["half", s.tMean < M.BASS_FEEL.halfMeanTemp ? "Freezing air" : "Still air, fog or snow"],
+    ["double", "The roughest hours"]]) {
+    const bars = meta.bassFeel.map((x, b) => (x === feel ? b : -1)).filter((b) => b >= 0);
+    if (bars.length) notes.push(`${why} → ${feel}-time bass at ${barRanges(bars)}.`);
+  }
   const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
   const unstable = capeLevel(meta.capeMax) > 0;
   if (unstable) notes.push(`Unstable air (CAPE up to ${Math.round(meta.capeMax)} J/kg, storm fuel) → the band swells and ${meta.drive >= 0.4 ? "drives hard" : "picks up grit"}.`);

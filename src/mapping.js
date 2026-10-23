@@ -117,6 +117,20 @@ export const BASS = {
   ],
   vel: 0.75,
 };
+// Bass feel, decided per chord (2 hours) from the weather only (not time of day):
+//   double  either hour's energy (DYNAMICS, includes CAPE) at least doubleEnergy
+//   half    a freezing day (mean below halfMeanTemp), a fog or snow hour, or both
+//           hours dead calm (gusts under calmGust km/h and no rain)
+//   normal  everything else: the wind-picked rows in BASS.patterns
+// Hits are [pos16, dur16, interval]. Half-time spans the whole 2-hour chord (16 sixteenths).
+export const BASS_FEEL = {
+  doubleEnergy: 0.6,
+  halfMeanTemp: 0,
+  halfCodes: [45, 48, 71, 73, 75, 77, 85, 86],
+  calmGust: 10,
+  double: [[0, 1, 0], [1, 1, 12], [2, 1, 0], [3, 1, 12], [4, 1, 0], [5, 1, 7], [6, 1, 0], [7, 1, 12]],
+  half: [[0, 12, 0], [12, 4, 7]],
+};
 export const PAD = { velMin: 0.25, velPerCloud: 0.45, center: 60 };
 export const RAIN = { minPop: 10, maxHits: 5, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
 export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
