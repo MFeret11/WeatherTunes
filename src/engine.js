@@ -1,11 +1,11 @@
 // Plays a score with Tone.js (loaded globally from vendor/tone-15.1.22.js).
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
-//   melody → trim → vibrato → lowpass → panner → comp ──┐
-//   bass ───────────────────────────────────────────────┤
-//   pad → trim → tremolo → lowpass → comp ──────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
-//   shaker → highpass ──────────────────────────────────┤
-//   bells ──────────────────────────────────────────────┘
+//   melody → trim → vibrato → lowpass → panner → comp ─┐
+//   bass ──────────────────────────────────────────────┼→ band ─┐   (band swells with the weather)
+//   pad → trim → tremolo → lowpass → comp ─────────────┘        │
+//   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
+//   bells ──────────────────────────────────────────────────────┘
 //   white/pink/brown noise → gains → lowpass (atmosphere)
 //   pink noise → auto-filter → gain (wind)
 //   thunder, swell (one-shots)
@@ -13,6 +13,7 @@
 const Tone = () => window.Tone;
 
 export const LAYERS = ["melody", "bass", "pad", "rain", "atmosphere", "fx"];
+const BAND = ["melody", "bass", "pad"];
 export const DEFAULT_LEVELS = { melody: 0, bass: -17, pad: -17, rain: -2, atmosphere: -8, fx: -10 };
 
 export class Engine {
@@ -34,8 +35,12 @@ export class Engine {
     this.ready = this.reverb.ready;
 
     // ---- Layer volumes (one fader + mute per layer) ----
+    // Melody, bass and pad share a "band" volume that swells with the weather.
+    this.band = new T.Volume(0).connect(this.bus);
     this.vol = {};
-    for (const l of LAYERS) this.vol[l] = new T.Volume(DEFAULT_LEVELS[l]).connect(this.bus);
+    for (const l of LAYERS) {
+      this.vol[l] = new T.Volume(DEFAULT_LEVELS[l]).connect(BAND.includes(l) ? this.band : this.bus);
+    }
     // Gentle compressors on the two weather-chosen instruments. They only catch the
     // loud ends, so the temperature and cloud dynamics still come through.
     this.melodyComp = new T.Compressor({ threshold: -18, ratio: 3, attack: 0.02, release: 0.25, knee: 6 }).connect(this.vol.melody);
@@ -123,6 +128,7 @@ export class Engine {
       this.melodyVibrato.depth.value = melody.vibrato[1];
       this.voiceIds.melody = melody.id;
     }
+    this.padBaseTone = pad.tone;
     if (this.voiceIds.pad !== pad.id) {
       this.pad?.dispose();
       this.pad = build(pad, this.padTrim);
@@ -146,6 +152,8 @@ export class Engine {
     this.score = score;
     this.setVoices(score.meta.voices);
     tr.bpm.value = score.meta.bpm;
+    tr.swing = score.meta.swing ?? 0;
+    tr.swingSubdivision = "16n";
     tr.loop = true;
     tr.loopStart = 0;
     tr.loopEnd = `${score.meta.bars + 1}:0:0`; // a bar of silence before it repeats
@@ -154,10 +162,10 @@ export class Engine {
     const at = (bar, pos) => `${bar}:${Math.floor(pos / 4)}:${pos % 4}`;
 
     for (const n of score.melody) {
-      tr.schedule((t) => this.melody.triggerAttackRelease(n.note, this.s16(n.dur) * 0.9, t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.melody.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel), at(n.bar, n.pos));
     }
     for (const n of score.bass) {
-      tr.schedule((t) => this.bass.triggerAttackRelease(n.note, this.s16(n.dur) * 0.85, t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.bass.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.85), t, n.vel), at(n.bar, n.pos));
     }
     for (const c of score.pad) {
       tr.schedule((t) => this.pad.triggerAttackRelease(c.notes, this.s16(c.dur) * 0.95, t, c.vel), at(c.bar, c.pos));
@@ -179,6 +187,9 @@ export class Engine {
       tr.schedule((t) => {
         const ramp = this.s16(4);
         this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
+        if (bar === 0) this.band.volume.setValueAtTime(A.gainDb[0], t);
+        else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
+        this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
         this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
         for (const c of ["white", "pink", "brown"]) {
           this.noiseGain[c].gain.rampTo(a.color === c ? a.level : 0, ramp * 2, t);

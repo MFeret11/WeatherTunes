@@ -137,6 +137,41 @@ export const ATMOSPHERE = [
 // Gusts above `from` km/h (a strong breeze; models often forecast 40 km/h gusts on calm days) add a swept pink-noise "whoosh", full at `full` km/h.
 export const WIND_NOISE = { from: 45, full: 100, max: 0.5 };
 
+// ---- Dynamics: the song swells and settles with the day's weather ----------
+// Each hour gets an intensity (0–1): the strongest of its rain, gusts and thunder.
+// It's spread so the music builds for a couple of bars before rough weather
+// arrives and settles over a few bars after it passes. Intensity then:
+//   raises the band (melody, bass, pad) by up to maxBoostDb
+//   plays harder (velocity + velBoost × intensity)
+//   at `busier` or above, steps melody density and bass pattern up one row
+//   opens the pad's tone filter by up to padOpenOctaves
+export const DYNAMICS = {
+  rainFullMm: 6,               // this much rain (or snow water) in an hour = full intensity
+  gustFrom: 35, gustFull: 85,  // gusts (km/h) start counting at gustFrom, full at gustFull
+  lead: [0.35, 0.7],           // weights 2 bars and 1 bar before an event
+  tail: [0.75, 0.5, 0.25],     // weights 1, 2 and 3 bars after
+  maxBoostDb: 5,
+  velBoost: 0.15,
+  busier: 0.5,
+  padOpenOctaves: 1.2,
+  introDb: -4,                 // the first bar eases in
+  calm: 0.15,                  // a day whose peak stays below this reads as calm
+};
+
+// ---- Groove and articulation ------------------------------------------------
+// Humid air swings and slurs; dry air plays straight; cold air plays clipped.
+//   swing  the day's mean humidity: 0 below swingFromRh, swingMax at swingFullRh
+//          (Tone's swing on sixteenths: 0 straight, 0.5 a lazy shuffle), faded
+//          out on cold days: none at a mean of clipFromC, full from swingWarmC up
+//   gate   each note sounds for this fraction of its length, from that hour's
+//          humidity (gateDry → gateHumid), minus up to clipMax when it's cold
+export const GROOVE = {
+  swingFromRh: 55, swingFullRh: 95, swingMax: 0.5, swingWarmC: 15,
+  rhLow: 30, rhHigh: 100, gateDry: 0.55, gateHumid: 0.98,
+  clipFromC: 5, clipFullC: -20, clipMax: 0.3,
+  gateMin: 0.3,
+};
+
 // ---- Sound shaping (per-bar automation) ----------------------------------
 export const FILTER = { clearHz: 6000, overcastHz: 2000, nightFactor: 0.6 };
 export const REVERB = { min: 0.1, max: 0.6, rhLow: 30, rhHigh: 100 };

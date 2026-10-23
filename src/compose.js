@@ -58,7 +58,8 @@ export function analyze(f) {
     -M.MELODY.registerMax, M.MELODY.registerMax,
   );
   const voices = pickVoices(stats, storm, snow);
-  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset, voices };
+  const { raw: intensity, energy } = dynamicsCurve(H);
+  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
 }
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
@@ -73,6 +74,32 @@ export function pickVoices(stats, storm, snow) {
     (w.minRh == null || stats.rh >= w.minRh);
   const pad = M.PAD_VOICES.find(holds);
   return { melody, pad };
+}
+
+/**
+ * Weather intensity per hour (raw) and the spread curve the music follows (energy).
+ * Energy rises a couple of bars before rough weather and fades a few bars after.
+ */
+export function dynamicsCurve(H) {
+  const D = M.DYNAMICS;
+  const raw = H.map((h) => Math.max(
+    clamp(h.precip / D.rainFullMm, 0, 1),
+    clamp((h.gust - D.gustFrom) / (D.gustFull - D.gustFrom), 0, 1),
+    M.THUNDER_CODES.includes(h.code) ? 1 : 0,
+  ));
+  const energy = raw.map((r, b) => {
+    let e = r;
+    D.lead.forEach((w, i) => {
+      const j = b + D.lead.length - i;
+      if (j < raw.length) e = Math.max(e, raw[j] * w);
+    });
+    D.tail.forEach((w, i) => {
+      const j = b - 1 - i;
+      if (j >= 0) e = Math.max(e, raw[j] * w);
+    });
+    return +e.toFixed(3);
+  });
+  return { raw, energy };
 }
 
 /** Scale degree of the chord under a bar. The last two bars always resolve home. */
@@ -94,7 +121,18 @@ export function formatSpeed(kmh, units) {
 
 export function compose(f, { units = "metric" } = {}) {
   const A = analyze(f);
-  const { stats, mode, root, progression, snow } = A;
+  const { stats, mode, root, progression, snow, energy } = A;
+  const D = M.DYNAMICS;
+  // One row busier in the loudest stretches.
+  const G = M.GROOVE;
+  const gateFor = (h) => {
+    const humid = clamp((h.rh - G.rhLow) / (G.rhHigh - G.rhLow), 0, 1);
+    const cold = clamp((G.clipFromC - h.temp) / (G.clipFromC - G.clipFullC), 0, 1);
+    return +Math.max(G.gateMin, G.gateDry + (G.gateHumid - G.gateDry) * humid - G.clipMax * cold).toFixed(3);
+  };
+  const warm = clamp((stats.tMean - G.clipFromC) / (G.swingWarmC - G.clipFromC), 0, 1);
+  const swing = +(G.swingMax * warm * clamp((stats.rh - G.swingFromRh) / (G.swingFullRh - G.swingFromRh), 0, 1)).toFixed(3);
+  const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
   const seed = seedFor(f);
   const rng = mulberry32(seed);
@@ -140,12 +178,13 @@ export function compose(f, { units = "metric" } = {}) {
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
     const last = b === M.BARS - 1;
-    const n = last ? 1 : M.DENSITY.find((r) => h.gust < r.maxGust).notes;
+    const n = last ? 1
+      : M.DENSITY[busierRow(M.DENSITY, M.DENSITY.findIndex((r) => h.gust < r.maxGust), b)].notes;
     const rhythm = last ? [16] : pick(M.RHYTHMS[n]);
     const anchor = anchors[b];
     const next = last ? anchor : anchors[b + 1];
     const sectionEnd = M.SECTIONS.some((s) => s.start === b + 1) || last;
-    const vel = MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp);
+    const vel = MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b];
 
     let pos = 0;
     rhythm.forEach((dur, k) => {
@@ -177,7 +216,7 @@ export function compose(f, { units = "metric" } = {}) {
       }
       const midi = pitches[idx];
       melody.push({
-        bar: b, pos, dur, midi, note: midiToNote(midi),
+        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : gateFor(h),
         vel: +Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)).toFixed(3),
       });
       prev = idx;
@@ -192,9 +231,9 @@ export function compose(f, { units = "metric" } = {}) {
     const m = 36 + pc; // root between C2 and B2
     const pattern = b === M.BARS - 1
       ? [[0, 16, 0]]
-      : M.BASS.patterns.find((p) => H[b].wind < p.maxWind).hits;
+      : M.BASS.patterns[busierRow(M.BASS.patterns, M.BASS.patterns.findIndex((p) => H[b].wind < p.maxWind), b)].hits;
     for (const [pos, dur, iv] of pattern) {
-      bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: M.BASS.vel });
+      bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: M.BASS.vel, gate: gateFor(H[b]) });
     }
   }
 
@@ -209,7 +248,8 @@ export function compose(f, { units = "metric" } = {}) {
     });
     pad.push({
       bar: b, pos: 0, dur: 16 * M.BARS_PER_CHORD, notes,
-      vel: +(M.PAD.velMin + M.PAD.velPerCloud * cloud).toFixed(3),
+      vel: +Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
+        + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0)).toFixed(3),
     });
   }
 
@@ -273,6 +313,9 @@ export function compose(f, { units = "metric" } = {}) {
     pan: H.map((h) => +(M.PAN_WIDTH * Math.sin((h.dir * Math.PI) / 180)).toFixed(3)),
     cutoff: H.map((h) => Math.round(
       (F.clearHz - (F.clearHz - F.overcastHz) * (h.cloud / 100)) * (h.isDay ? 1 : F.nightFactor))),
+    energy,
+    gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (b === 0 ? D.introDb : 0)).toFixed(2)),
+    padOpen: energy.map((e) => +(D.padOpenOctaves * e).toFixed(3)),
     reverbWet: +(R.min + (R.max - R.min) * clamp((stats.rh - R.rhLow) / (R.rhHigh - R.rhLow), 0, 1)).toFixed(3),
   };
 
@@ -284,9 +327,9 @@ export function compose(f, { units = "metric" } = {}) {
     trend: A.trend, progressionDegrees: progression,
     progression: progression.map((d) => chordLabel(mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
-    stats, voices: A.voices,
+    stats, voices: A.voices, swing,
   };
-  meta.notes = linerNotes(f, A, meta, { rain, bells, atmosphere, fx, automation }, units);
+  meta.notes = linerNotes(f, A, meta, { melody, rain, bells, atmosphere, fx, automation }, units);
   return { meta, melody, bass, pad, rain, bells, atmosphere, fx, automation };
 }
 
@@ -333,6 +376,29 @@ const MODE_HINTS = {
   phrygian: ", the darkest mode used here",
 };
 
+function grooveNote(s, meta, melody) {
+  const feel = meta.swing >= 0.3 ? "a lazy swing" : meta.swing > 0 ? "a light swing" : "a straight beat";
+  const g = mean(melody.map((n) => n.gate));
+  const touch = g >= 0.85 ? "long, slurred notes" : g >= 0.6 ? "even notes" : "short, clipped notes";
+  return `Humidity ${Math.round(s.rh)}%${s.tMean < M.GROOVE.clipFromC ? " in cold air" : ""} → ${feel} with ${touch}.`;
+}
+
+function dynamicsNote(f, A, units) {
+  const D = M.DYNAMICS;
+  const peak = Math.max(...A.intensity);
+  if (peak < D.calm) return "Calm all day → even dynamics, no big swells.";
+  const at = A.intensity.indexOf(peak);
+  const h = f.hours[at];
+  const why = [];
+  if (M.THUNDER_CODES.includes(h.code)) why.push("thunder");
+  if (h.precip >= 0.5) why.push(`${Math.round(h.precip * 10) / 10}\u00a0mm of ${M.SNOW_CODES.includes(h.code) ? "snow" : "rain"}`);
+  if (h.gust >= D.gustFrom) why.push(`gusts of ${formatSpeed(h.gust, units)}`);
+  const loud = A.energy.map((e, b) => (e >= D.busier ? b : -1)).filter((b) => b >= 0);
+  const head = `Weather peaks at ${hourLabel(at)} (${why.join(", ")})`;
+  if (!loud.length) return `${head} → the band lifts a little around bar ${at + 1}.`;
+  return `${head} → the band builds, swells and plays busier in ${barRanges(loud)}, then settles.`;
+}
+
 function linerNotes(f, A, meta, layers, units) {
   const s = A.stats;
   const r1 = (x) => Math.round(x * 10) / 10;
@@ -357,6 +423,9 @@ function linerNotes(f, A, meta, layers, units) {
     `${padWhy} → ${v.pad.label} on the pad.`);
   notes.push(`Pressure ${A.trend === "steady" ? "holds steady" : A.trend} over the day ` +
     `(${change > 0 ? "+" : ""}${change} hPa) → chords ${meta.progression.join("–")}.`);
+
+  notes.push(dynamicsNote(f, A, units));
+  notes.push(grooveNote(s, meta, layers.melody));
 
   const kinds = {};
   for (const a of layers.atmosphere) if (a.kind) (kinds[a.kind] ||= []).push(a.bar);

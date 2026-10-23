@@ -192,3 +192,53 @@ test("voice tables are complete", () => {
   const temps = M.MELODY_VOICES.map((v) => v.maxTemp);
   equal(temps, [...temps].sort((a, b) => a - b), "melody rows run cold to hot");
 });
+
+test("dynamics: calm days stay flat, rough weather builds and fades", () => {
+  const e = (n) => scores[n].automation.energy;
+  assert(Math.max(...e("phoenix-heat")) === 0, "Phoenix is calm");
+  assert(Math.max(...e("mcmurdo-cold")) === 0, "McMurdo is calm");
+  const h = e("houston-storms");
+  const peak = h.indexOf(Math.max(...h));
+  assert(h[peak] === 1, "Houston peaks at full energy");
+  assert(h[peak - 1] > 0 && h[peak - 1] < 1 || h[peak - 1] === 1, "energy builds before the peak");
+  const quiet = h.findIndex((v, i) => i > peak && v < 0.2);
+  assert(quiet > peak, "energy settles after the storm");
+});
+
+test("dynamics: automation is in range and fills every bar", () => each((n, s) => {
+  const A = s.automation;
+  for (const k of ["energy", "gainDb", "padOpen"]) equal(A[k].length, M.BARS, `${n} ${k}`);
+  for (const v of A.energy) assert(v >= 0 && v <= 1, `${n} energy ${v}`);
+  for (const v of A.gainDb) assert(v <= M.DYNAMICS.maxBoostDb && v >= M.DYNAMICS.introDb, `${n} gainDb ${v}`);
+  for (const v of A.padOpen) assert(v >= 0 && v <= M.DYNAMICS.padOpenOctaves, `${n} padOpen ${v}`);
+  assert(Math.abs(A.gainDb[0] - (M.DYNAMICS.introDb + M.DYNAMICS.maxBoostDb * A.energy[0])) < 0.01, `${n} bar 1 eases in`);
+}));
+
+test("dynamics: busy bars step up a density row", () => {
+  const s = scores["houston-storms"];
+  const hours = forecasts["houston-storms"].hours;
+  const busy = s.automation.energy.map((v, b) => (v >= M.DYNAMICS.busier && b < M.BARS - 1 ? b : -1)).filter((b) => b >= 0);
+  assert(busy.length > 0, "has busy bars");
+  // Rests can thin a bar, so ask whether any busy bar beats its calm density.
+  const beats = busy.some((b) => {
+    const calm = M.DENSITY.find((r) => hours[b].gust < r.maxGust).notes;
+    return s.melody.filter((x) => x.bar === b).length > calm;
+  });
+  assert(beats, "some busy bar plays more notes than its calm row");
+});
+
+test("dynamics: the liner notes mention it", () => each((n, s) => {
+  assert(s.meta.notes.some((l) => /Calm all day|Weather peaks/.test(l)), n);
+}));
+
+test("groove: humidity swings and slurs, cold clips", () => {
+  each((n, s) => {
+    assert(s.meta.swing >= 0 && s.meta.swing <= M.GROOVE.swingMax, `${n} swing ${s.meta.swing}`);
+    for (const x of [...s.melody, ...s.bass]) assert(x.gate >= M.GROOVE.gateMin && x.gate <= 1, `${n} gate ${x.gate}`);
+  });
+  const avg = (n) => scores[n].melody.reduce((a, x) => a + x.gate, 0) / scores[n].melody.length;
+  assert(scores["phoenix-heat"].meta.swing === 0, "dry Phoenix plays straight");
+  assert(scores["mumbai-monsoon"].meta.swing > 0.3, `humid Mumbai swings (${scores["mumbai-monsoon"].meta.swing})`);
+  assert(scores["oslo-snow"].meta.swing === 0 && scores["mcmurdo-cold"].meta.swing === 0, "cold days play straight");
+  assert(avg("mcmurdo-cold") < avg("mumbai-monsoon"), "cold notes are shorter than humid ones");
+});
