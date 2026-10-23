@@ -3,7 +3,7 @@
 
 import * as M from "./mapping.js";
 import {
-  MODE_LABELS, keyName, midiToNote, melodyDegrees, scalePitches, triadPcs,
+  MODES, MODE_LABELS, keyName, midiToNote, melodyDegrees, scalePitches, triadPcs,
   chordLabel, hashString, mulberry32, clamp, mean,
 } from "./theory.js";
 
@@ -129,6 +129,89 @@ export function bassFeels(H, energy, stats) {
   return out;
 }
 
+/** Brightness of one hour's sky (same weights as the day's, rainfall per hour). */
+export function hourBrightness(h, stormHour) {
+  const B = M.BRIGHTNESS;
+  return 1 - B.cloud * (h.cloud / 100) - B.pop * (h.pop / 100)
+    - B.precip * Math.min(1, h.precip / M.STORY.precipHourFullMm) - (stormHour(h) ? B.storm : 0);
+}
+
+const modeFor = (br, tMean) => M.MODE_THRESHOLDS.find(
+  (t) => br >= t.min && (t.minMeanTemp == null || tMean >= t.minMeanTemp)).mode;
+const MODE_ORDER = M.MODE_THRESHOLDS.map((t) => t.mode); // brightest first
+
+/**
+ * The day's story: a mode per chord, grouped into chapters.
+ * Starts from the day's mode and moves only when a chord's sky clearly
+ * belongs to another mode. Returns { chordModes, chapters: [{ chord, mode, turn }] }.
+ */
+export function storyArc(H, A) {
+  const S = M.STORY;
+  const n = M.BARS / M.BARS_PER_CHORD;
+  const raw = Array.from({ length: n }, (_, c) =>
+    Math.min(...H.slice(c * M.BARS_PER_CHORD, (c + 1) * M.BARS_PER_CHORD).map((h) => hourBrightness(h, A.stormHour))));
+  const br = raw.map((_, c) => {
+    let sum = 0, w = 0;
+    S.smooth.forEach((k, i) => {
+      const j = c + i - 1;
+      if (j >= 0 && j < n) { sum += k * raw[j]; w += k; }
+    });
+    return sum / w;
+  });
+  const t = A.stats.tMean;
+  let cur = A.mode;
+  let since = S.minChords; // the home chapter may turn at once
+  const chordModes = [];
+  const chapters = [{ chord: 0, mode: cur, turn: null }];
+  for (let c = 0; c < n; c++) {
+    const target = modeFor(br[c], t);
+    const clear = modeFor(br[c] - S.margin, t) !== cur && modeFor(br[c] + S.margin, t) !== cur;
+    if (target !== cur && clear && since >= S.minChords) {
+      const turn = MODE_ORDER.indexOf(target) < MODE_ORDER.indexOf(cur) ? "brighter" : "darker";
+      cur = target;
+      since = 0;
+      if (c === 0) chapters[0] = { chord: 0, mode: cur, turn: null };
+      else chapters.push({ chord: c, mode: cur, turn });
+    }
+    chordModes.push(cur);
+    since++;
+  }
+  return { chordModes, chapters, brightness: br };
+}
+
+/** The chord (scale degree, in its own mode) for every bar, following the chapters. */
+export function storyChords(arc, A, seed) {
+  const n = M.BARS / M.BARS_PER_CHORD;
+  const degs = [];
+  const modes = arc.chordModes.slice();
+  for (const [i, ch] of arc.chapters.entries()) {
+    const end = arc.chapters[i + 1]?.chord ?? n;
+    const loops = M.PROGRESSIONS[ch.mode][A.trend];
+    const prog = loops[(seed + i) % loops.length];
+    for (let c = ch.chord; c < end; c++) {
+      const k = c - ch.chord;
+      degs[c] = i > 0 && k === 0 ? 0 : prog[k % prog.length];
+    }
+    // A clearing resolves: the chord before it becomes V (or IV) of the new mode.
+    if (ch.turn === "brighter" && ch.chord > 0) {
+      degs[ch.chord - 1] = majorTriad(ch.mode, 4) ? 4 : majorTriad(ch.mode, 3) ? 3 : 6;
+      modes[ch.chord - 1] = ch.mode;
+    }
+  }
+  degs[n - 1] = 0; // the piece ends home, in its last chapter
+  const bars = [];
+  for (let b = 0; b < M.BARS; b++) {
+    const c = Math.floor(b / M.BARS_PER_CHORD);
+    bars.push({ mode: modes[c], deg: degs[c] });
+  }
+  return bars;
+}
+
+function majorTriad(mode, deg) {
+  const iv = MODES[mode];
+  return (iv[(deg + 2) % 7] - iv[deg] + 12) % 12 === 4 && (iv[(deg + 4) % 7] - iv[deg] + 12) % 12 === 7;
+}
+
 /** Scale degree of the chord under a bar. The last two bars always resolve home. */
 export function chordDegreeAt(bar, progression) {
   if (bar >= M.BARS - M.BARS_PER_CHORD) return 0;
@@ -148,7 +231,7 @@ export function formatSpeed(kmh, units) {
 
 export function compose(f, { units = "metric" } = {}) {
   const A = analyze(f);
-  const { stats, mode, root, progression, snow, energy } = A;
+  const { stats, root, snow, energy } = A;
   const D = M.DYNAMICS;
   // One row busier in the loudest stretches.
   const G = M.GROOVE;
@@ -165,42 +248,59 @@ export function compose(f, { units = "metric" } = {}) {
   const rng = mulberry32(seed);
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
 
-  const chordDeg = (b) => chordDegreeAt(b, progression);
-  const chordPcs = (b) => triadPcs(root, mode, chordDeg(b));
+  // ---- Story: a mode and chord for every bar -------------------------------
+  const arc = storyArc(H, A);
+  const barChords = storyChords(arc, A, seed);
+  const modeAt = (b) => barChords[b].mode;
+  // The song's main mode is the one heard longest; its opening loop names the progression.
+  const counts = {};
+  for (const x of barChords) counts[x.mode] = (counts[x.mode] || 0) + 1;
+  const mode = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || MODE_ORDER.indexOf(a) - MODE_ORDER.indexOf(b))[0];
+  const firstLoops = M.PROGRESSIONS[arc.chapters[0].mode][A.trend];
+  const progression = firstLoops[seed % firstLoops.length];
+  const chordDeg = (b) => barChords[b].deg;
+  const chordPcs = (b) => triadPcs(root, modeAt(b), chordDeg(b));
 
   // ---- Melody ------------------------------------------------------------
+  // Melody positions are scale steps relative to the tonic, so a line carries
+  // across a change of mode: step 2 is the third in major or minor alike.
   const MEL = M.MELODY;
-  const degrees = melodyDegrees(mode, snow);
-  const pitches = scalePitches(root, mode, degrees);
-  const octave = degrees.length; // index steps per octave
   const rootMidi = 60 + root - (root >= 6 ? 12 : 0); // tonic between F#3 and F4
-  const baseIdx = pitches.indexOf(rootMidi);
+  const tables = {};
+  for (const m of new Set(barChords.map((x) => x.mode))) {
+    const p = scalePitches(root, m, melodyDegrees(m, snow));
+    tables[m] = { p, base: p.indexOf(rootMidi) };
+  }
+  const octave = melodyDegrees(mode, snow).length; // steps per octave
+  const pitchAt = (b, r) => { const t = tables[modeAt(b)]; return t.p[t.base + r]; };
+  const baseIdx = 0;
 
   const span = Math.max(stats.tMax - stats.tMin, MEL.minSpanC);
   const lo = stats.tMin - (span - (stats.tMax - stats.tMin)) / 2; // centre flat days
   const tempNorm = (t) => clamp((t - lo) / span, 0, 1);
   const tempIdx = (t) => baseIdx + A.registerOffset + Math.round(tempNorm(t) * MEL.spanSteps);
 
-  // Nearest index whose pitch class is in `pcs` (searching 0, -1, +1, -2, +2, ...).
-  const snapTo = (idx, pcs) => {
+  // Nearest step whose pitch class is in `pcs` (searching 0, -1, +1, -2, +2, ...).
+  const snapTo = (idx, pcs, b) => {
     for (let d = 0; d < octave * 2; d++) {
       for (const s of d === 0 ? [0] : [-d, d]) {
-        const p = pitches[idx + s];
+        const p = pitchAt(b, idx + s);
         if (p != null && pcs.includes(p % 12)) return idx + s;
       }
     }
     return idx;
   };
-  const inRange = (idx) => {
-    while (pitches[idx] < MEL.low) idx += octave;
-    while (pitches[idx] > MEL.high) idx -= octave;
+  const inRange = (idx, b) => {
+    while (pitchAt(b, idx) < MEL.low) idx += octave;
+    while (pitchAt(b, idx) > MEL.high) idx -= octave;
     return idx;
   };
   const tonicPcs = [root, (root + 7) % 12];
 
   const melody = [];
   let prev = null;
-  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp)), chordPcs(b)));
+  let prevMidi = null;
+  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp), b), chordPcs(b), b));
 
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
@@ -217,7 +317,7 @@ export function compose(f, { units = "metric" } = {}) {
     rhythm.forEach((dur, k) => {
       let idx;
       if (k === 0) {
-        idx = last ? snapTo(anchor, [root]) : anchor;
+        idx = last ? snapTo(anchor, [root], b) : anchor;
       } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) && !(sectionEnd && k === rhythm.length - 1)) {
         pos += dur;
         return; // rest
@@ -228,25 +328,26 @@ export function compose(f, { units = "metric" } = {}) {
         } else {
           idx = prev + clamp(target - prev, -2, 2);
         }
-        idx = inRange(idx);
-        if (pos === M.STEPS / 2) idx = snapTo(idx, chordPcs(b)); // the hour's second beat is a chord tone
+        idx = inRange(idx, b);
+        if (pos === M.STEPS / 2) idx = snapTo(idx, chordPcs(b), b); // the hour's second beat is a chord tone
         if (sectionEnd && k === rhythm.length - 1) {
           const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
           // Root or fifth if the chord has one, otherwise any chord tone (a half cadence).
-          idx = snapTo(idx, pcs.length ? pcs : chordPcs(b));
+          idx = snapTo(idx, pcs.length ? pcs : chordPcs(b), b);
         }
       }
       // No leaps wider than a sixth: move the note an octave toward the last one.
-      if (prev != null) {
-        while (pitches[idx] - pitches[prev] > MEL.maxLeap) idx -= octave;
-        while (pitches[prev] - pitches[idx] > MEL.maxLeap) idx += octave;
+      if (prevMidi != null) {
+        while (pitchAt(b, idx) - prevMidi > MEL.maxLeap) idx -= octave;
+        while (prevMidi - pitchAt(b, idx) > MEL.maxLeap) idx += octave;
       }
-      const midi = pitches[idx];
+      const midi = pitchAt(b, idx);
       melody.push({
         bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : gateFor(h),
         vel: +Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)).toFixed(3),
       });
       prev = idx;
+      prevMidi = midi;
       pos += dur;
     });
   }
@@ -287,7 +388,7 @@ export function compose(f, { units = "metric" } = {}) {
   // ---- Rain shakers (or snow bells) ---------------------------------------
   const rain = [];
   const bells = [];
-  const bellPitches = pitches.filter((p) => p >= M.BELLS.low && p <= M.BELLS.high);
+  const bellPitches = (b) => tables[modeAt(b)].p.filter((p) => p >= M.BELLS.low && p <= M.BELLS.high);
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
     if (h.pop < M.RAIN.minPop && h.precip === 0) continue;
@@ -295,7 +396,7 @@ export function compose(f, { units = "metric" } = {}) {
       const count = Math.max(1, Math.round((h.pop / 100) * M.BELLS.maxHits));
       const slots = shuffle([0, 2, 4, 6], rng).slice(0, count).sort((x, y) => x - y);
       for (const pos of slots) {
-        const midi = pick(bellPitches);
+        const midi = pick(bellPitches(b));
         bells.push({ bar: b, pos, dur: 4, midi, note: midiToNote(midi), vel: M.BELLS.vel });
       }
       continue;
@@ -331,6 +432,10 @@ export function compose(f, { units = "metric" } = {}) {
   H.forEach((h, b) => {
     if (A.stormHour(h)) fx.push({ bar: b, pos: M.STEPS / 2, type: "thunder" });
   });
+  // A clearing swells into its new tonic.
+  for (const ch of arc.chapters) {
+    if (ch.turn === "brighter") fx.push({ bar: ch.chord * M.BARS_PER_CHORD - 1, pos: 0, type: "swell", label: "clearing" });
+  }
   for (const [label, t] of [["sunrise", f.sunrise], ["sunset", f.sunset]]) {
     if (t == null) continue;
     const bar = Math.floor(t);
@@ -355,16 +460,19 @@ export function compose(f, { units = "metric" } = {}) {
     reverbWet: +(R.min + (R.max - R.min) * clamp((stats.rh - R.rhLow) / (R.rhHigh - R.rhLow), 0, 1)).toFixed(3),
   };
 
-  const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(mode, chordDeg(b)));
+  const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
   const meta = {
     name: f.name, date: f.date, seed,
     root, rootName: keyName(root), mode, modeLabel: MODE_LABELS[mode],
     bpm: A.bpm, bars: M.BARS, steps: M.STEPS, sections: M.SECTIONS,
     trend: A.trend, progressionDegrees: progression,
-    progression: progression.map((d) => chordLabel(mode, d)),
+    progression: progression.map((d) => chordLabel(arc.chapters[0].mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
     stats, voices: A.voices, swing,
     bassFeel,
+    barModes: barChords.map((x) => x.mode),
+    chordDegrees: barChords.map((x) => x.deg),
+    chapters: arc.chapters.map((c) => ({ bar: c.chord * M.BARS_PER_CHORD, mode: c.mode, label: MODE_LABELS[c.mode], turn: c.turn })),
     capeMax: Math.max(...f.hours.map((h) => h.cape ?? 0)),
     drive: +(M.DRIVE.amount + (M.DRIVE.maxAmount - M.DRIVE.amount) * capeLevel(Math.max(...f.hours.map((h) => h.cape ?? 0)))).toFixed(3),
   };
@@ -438,6 +546,18 @@ function dynamicsNote(f, A, units) {
   return `${head} → the band builds, swells and plays busier around ${barRanges(loud)}, then settles.`;
 }
 
+function storyNote(meta) {
+  const ch = meta.chapters;
+  if (ch.length < 2) return null;
+  const parts = [`opens in ${meta.rootName} ${ch[0].label}`];
+  for (const c of ch.slice(1)) {
+    parts.push(c.turn === "darker"
+      ? `darkens to ${c.label} at ${hourLabel(c.bar)} as the weather turns`
+      : `clears to ${c.label} at ${hourLabel(c.bar)}`);
+  }
+  return `The day's story: ${parts.join(" → ")}.`;
+}
+
 function linerNotes(f, A, meta, layers, units) {
   const s = A.stats;
   const r1 = (x) => Math.round(x * 10) / 10;
@@ -464,6 +584,8 @@ function linerNotes(f, A, meta, layers, units) {
     `(${change > 0 ? "+" : ""}${change} hPa) → chords ${meta.progression.join("–")}.`);
 
   notes.push(dynamicsNote(f, A, units));
+  const story = storyNote(meta);
+  if (story) notes.push(story);
   notes.push(grooveNote(s, meta, layers.melody));
   for (const [feel, why] of [["half", s.tMean < M.BASS_FEEL.halfMeanTemp ? "Freezing air" : "Still air, fog or snow"],
     ["double", "The roughest hours"]]) {

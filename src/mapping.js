@@ -36,6 +36,19 @@ export const STORM = { hourlyPrecipMm: 8, gustKmh: 75 };
 export const THUNDER_CODES = [95, 96, 99];
 export const SNOW_CODES = [71, 73, 75, 77, 85, 86];
 
+// ---- Story: the mood follows the sky through the day -----------------------
+// Each chord (2 hours) gets the brightness of its darker hour (a storm is an
+// event, not an average), from that hour's cloud, rain
+// chance, rainfall and storms (same weights as BRIGHTNESS, with rainfall
+// counted per hour). When it clearly leaves the current mode's band, the song
+// starts a new chapter in that mode, on the same tonic:
+//   darker   the new chapter opens on its tonic chord, so the colour change lands at once
+//   brighter a clearing: one chord of preparation (V, or IV) resolves to the new tonic,
+//            with a cymbal swell
+//   margin   how far past a band edge the brightness must go (stops flicker)
+//   minChords a chapter lasts at least this many chords
+export const STORY = { precipHourFullMm: 3, smooth: [0.2, 0.6, 0.2], margin: 0.1, minChords: 2 };
+
 // ---- Key, tempo, register ------------------------------------------------
 export const TEMPO = { base: 120, perKmh: 1, min: 120, max: 156 };
 export const MELODY = {

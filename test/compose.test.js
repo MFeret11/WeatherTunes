@@ -15,8 +15,9 @@ const forecasts = Object.fromEntries(FIXTURES.map((n) => [n, normalizeForecast(r
 const scores = Object.fromEntries(FIXTURES.map((n) => [n, compose(forecasts[n])]));
 
 const each = (fn) => { for (const n of FIXTURES) fn(n, scores[n], forecasts[n]); };
-const melodyPcs = (s) => new Set(melodyDegrees(s.meta.mode, s.meta.snow).map((d) => (s.meta.root + MODES[s.meta.mode][d]) % 12));
-const chordAt = (s, bar) => triadPcs(s.meta.root, s.meta.mode, chordDegreeAt(bar, s.meta.progressionDegrees));
+// Each bar has its own mode (the day's story) and chord.
+const melodyPcs = (s, bar) => { const m = s.meta.barModes[bar]; return new Set(melodyDegrees(m, s.meta.snow).map((d) => (s.meta.root + MODES[m][d]) % 12)); };
+const chordAt = (s, bar) => triadPcs(s.meta.root, s.meta.barModes[bar], s.meta.chordDegrees[bar]);
 
 // ---- weather.js ----------------------------------------------------------
 
@@ -61,9 +62,8 @@ test("different days and places → different melodies", () => {
 });
 
 test("every melody note is in the scale", () => each((n, s) => {
-  const pcs = melodyPcs(s);
-  for (const x of s.melody) assert(pcs.has(x.midi % 12), `${n} bar ${x.bar} ${x.note} not in ${s.meta.rootName} ${s.meta.mode}`);
-  for (const x of s.bells) assert(pcs.has(x.midi % 12), `${n} bell ${x.note}`);
+  for (const x of s.melody) assert(melodyPcs(s, x.bar).has(x.midi % 12), `${n} bar ${x.bar} ${x.note} not in ${s.meta.rootName} ${s.meta.barModes[x.bar]}`);
+  for (const x of s.bells) assert(melodyPcs(s, x.bar).has(x.midi % 12), `${n} bell ${x.note}`);
 }));
 
 test("beats 1 and 3 are chord tones", () => each((n, s) => {
@@ -84,7 +84,7 @@ test("sections end on the root or fifth (or a chord tone), the piece ends on the
   }
   const final = s.melody[s.melody.length - 1];
   equal(final.midi % 12, s.meta.root, `${n} final note`);
-  equal(s.meta.chords[M.BARS - 1], chordLabel(s.meta.mode, 0), `${n} final chord is tonic`);
+  equal(s.meta.chords[M.BARS - 1], chordLabel(s.meta.barModes[M.BARS - 1], 0), `${n} final chord is tonic`);
 }));
 
 test("no melodic leap wider than a sixth", () => each((n, s) => {
@@ -140,7 +140,7 @@ test("weather picks sensible moods", () => {
   const b = (n) => scores[n].meta.brightness;
   equal(scores["phoenix-heat"].meta.mode, "lydian", "hot clear day");
   equal(scores["mcmurdo-cold"].meta.mode, "ionian", "cold clear day is bright but not Lydian");
-  equal(scores["houston-storms"].meta.mode, "phrygian", "storm day");
+  assert(scores["houston-storms"].meta.barModes.includes("phrygian"), "the storm itself is Phrygian");
   assert(["aeolian", "phrygian"].includes(scores["mumbai-monsoon"].meta.mode), "monsoon is dark");
   assert(["dorian", "aeolian"].includes(scores["london-drizzle"].meta.mode), "drizzle is gloomy, not stormy");
   assert(b("kyoto-spring") > b("reykjavik-wind") && b("reykjavik-wind") > b("mumbai-monsoon"), "brightness order");
@@ -298,4 +298,28 @@ test("bass feel follows the weather, never the clock", () => {
   const e = H.map(() => 0);
   const st = { tMean: 10 };
   equal(JSON.stringify(bassFeels(H, e, st)), JSON.stringify(bassFeels(night, e, st)), "day/night has no effect");
+});
+
+test("story: the mood follows the sky and clearings resolve", () => {
+  each((n, s) => {
+    const ch = s.meta.chapters;
+    equal(ch[0].bar, 0, `${n} first chapter starts the song`);
+    for (let i = 1; i < ch.length; i++) {
+      assert(ch[i].mode !== ch[i - 1].mode, `${n} chapter ${i} changes mode`);
+      assert(ch[i].bar - ch[i - 1].bar >= M.STORY.minChords * M.BARS_PER_CHORD || i === 1 && ch[0].bar === 0, `${n} chapter ${i} too short`);
+      equal(s.meta.chordDegrees[ch[i].bar], 0, `${n} chapter ${i} opens on its tonic`);
+      if (ch[i].turn === "brighter") {
+        const prep = s.meta.chordDegrees[ch[i].bar - 1];
+        assert([3, 4, 6].includes(prep), `${n} clearing is prepared`);
+        assert(s.fx.some((x) => x.label === "clearing" && x.bar === ch[i].bar - 1), `${n} clearing swell`);
+      }
+    }
+  });
+  // A calm, even day tells no story; a storm that passes darkens then clears.
+  equal(scores["philadelphia-autumn"].meta.chapters.length, 1, "clear day stays in one mood");
+  const f = forecasts["philadelphia-autumn"];
+  const stormy = { ...f, hours: f.hours.map((h, b) => (b >= 10 && b < 16
+    ? { ...h, cloud: 100, pop: 100, precip: 12, code: 95, gust: 80 } : h)) };
+  const turns = compose(stormy).meta.chapters.map((c) => c.turn);
+  assert(turns.includes("darker") && turns.indexOf("brighter") > turns.indexOf("darker"), `storm then clearing: ${turns}`);
 });

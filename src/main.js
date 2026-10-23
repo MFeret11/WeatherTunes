@@ -4,6 +4,7 @@
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, roundCoord } from "./weather.js";
 import { compose, hourLabel, formatTemp, formatSpeed } from "./compose.js";
 import { Engine, LAYERS } from "./engine.js";
+import { weatherIcon, tempColor } from "./icons.js";
 
 const SAMPLES = [
   ["phoenix-heat", "Phoenix · hot and clear"],
@@ -123,7 +124,17 @@ function render() {
   $("notes").replaceChildren(...m.notes.map((t) => Object.assign(document.createElement("li"), { textContent: t })));
   $("units").textContent = units === "us" ? "Show °C" : "Show °F";
 
-  // One column per hour: bar height = temperature, shading = cloud, blue = rain chance.
+  // Forecast heading: high, low and the wettest hour.
+  const hiI = forecast.hours.reduce((b, h, i, a) => (h.temp > a[b].temp ? i : b), 0);
+  const loI = forecast.hours.reduce((b, h, i, a) => (h.temp < a[b].temp ? i : b), 0);
+  const wetI = forecast.hours.reduce((b, h, i, a) => (h.pop > a[b].pop ? i : b), 0);
+  const wet = forecast.hours[wetI].pop;
+  $("fc-stats").innerHTML =
+    `<span class="hi">High ${formatTemp(forecast.hours[hiI].temp, units)} <small>${hourLabel(hiI)}</small></span>` +
+    `<span class="lo">Low ${formatTemp(forecast.hours[loI].temp, units)} <small>${hourLabel(loI)}</small></span>` +
+    `<span class="wet">${wet >= 10 ? `${weatherIcon(forecast.hours[wetI].code, 1).label === "Snow" ? "Snow" : "Rain"} ${wet}% <small>${hourLabel(wetI)}</small>` : "Dry"}</span>`;
+
+  // One column per hour: icon = sky, bar height and colour = temperature, blue bar = rain chance.
   const temps = forecast.hours.map((h) => h.temp);
   const lo = Math.min(...temps), hi = Math.max(...temps);
   const span = Math.max(hi - lo, 8);
@@ -133,9 +144,11 @@ function render() {
     col.className = "hour" + (h.isDay ? "" : " night");
     col.style.setProperty("--t", ((h.temp - base) / span).toFixed(3));
     col.style.setProperty("--cloud", (h.cloud / 100).toFixed(2));
-    col.style.setProperty("--rain", (h.pop / 100).toFixed(2));
-    col.title = `${hourLabel(i)}: ${formatTemp(h.temp, units)}, ${h.cloud}% cloud, ${h.pop}% rain, wind ${formatSpeed(h.wind, units)}`;
-    col.innerHTML = `<span class="temp"></span><span class="rain"></span><span class="lbl">${i % 6 === 0 ? hourLabel(i) : ""}</span>`;
+    col.style.setProperty("--pop", (h.pop / 100).toFixed(2));
+    col.style.setProperty("--bar", tempColor(h.temp));
+    const icon = weatherIcon(h.code, h.isDay);
+    col.title = `${hourLabel(i)}: ${icon.label}, ${formatTemp(h.temp, units)}, ${h.cloud}% cloud, ${h.pop}% rain, wind ${formatSpeed(h.wind, units)}`;
+    col.innerHTML = `<span class="icon${i % 3 ? " minor" : ""}">${icon.svg}</span><span class="temp"></span><span class="rain"></span><span class="lbl">${i % 6 === 0 ? hourLabel(i) : ""}</span>`;
     return col;
   }));
 }
@@ -214,6 +227,15 @@ function locate() {
 }
 $("geo").addEventListener("click", locate);
 
+/** A search result was chosen: clear the box and the list, then load it. */
+function pickPlace(p) {
+  $("q").value = "";
+  $("results").replaceChildren();
+  $("results").hidden = true;
+  status("");
+  choose({ kind: "search", place: p });
+}
+
 $("search").addEventListener("submit", async (e) => {
   e.preventDefault();
   const q = $("q").value.trim();
@@ -236,12 +258,12 @@ $("search").addEventListener("submit", async (e) => {
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = p.label;
-      b.addEventListener("click", () => choose({ kind: "search", place: p }));
+      b.addEventListener("click", () => pickPlace(p));
       li.append(b);
       return li;
     }));
     list.hidden = false;
-    if (places.length === 1) choose({ kind: "search", place: places[0] });
+    if (places.length === 1) pickPlace(places[0]);
     else list.querySelector("button").focus();
   } catch (err) {
     console.warn(err);

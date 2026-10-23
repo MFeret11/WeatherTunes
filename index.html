@@ -37,7 +37,11 @@
 				<button id="play" class="btn primary" type="button" disabled>Play</button>
 			</div>
 			<p id="summary" class="summary mono" aria-live="polite"></p>
-			<div id="hours" class="hours" role="img" aria-label="Hourly temperature, cloud and rain for the day"></div>
+			<div class="fc-head">
+				<h3 class="fc-title">Today's forecast <span class="fc-sub">hour by hour</span></h3>
+				<p id="fc-stats" class="fc-stats"></p>
+			</div>
+			<div id="hours" class="hours" role="img" aria-label="Hourly forecast: sky, temperature and chance of rain"></div>
 
 			<div class="find">
 				<button id="geo" class="btn" type="button">Use my location</button>

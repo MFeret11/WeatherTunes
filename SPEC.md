@@ -149,6 +149,10 @@ All numbers live in `mapping.js` so they can be tuned by ear without touching th
 | **Thunder** | Storm hours (see Mode) | A low brown-noise rumble on beat 3 of that bar. |
 | **Sunrise / sunset** | Daily sunrise and sunset times | A short cymbal-like swell at those bars, named in the liner notes. |
 
+### 6.3a The day's story
+
+The day's mode is only the starting mood. Each chord (2 hours) takes the brightness of its darker hour, lightly smoothed, and when that clearly leaves the current mode's band (by `STORY.margin`, after at least `STORY.minChords` chords) the song starts a new chapter in that mode on the same tonic. Darker chapters open straight on their tonic; brighter ones (a clearing) are prepared by V or IV of the new mode and get a cymbal swell. A calm, even day keeps one mood; a day that builds to a storm and clears tells that story. Bass feel, distortion, EQ and dynamics follow the same weather hour by hour, never the clock.
+
 ### 6.4 The rules that keep it musical
 1. Every melody note is in the scale, with no exceptions.
 2. **Beat 1 and beat 3 snap to the nearest chord tone** of the current chord. This rule matters more than any other for making the result sound composed.
