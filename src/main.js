@@ -8,6 +8,7 @@ import { Engine, LAYERS } from "./engine.js";
 const SAMPLES = [
   ["phoenix-heat", "Phoenix · hot and clear"],
   ["kyoto-spring", "Kyoto · clear spring day"],
+  ["philadelphia-autumn", "Philadelphia · crisp autumn day"],
   ["honolulu-flat", "Honolulu · breezy, even temperatures"],
   ["mcmurdo-cold", "McMurdo Station · polar night, −38 °C"],
   ["london-drizzle", "London · overcast drizzle"],

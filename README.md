@@ -6,7 +6,7 @@ Each hour of the day gets two beats (half a bar), so a song lasts about 20 secon
 
 Every song comes with liner notes explaining why it sounds the way it does.
 
-**Live at [mferet.com/WeatherTunes](https://mferet.com/WeatherTunes/).** Use your location or search for any city to hear today's forecast there, or try one of nine sample days. Next up: a full synth panel and a play-along keyboard. See [SPEC.md](SPEC.md) for the plan.
+**Live at [mferet.com/WeatherTunes](https://mferet.com/WeatherTunes/).** Use your location or search for any city to hear today's forecast there, or try one of ten sample days. Next up: a full synth panel and a play-along keyboard. See [SPEC.md](SPEC.md) for the plan.
 
 ## Run it
 
@@ -35,7 +35,7 @@ Headless: `chromium --headless=new --virtual-time-budget=20000 --dump-dom http:/
 - `src/engine.js`: plays a score with [Tone.js](https://tonejs.github.io/) (bundled in `vendor/`, MIT).
 - `src/weather.js`: fetches today's [Open-Meteo](https://open-meteo.com/) forecast and city search, caches it for an hour, and cleans it up (fills gaps, 24 hours).
 - `src/main.js`: the page. Picks a place, plays the song, shows the liner notes.
-- `samples/`: real forecasts for nine contrasting days, fetched with `tools/fetch_fixtures.py`.
+- `samples/`: real forecasts for ten contrasting days, fetched with `tools/fetch_fixtures.py`.
 
 Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0).
 

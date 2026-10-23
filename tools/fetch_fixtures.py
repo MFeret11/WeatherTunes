@@ -5,9 +5,10 @@ Each fixture is a real forecast for one day, picked from a month of data by a
 rule (hottest clear day, a thunderstorm day, a snow day...). The saved JSON has
 the same shape as a live /v1/forecast response, plus a "name" field.
 
-Usage: python3 tools/fetch_fixtures.py
+Usage: python3 tools/fetch_fixtures.py [sample-name ...]   (no names: fetch all)
 """
 import json
+import sys
 import pathlib
 import urllib.parse
 import urllib.request
@@ -55,6 +56,7 @@ SAMPLES = [
     ("mcmurdo-cold", "McMurdo Station, Antarctica", -77.8, 166.7, "2025-07-01", "2025-07-31", "cold"),
     ("honolulu-flat", "Honolulu, USA", 21.3, -157.9, "2025-09-01", "2025-09-30", "flat"),
     ("reykjavik-wind", "Reykjavik, Iceland", 64.1, -21.9, "2025-12-01", "2025-12-31", "windy"),
+    ("philadelphia-autumn", "Philadelphia, USA", 40.0, -75.2, "2025-10-01", "2025-10-31", "clear"),
 ]
 
 
@@ -69,7 +71,10 @@ def fetch(lat, lon, start, end):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
+    only = set(sys.argv[1:])
     for fname, name, lat, lon, start, end, rule in SAMPLES:
+        if only and fname not in only:
+            continue
         d = fetch(lat, lon, start, end)
         best_i, best_h = max(
             ((i, h) for i, h in day_slices(d) if None not in h["temperature_2m"]),

@@ -1,6 +1,6 @@
 # WeatherTunes — Spec
 
-Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and nine sample days). After M2 the climate also picks the melody and pad instruments (§6.2), so places sound different, not just play different notes. Replaces the 2022 Python/pyo prototype.
+Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and ten sample days). After M2 the climate also picks the melody and pad instruments (§6.2), so places sound different, not just play different notes. Replaces the 2022 Python/pyo prototype.
 
 ## 1. The pitch
 
@@ -85,7 +85,7 @@ WeatherTunes/
     share.js            URL params ⇄ state
     main.js             wiring
   vendor/tone-15.1.22.js
-  samples/*.json        real forecasts for nine contrasting days (tests + offline fallback)
+  samples/*.json        real forecasts for ten contrasting days (tests + offline fallback)
   tools/fetch_fixtures.py   picks and saves those days from Open-Meteo's archive
   test/
     index.html + compose.test.js   composer tests; run in a browser (the Pi has no Node)
@@ -203,7 +203,7 @@ Mobile: one column, the panel collapses, and the play-along strip becomes a row 
 
 ## 10. Testing
 
-**Automated:** `test/index.html` runs in any browser or headless Chromium (the Pi has no Node, and the project has no npm). It covers nine real forecasts picked from Open-Meteo's historical-forecast archive by `tools/fetch_fixtures.py`:
+**Automated:** `test/index.html` runs in any browser or headless Chromium (the Pi has no Node, and the project has no npm). It covers ten real forecasts picked from Open-Meteo's historical-forecast archive by `tools/fetch_fixtures.py`:
 - clear, hot desert day (Phoenix, July, 47 °C)
 - clear spring day (Kyoto)
 - overcast drizzle (London)
@@ -213,6 +213,7 @@ Mobile: one column, the panel collapses, and the play-along strip becomes a row 
 - polar night (McMurdo Station, −38 °C)
 - almost flat temperatures (Honolulu)
 - gale (Reykjavik, 99 km/h gusts)
+- crisp, clear autumn day (Philadelphia, October)
 
 `test/render.html` renders any sample offline and reports peak level, loudness and clipping, for the whole mix or one layer.
 

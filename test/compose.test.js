@@ -6,7 +6,7 @@ import * as M from "../src/mapping.js";
 
 export const FIXTURES = [
   "phoenix-heat", "kyoto-spring", "london-drizzle", "mumbai-monsoon", "houston-storms",
-  "oslo-snow", "mcmurdo-cold", "honolulu-flat", "reykjavik-wind",
+  "oslo-snow", "mcmurdo-cold", "honolulu-flat", "reykjavik-wind", "philadelphia-autumn",
 ];
 
 const raw = {};
@@ -172,6 +172,7 @@ test("climate picks the instruments", () => {
     "oslo-snow": ["flute", "snow"],
     "reykjavik-wind": ["flute", "storm"], // a gale with rain counts as a storm
     "kyoto-spring": ["keys", "airy"],
+    "philadelphia-autumn": ["keys", "airy"],
     "london-drizzle": ["keys", "rain"],
     "honolulu-flat": ["mallet", "lush"],
     "houston-storms": ["mallet", "storm"],
