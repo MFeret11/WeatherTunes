@@ -165,3 +165,30 @@ test("units change the wording, never the music", () => {
   assert(us.meta.notes.some((t) => t.includes("mph")) && !us.meta.notes.some((t) => t.includes("km/h")), "mph");
   assert(metric.meta.notes.some((t) => t.includes("46.9\u00a0°C")), "metric keeps °C");
 });
+
+test("climate picks the instruments", () => {
+  const expect = {
+    "mcmurdo-cold": ["glass", "icy"],
+    "oslo-snow": ["flute", "snow"],
+    "reykjavik-wind": ["flute", "storm"], // a gale with rain counts as a storm
+    "kyoto-spring": ["keys", "airy"],
+    "london-drizzle": ["keys", "rain"],
+    "honolulu-flat": ["mallet", "lush"],
+    "houston-storms": ["mallet", "storm"],
+    "mumbai-monsoon": ["mallet", "rain"],
+    "phoenix-heat": ["reed", "airy"],
+  };
+  each((n, s) => equal([s.meta.voices.melody.id, s.meta.voices.pad.id], expect[n], n));
+  assert(scores["mcmurdo-cold"].meta.notes.some((t) => t.includes("glass bells")), "liner notes name the instruments");
+});
+
+test("voice tables are complete", () => {
+  const last = M.PAD_VOICES[M.PAD_VOICES.length - 1];
+  equal(last.when, {}, "the last pad row is a catch-all");
+  equal(M.MELODY_VOICES[M.MELODY_VOICES.length - 1].maxTemp, Infinity, "the last melody row is a catch-all");
+  for (const v of [...M.MELODY_VOICES, ...M.PAD_VOICES]) {
+    assert(v.id && v.label && v.options && Number.isFinite(v.gain) && v.tone > 0, v.id);
+  }
+  const temps = M.MELODY_VOICES.map((v) => v.maxTemp);
+  equal(temps, [...temps].sort((a, b) => a - b), "melody rows run cold to hot");
+});

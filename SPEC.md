@@ -1,6 +1,6 @@
 # WeatherTunes — Spec
 
-Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and nine sample days). Replaces the 2022 Python/pyo prototype.
+Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and nine sample days). After M2 the climate also picks the melody and pad instruments (§6.2), so places sound different, not just play different notes. Replaces the 2022 Python/pyo prototype.
 
 ## 1. The pitch
 
@@ -99,7 +99,7 @@ WeatherTunes/
 
 ```js
 Score = {
-  meta:   { place, date, root: "D", mode: "dorian", bpm: 96, bars: 24, notes: [...liner note strings] },
+  meta:   { place, date, root: "D", mode: "dorian", bpm: 96, bars: 24, voices: { melody, pad }, notes: [...liner note strings] },
   melody: [{ time: "0:0:0", note: "D4", dur: "4n", vel: 0.8 }, ...],
   bass:   [...], pad: [...chords...], rain: [...hits...], fx: [{ time, type: "thunder" }, ...],
   automation: { melodyPan: [...per bar], filterCutoff: [...per bar], reverbWet: 0.35 }
@@ -127,6 +127,8 @@ All numbers live in `mapping.js` so they can be tuned by ear without touching th
 | **Register** | Daily mean temperature | Cold days sit lower and hot days higher, shifting by up to ±3 scale steps |
 | **Chord progression** | Pressure trend over the day (rising, steady, falling) | Each mode has two proven 4-chord loops per trend, and the day's seed picks one. Rising (clearing) loops climb or resolve, like I–V–vi–IV or i–ii–♭III–IV. Falling (worsening) loops descend, like IV–♭III–ii–i or i–♭VII–♭VI–v. Diminished chords are left out. The chord changes every 2 bars, the loop runs 3 times, and the last 2 bars always return to the tonic chord. |
 | **Reverb amount** | Mean humidity | 10 % at 30 % RH up to 60 % at 100 % RH, so muggy days sound wetter |
+| **Melody instrument** | Mean temperature | Below −8 °C glass bells (FM), below 6 °C a breathy flute with vibrato, below 20 °C soft keys (triangle), below 30 °C a marimba (FM), hotter a reedy pipe (pulse wave with vibrato). Named in the liner notes. |
+| **Pad instrument** | Storm, snow, rain, cloud, temperature, humidity (first match wins) | Storm: dark detuned saws. Snow: hushed choir. Wet (≥ 50 % rain chance or ≥ 5 mm): wobbling electric piano (tremolo). Cloudy (≥ 50 %): muffled organ. Clear and below 0 °C: thin icy shimmer. Clear and humid (≥ 60 % RH): lush strings. Otherwise an airy, open pad. |
 
 ### 6.3 Per-bar choices (hour by hour)
 

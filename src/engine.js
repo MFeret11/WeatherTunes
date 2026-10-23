@@ -1,11 +1,11 @@
 // Plays a score with Tone.js (loaded globally from vendor/tone-15.1.22.js).
 //
-// Signal flow:
-//   melody → panner ─┐
-//   bass ────────────┤
-//   pad → lowpass ───┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
-//   shaker → highpass┤
-//   bells ───────────┤
+// Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
+//   melody → trim → vibrato → lowpass → panner → comp ──┐
+//   bass ───────────────────────────────────────────────┤
+//   pad → trim → tremolo → lowpass → comp ──────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
+//   shaker → highpass ──────────────────────────────────┤
+//   bells ──────────────────────────────────────────────┘
 //   white/pink/brown noise → gains → lowpass (atmosphere)
 //   pink noise → auto-filter → gain (wind)
 //   thunder, swell (one-shots)
@@ -36,14 +36,25 @@ export class Engine {
     // ---- Layer volumes (one fader + mute per layer) ----
     this.vol = {};
     for (const l of LAYERS) this.vol[l] = new T.Volume(DEFAULT_LEVELS[l]).connect(this.bus);
+    // Gentle compressors on the two weather-chosen instruments. They only catch the
+    // loud ends, so the temperature and cloud dynamics still come through.
+    this.melodyComp = new T.Compressor({ threshold: -18, ratio: 3, attack: 0.02, release: 0.25, knee: 6 }).connect(this.vol.melody);
+    this.padComp = new T.Compressor({ threshold: -24, ratio: 3, attack: 0.05, release: 0.4, knee: 6 }).connect(this.vol.pad);
 
     // ---- Instruments ----
-    this.melodyPan = new T.Panner(0).connect(this.vol.melody);
-    this.melody = new T.PolySynth(T.Synth, {
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.2, sustain: 0.4, release: 0.6 },
-    }).connect(this.melodyPan);
-    this.melody.maxPolyphony = 8;
+    // Melody and pad synths are built per song from score.meta.voices (see setVoices).
+    //   melody → trim → vibrato → tone filter → panner → compressor
+    //   pad    → trim → tremolo → tone filter → compressor
+    this.melodyPan = new T.Panner(0).connect(this.melodyComp);
+    this.melodyTone = new T.Filter({ type: "lowpass", frequency: 8000, rolloff: -12 }).connect(this.melodyPan);
+    this.melodyVibrato = new T.Vibrato({ frequency: 5, depth: 0 }).connect(this.melodyTone);
+    this.melodyTrim = new T.Volume(0).connect(this.melodyVibrato);
+    this.padFilter = new T.Filter({ type: "lowpass", frequency: 1400, rolloff: -12 }).connect(this.padComp);
+    this.padTremolo = new T.Tremolo({ frequency: 4, depth: 0, spread: 0 }).connect(this.padFilter).start();
+    this.padTrim = new T.Volume(0).connect(this.padTremolo);
+    this.melody = null;
+    this.pad = null;
+    this.voiceIds = {};
 
     this.bass = new T.MonoSynth({
       oscillator: { type: "sawtooth" },
@@ -51,13 +62,6 @@ export class Engine {
       envelope: { attack: 0.01, decay: 0.3, sustain: 0.6, release: 0.4 },
       filterEnvelope: { attack: 0.01, decay: 0.25, sustain: 0.4, release: 0.5, baseFrequency: 120, octaves: 2.5 },
     }).connect(this.vol.bass);
-
-    this.padFilter = new T.Filter({ type: "lowpass", frequency: 1400, rolloff: -12 }).connect(this.vol.pad);
-    this.pad = new T.PolySynth(T.Synth, {
-      oscillator: { type: "fatsawtooth", count: 3, spread: 20 },
-      envelope: { attack: 1.2, decay: 0.5, sustain: 0.8, release: 2.5 },
-    }).connect(this.padFilter);
-    this.pad.maxPolyphony = 8;
 
     this.shakerFilter = new T.Filter({ type: "highpass", frequency: 4000 }).connect(this.vol.rain);
     this.shaker = new T.NoiseSynth({
@@ -102,6 +106,34 @@ export class Engine {
     }).connect(this.swellLevel);
   }
 
+  /** Build the melody and pad synths a score asks for (kept if they haven't changed). */
+  setVoices({ melody, pad }) {
+    const T = Tone();
+    const build = (v, out) => {
+      const synth = new T.PolySynth(T[v.synth || "Synth"], v.options).connect(out);
+      synth.maxPolyphony = 8;
+      return synth;
+    };
+    if (this.voiceIds.melody !== melody.id) {
+      this.melody?.dispose();
+      this.melody = build(melody, this.melodyTrim);
+      this.melodyTrim.volume.value = melody.gain;
+      this.melodyTone.frequency.value = melody.tone;
+      this.melodyVibrato.frequency.value = melody.vibrato[0];
+      this.melodyVibrato.depth.value = melody.vibrato[1];
+      this.voiceIds.melody = melody.id;
+    }
+    if (this.voiceIds.pad !== pad.id) {
+      this.pad?.dispose();
+      this.pad = build(pad, this.padTrim);
+      this.padTrim.volume.value = pad.gain;
+      this.padFilter.frequency.value = pad.tone;
+      this.padTremolo.frequency.value = pad.tremolo[0];
+      this.padTremolo.depth.value = pad.tremolo[1];
+      this.voiceIds.pad = pad.id;
+    }
+  }
+
   /** Seconds for n sixteenth notes at the transport's current tempo. */
   s16(n) {
     return (n * 15) / this.transport.bpm.value;
@@ -112,6 +144,7 @@ export class Engine {
     const tr = this.transport;
     tr.cancel(0);
     this.score = score;
+    this.setVoices(score.meta.voices);
     tr.bpm.value = score.meta.bpm;
     tr.loop = true;
     tr.loopStart = 0;
@@ -174,8 +207,8 @@ export class Engine {
 
   stop() {
     this.transport.stop();
-    this.melody.releaseAll();
-    this.pad.releaseAll();
+    this.melody?.releaseAll();
+    this.pad?.releaseAll();
     this.bells.releaseAll();
     for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, 0.3);
     this.windGain.gain.rampTo(0, 0.3);

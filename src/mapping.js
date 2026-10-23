@@ -141,3 +141,91 @@ export const WIND_NOISE = { from: 45, full: 100, max: 0.5 };
 export const FILTER = { clearHz: 6000, overcastHz: 2000, nightFactor: 0.6 };
 export const REVERB = { min: 0.1, max: 0.6, rhLow: 30, rhHigh: 100 };
 export const PAN_WIDTH = 0.6;
+
+// ---- Instruments ("voices") picked by the climate --------------------------
+// A voice is plain data that the engine turns into a Tone.js synth:
+//   synth   Tone class for each PolySynth voice ("Synth" or "FMSynth")
+//   options passed to that class (oscillator, envelope, FM settings)
+//   gain    dB trim so every voice sits at about the same loudness
+//   tone    lowpass cutoff (Hz) on this instrument alone
+//   vibrato [rate Hz, depth 0–1]   (melody)   tremolo [rate Hz, depth 0–1] (pad)
+
+// Melody: the day's mean temperature. First row whose maxTemp (°C) is above it.
+export const MELODY_VOICES = [
+  {
+    id: "glass", label: "glass bells", maxTemp: -8, synth: "FMSynth", gain: 0, tone: 7000, vibrato: [0, 0],
+    options: {
+      harmonicity: 3.5, modulationIndex: 2.5,
+      oscillator: { type: "sine" }, modulation: { type: "sine" },
+      envelope: { attack: 0.002, decay: 1.8, sustain: 0.05, release: 1.8 },
+      modulationEnvelope: { attack: 0.002, decay: 0.5, sustain: 0.1, release: 0.6 },
+    },
+  },
+  {
+    id: "flute", label: "breathy flute", maxTemp: 6, synth: "Synth", gain: 1, tone: 3500, vibrato: [5, 0.08],
+    options: {
+      oscillator: { partials: [1, 0.25, 0.08] },
+      envelope: { attack: 0.08, decay: 0.2, sustain: 0.8, release: 0.5 },
+    },
+  },
+  {
+    id: "keys", label: "soft keys", maxTemp: 20, synth: "Synth", gain: 0, tone: 8000, vibrato: [0, 0],
+    options: {
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.01, decay: 0.2, sustain: 0.4, release: 0.6 },
+    },
+  },
+  {
+    id: "mallet", label: "marimba", maxTemp: 30, synth: "FMSynth", gain: 3, tone: 6000, vibrato: [0, 0],
+    options: {
+      harmonicity: 4, modulationIndex: 3,
+      oscillator: { type: "sine" }, modulation: { type: "sine" },
+      envelope: { attack: 0.001, decay: 1.1, sustain: 0, release: 0.9 },
+      modulationEnvelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.1 },
+    },
+  },
+  {
+    id: "reed", label: "reedy pipe", maxTemp: Infinity, synth: "Synth", gain: -7, tone: 2400, vibrato: [5.5, 0.12],
+    options: {
+      oscillator: { type: "pulse", width: 0.3 },
+      envelope: { attack: 0.05, decay: 0.3, sustain: 0.7, release: 0.4 },
+    },
+  },
+];
+
+// Pad: sky and moisture. The first row whose conditions all hold wins.
+//   storm / snow  the day is a storm or snow day (see STORM, SNOW_CODES)
+//   minPop        mean chance of rain (0–1) at least this, or minRainMm of rain
+//   minCloud      mean cloud cover (0–1) at least this
+//   maxTemp       mean temperature (°C) below this
+//   minRh         mean humidity (%) at least this
+export const PAD_VOICES = [
+  {
+    id: "storm", label: "dark, detuned saws", when: { storm: true }, gain: 0, tone: 700, tremolo: [0, 0],
+    options: { oscillator: { type: "fatsawtooth", count: 3, spread: 45 }, envelope: { attack: 0.6, decay: 0.5, sustain: 0.9, release: 2.5 } },
+  },
+  {
+    id: "snow", label: "hushed choir", when: { snow: true }, gain: 4, tone: 2000, tremolo: [0, 0],
+    options: { oscillator: { type: "fatsine", count: 3, spread: 30 }, envelope: { attack: 2.5, decay: 0.5, sustain: 0.9, release: 3.5 } },
+  },
+  {
+    id: "rain", label: "wobbling electric piano", when: { minPop: 0.5, minRainMm: 5 }, gain: 2, tone: 1100, tremolo: [4, 0.45],
+    options: { oscillator: { type: "fattriangle", count: 2, spread: 25 }, envelope: { attack: 0.4, decay: 0.5, sustain: 0.8, release: 2 } },
+  },
+  {
+    id: "overcast", label: "muffled organ", when: { minCloud: 0.5 }, gain: -2, tone: 1100, tremolo: [0, 0],
+    options: { oscillator: { type: "fatsquare", count: 2, spread: 15 }, envelope: { attack: 1, decay: 0.5, sustain: 0.8, release: 2.5 } },
+  },
+  {
+    id: "icy", label: "thin, icy shimmer", when: { maxTemp: 0 }, gain: 2, tone: 4000, tremolo: [6, 0.15],
+    options: { oscillator: { type: "fattriangle", count: 2, spread: 8 }, envelope: { attack: 2, decay: 0.5, sustain: 0.8, release: 3 } },
+  },
+  {
+    id: "lush", label: "lush strings", when: { minRh: 60 }, gain: -1, tone: 1800, tremolo: [0, 0],
+    options: { oscillator: { type: "fatsawtooth", count: 5, spread: 35 }, envelope: { attack: 1.5, decay: 0.5, sustain: 0.85, release: 3 } },
+  },
+  {
+    id: "airy", label: "airy, open pad", when: {}, gain: 2, tone: 3000, tremolo: [0, 0],
+    options: { oscillator: { type: "fattriangle", count: 2, spread: 12 }, envelope: { attack: 0.8, decay: 0.5, sustain: 0.8, release: 2.5 } },
+  },
+];

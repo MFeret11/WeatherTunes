@@ -57,7 +57,22 @@ export function analyze(f) {
     Math.round((stats.tMean - M.MELODY.registerCenterC) * M.MELODY.registerPerC),
     -M.MELODY.registerMax, M.MELODY.registerMax,
   );
-  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset };
+  const voices = pickVoices(stats, storm, snow);
+  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset, voices };
+}
+
+/** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
+export function pickVoices(stats, storm, snow) {
+  const melody = M.MELODY_VOICES.find((v) => stats.tMean < v.maxTemp);
+  const holds = ({ when: w }) =>
+    (w.storm == null || w.storm === storm) &&
+    (w.snow == null || w.snow === snow) &&
+    (w.minPop == null || stats.pop >= w.minPop || stats.precipSum >= w.minRainMm) &&
+    (w.minCloud == null || stats.cloud >= w.minCloud) &&
+    (w.maxTemp == null || stats.tMean < w.maxTemp) &&
+    (w.minRh == null || stats.rh >= w.minRh);
+  const pad = M.PAD_VOICES.find(holds);
+  return { melody, pad };
 }
 
 /** Scale degree of the chord under a bar. The last two bars always resolve home. */
@@ -269,7 +284,7 @@ export function compose(f, { units = "metric" } = {}) {
     trend: A.trend, progressionDegrees: progression,
     progression: progression.map((d) => chordLabel(mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
-    stats,
+    stats, voices: A.voices,
   };
   meta.notes = linerNotes(f, A, meta, { rain, bells, atmosphere, fx, automation }, units);
   return { meta, melody, bass, pad, rain, bells, atmosphere, fx, automation };
@@ -335,6 +350,11 @@ function linerNotes(f, A, meta, layers, units) {
   notes.push(`High of ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)} is the melody's peak (bar ${s.tMaxHour + 1}); ` +
     `the low of ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} is where it sits lowest.`);
   const change = r1(s.pressureChange);
+  const v = A.voices;
+  const padWhy = { storm: "Stormy day", snow: "Snowy day", rain: "Wet day", overcast: "Grey sky",
+    icy: "Clear, freezing sky", lush: "Clear, humid sky", airy: "Clear, dry sky" }[v.pad.id];
+  notes.push(`Average ${formatTemp(s.tMean, units)} → ${v.melody.label} on the melody. ` +
+    `${padWhy} → ${v.pad.label} on the pad.`);
   notes.push(`Pressure ${A.trend === "steady" ? "holds steady" : A.trend} over the day ` +
     `(${change > 0 ? "+" : ""}${change} hPa) → chords ${meta.progression.join("–")}.`);
 
