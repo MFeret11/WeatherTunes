@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>WeatherTunes smoke test</title>
+<style>body { font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 16px; } iframe { width: 900px; height: 500px; }</style>
+</head>
+<body>
+<!-- Dev tool: loads the real page, clicks Play, and checks that the song runs.
+     Needs autoplay allowed (headless: --autoplay-policy=no-user-gesture-required). -->
+<pre id="out">running…</pre>
+<iframe id="app" src="../index.html?sample=reykjavik-wind"></iframe>
+<script type="module">
+const out = document.getElementById("out");
+const frame = document.getElementById("app");
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const errors = [];
+frame.addEventListener("load", async () => {
+  const w = frame.contentWindow, d = frame.contentDocument;
+  w.addEventListener("error", (e) => errors.push(e.message));
+  w.addEventListener("unhandledrejection", (e) => errors.push(String(e.reason)));
+  const btn = d.getElementById("play");
+  for (let i = 0; i < 50 && btn.disabled; i++) await wait(100);
+  const lines = [];
+  const check = (ok, msg) => lines.push(`${ok ? "ok  " : "FAIL"} ${msg}`);
+  check(!btn.disabled, "Play button enabled after load");
+  check(d.querySelectorAll("#hours .hour").length === 24, "24 hour columns");
+  check(d.querySelectorAll("#notes li").length >= 6, "liner notes shown");
+  btn.click();
+  await wait(5000);
+  check(btn.textContent === "Stop", "button says Stop while playing");
+  check(w.Tone.getTransport().state === "started", "transport running");
+  const now = [...d.querySelectorAll("#hours .hour")].findIndex((el) => el.classList.contains("now"));
+  check(now >= 1, `playhead moved (bar ${now + 1})`);
+  const sel = d.getElementById("sample");
+  sel.value = "kyoto-spring";
+  sel.dispatchEvent(new Event("change"));
+  await wait(2500);
+  check(w.Tone.getTransport().bpm.value === 79, "switching samples while playing changes tempo");
+  check(btn.textContent === "Stop", "still playing after switching");
+  btn.click();
+  await wait(300);
+  check(btn.textContent === "Play" && w.Tone.getTransport().state !== "started", "Stop stops");
+  check(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join("; ") : ""));
+  out.textContent = lines.join("\n");
+  fetch("/__result", { method: "POST", body: out.textContent }).catch(() => {});
+});
+</script>
+</body>
+</html>

@@ -1,2 +1,43 @@
 # WeatherTunes
-Calls NWS weather API to produce unique melodies
+
+Turns a day's weather forecast into a short piece of music you can play in the browser.
+
+Each hour of the day is one bar. The temperature curve shapes the melody, cloud and rain pick the scale (bright Lydian on sunny days down to dark Phrygian in storms), air pressure picks the key, wind sets the tempo, and rain, snow, fog and storms add their own sounds. Music-theory rules keep it in tune: every note is in the scale, strong beats land on chord tones, and phrases resolve. The same place and day always gives the same song.
+
+Every song comes with liner notes explaining why it sounds the way it does.
+
+**Status:** preview. It plays real forecasts from nine sample days around the world. Live weather for your own location is next. See [SPEC.md](SPEC.md) for the full plan.
+
+## Run it
+
+It's a static site with no build step:
+
+```bash
+python3 -m http.server 8090
+# open http://localhost:8090/
+```
+
+## Tests
+
+The tests run in the browser, so there's nothing to install:
+
+- `test/index.html`: tests for the composer (in-scale notes, chord tones on strong beats, cadences, ranges, determinism, missing-data handling)
+- `test/summary.html`: what every sample day turns into, for tuning by ear
+- `test/render.html?fixture=london-drizzle`: renders a song offline and reports peak level, loudness and clipping (add `&solo=melody` to check one layer)
+- `test/smoke.html`: loads the real page, clicks Play, and checks the song runs, the playhead moves and switching samples works
+
+Headless: `chromium --headless=new --virtual-time-budget=20000 --dump-dom http://localhost:8090/test/`
+
+## How it's built
+
+- `src/compose.js`: forecast → score. Pure JavaScript with no audio or DOM code, so it's easy to test.
+- `src/mapping.js`: every tunable number in the weather → music mapping.
+- `src/engine.js`: plays a score with [Tone.js](https://tonejs.github.io/) (bundled in `vendor/`, MIT).
+- `src/weather.js`: cleans up an [Open-Meteo](https://open-meteo.com/) forecast (fills gaps, 24 hours).
+- `samples/`: real forecasts for nine contrasting days, fetched with `tools/fetch_fixtures.py`.
+
+Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0).
+
+## History
+
+Started in 2022 as a Python script that read the National Weather Service API and played tones with pyo. It was rebuilt for the browser in 2026 so anyone, anywhere, can hear their own day.

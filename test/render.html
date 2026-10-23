@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WeatherTunes render check</title>
+<style>body { font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 16px; }</style>
+</head>
+<body>
+<!-- Dev tool: renders a fixture offline (no speakers needed) and reports levels.
+     ?fixture=london-drizzle&seconds=30&solo=melody  (solo is optional) -->
+<pre id="out">rendering…</pre>
+<script src="../vendor/tone-15.1.22.js"></script>
+<script type="module">
+import { normalizeForecast } from "../src/weather.js";
+import { compose } from "../src/compose.js";
+import { Engine, LAYERS } from "../src/engine.js";
+
+const q = new URLSearchParams(location.search);
+const names = (q.get("fixture") || "phoenix-heat").split(",");
+const solo = q.get("solo");
+const out = document.getElementById("out");
+const lines = [];
+
+window.addEventListener("error", (e) => fetch("/__result", { method: "POST", body: "ERROR " + e.message }));
+window.addEventListener("unhandledrejection", (e) => fetch("/__result", { method: "POST", body: "ERROR " + e.reason }));
+for (const name of names) {
+  const score = compose(normalizeForecast(await (await fetch(`../samples/${name}.json`)).json()));
+  const full = ((score.meta.bars + 1) * 4 * 60) / score.meta.bpm;
+  const seconds = Number(q.get("seconds")) || full;
+  const t0 = performance.now();
+  const buffer = await Tone.Offline(async () => {
+    const e = new Engine();
+    await e.ready;
+    if (solo) for (const l of LAYERS) e.setMute(l, l !== solo);
+    e.load(score);
+    e.start(0);
+  }, seconds, 2, 44100);
+
+  const ch = buffer.toArray();
+  let peak = 0, sum = 0, clipped = 0, nan = 0, n = 0;
+  const windowRms = [];
+  const win = buffer.sampleRate; // 1 s windows
+  for (let i = 0; i < ch[0].length; i += win) {
+    let ws = 0, wn = 0;
+    for (const c of ch) for (let j = i; j < Math.min(i + win, c.length); j++) {
+      const v = c[j];
+      if (Number.isNaN(v)) { nan++; continue; }
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+      if (a >= 0.999) clipped++;
+      sum += v * v; n++; ws += v * v; wn++;
+    }
+    windowRms.push(Math.sqrt(ws / wn));
+  }
+  const db = (x) => (20 * Math.log10(Math.max(x, 1e-9))).toFixed(1);
+  const quiet = windowRms.filter((r) => r < 0.003).length;
+  lines.push(`${name}${solo ? " (solo " + solo + ")" : ""}: ${seconds.toFixed(0)} s rendered in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  lines.push(`   peak ${db(peak)} dBFS, rms ${db(Math.sqrt(sum / n))} dBFS, clipped samples ${clipped}, NaN ${nan}, near-silent seconds ${quiet}`);
+  lines.push(`   loudness per second (dB): ${windowRms.map((r) => db(r)).join(" ")}`);
+}
+out.textContent = lines.join("\n");
+document.title = "DONE";
+// Lets a headless runner collect the result; harmless when served by a plain static server.
+fetch("/__result", { method: "POST", body: out.textContent }).catch(() => {});
+</script>
+</body>
+</html>

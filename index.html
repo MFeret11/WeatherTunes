@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>WeatherTunes · Today's forecast as music</title>
+	<meta name="description" content="Turns a day's weather forecast into a piece of music: temperature shapes the melody, the sky picks the scale, wind sets the tempo and rain adds percussion.">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500..700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+	<link rel="stylesheet" href="styles.css">
+	<script>
+		// Same theme setting as mferet.com (same origin, same localStorage key).
+		(function () {
+			var t;
+			try { t = localStorage.getItem("theme"); } catch (e) {}
+			if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+			document.documentElement.dataset.theme = t;
+		})();
+	</script>
+	<script defer src="vendor/tone-15.1.22.js"></script>
+	<script type="module" src="src/main.js"></script>
+</head>
+<body>
+	<main class="wrap">
+		<header class="top">
+			<h1>WeatherTunes</h1>
+			<p class="lede">A day's forecast, played as music. Each hour is one bar: temperature shapes the melody, the sky picks the scale, wind sets the tempo and rain adds percussion.</p>
+		</header>
+
+		<section class="player card" aria-label="Player">
+			<div class="row">
+				<label class="field">
+					<span>Sample day</span>
+					<select id="sample"></select>
+				</label>
+				<button id="play" class="btn primary" type="button" disabled>Play</button>
+			</div>
+			<p id="summary" class="summary mono" aria-live="polite"></p>
+			<div id="hours" class="hours" role="img" aria-label="Hourly temperature, cloud and rain for the day"></div>
+			<p class="hint">No sound on an iPhone? Turn off silent mode.</p>
+		</section>
+
+		<section class="card" aria-labelledby="notes-h">
+			<h2 id="notes-h">Liner notes</h2>
+			<ul id="notes" class="notes"></ul>
+		</section>
+
+		<section class="card" aria-labelledby="mix-h">
+			<h2 id="mix-h">Mix</h2>
+			<div id="layers" class="layers"></div>
+		</section>
+
+		<footer class="foot">
+			<p>Preview build: these are real forecasts from sample days around the world. Live weather for your location comes next.</p>
+			<p><a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a> (CC BY 4.0) · Sound by <a href="https://tonejs.github.io/">Tone.js</a> · <a href="https://github.com/MFeret11/WeatherTunes">Source on GitHub</a> · <a href="https://mferet.com/">mferet.com</a></p>
+		</footer>
+	</main>
+</body>
+</html>
