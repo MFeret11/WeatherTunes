@@ -264,3 +264,20 @@ export const PAD_VOICES = [
     options: { oscillator: { type: "fattriangle", count: 2, spread: 12 }, envelope: { attack: 0.8, decay: 0.5, sustain: 0.8, release: 2.5 } },
   },
 ];
+
+// ---- Drive and tone (distortion + 3-band EQ) --------------------------------
+// The band (melody, bass, pad) passes through a distortion whose wet mix
+// follows each hour's energy (see DYNAMICS): calm hours stay clean, and rough
+// weather adds grit. Storm days get a harder drive.
+//   amount   Tone.Distortion amount (0–1) for the whole song
+//   wetFrom  energy where the grit starts; wetMax at full energy
+export const DRIVE = { amount: 0.25, stormAmount: 0.5, wetFrom: 0.3, wetMax: 0.35 };
+
+// The master EQ3 moves hour by hour (dB):
+//   high  cloud dulls the top end (up to cloudCutDb at 100% cloud); fog cuts more
+//   low   wind and storms add weight (up to windBoostDb at windFull km/h gusts)
+export const TONE = {
+  cloudCutDb: -4, fogCutDb: -5, fogCodes: [45, 48],
+  windFrom: 20, windFull: 70, windBoostDb: 3, stormBoostDb: 2,
+  minDb: -9, maxDb: 5,
+};

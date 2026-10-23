@@ -2,7 +2,7 @@
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
 //   melody → trim → vibrato → lowpass → panner → comp ─┐
-//   bass ──────────────────────────────────────────────┼→ band ─┐   (band swells with the weather)
+//   bass ──────────────────────────────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
 //   pad → trim → tremolo → lowpass → comp ─────────────┘        │
 //   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
 //   bells ──────────────────────────────────────────────────────┘
@@ -36,7 +36,9 @@ export class Engine {
 
     // ---- Layer volumes (one fader + mute per layer) ----
     // Melody, bass and pad share a "band" volume that swells with the weather.
-    this.band = new T.Volume(0).connect(this.bus);
+    // Distortion between the band and the bus; its wet mix follows the weather.
+    this.drive = new T.Distortion({ distortion: 0.25, oversample: "2x", wet: 0 }).connect(this.bus);
+    this.band = new T.Volume(0).connect(this.drive);
     this.vol = {};
     for (const l of LAYERS) {
       this.vol[l] = new T.Volume(DEFAULT_LEVELS[l]).connect(BAND.includes(l) ? this.band : this.bus);
@@ -160,6 +162,7 @@ export class Engine {
     const realBars = Math.ceil((score.meta.bars * steps) / 16);
     tr.loopEnd = `${realBars + 1}:0:0`; // a bar of silence before it repeats
     this.reverb.wet.value = score.automation.reverbWet;
+    this.drive.distortion = score.meta.drive ?? 0.25;
 
     // `bar` in the score is an hour slot of `steps` sixteenths.
     const at = (bar, pos) => {
@@ -197,6 +200,9 @@ export class Engine {
         else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
         this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
         this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
+        this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);
+        this.eq.high.rampTo(A.eqHigh[bar], ramp * 2, t);
+        this.eq.low.rampTo(A.eqLow[bar], ramp * 2, t);
         for (const c of ["white", "pink", "brown"]) {
           this.noiseGain[c].gain.rampTo(a.color === c ? a.level : 0, ramp * 2, t);
         }

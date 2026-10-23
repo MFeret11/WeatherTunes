@@ -242,3 +242,16 @@ test("groove: humidity swings and slurs, cold clips", () => {
   assert(scores["oslo-snow"].meta.swing === 0 && scores["mcmurdo-cold"].meta.swing === 0, "cold days play straight");
   assert(avg("mcmurdo-cold") < avg("mumbai-monsoon"), "cold notes are shorter than humid ones");
 });
+
+test("drive and tone: in range, clean when calm, gritty in storms", () => {
+  each((n, s) => {
+    const A = s.automation;
+    for (const k of ["driveWet", "eqHigh", "eqLow"]) equal(A[k].length, M.BARS, `${n} ${k}`);
+    for (const v of A.driveWet) assert(v >= 0 && v <= M.DRIVE.wetMax, `${n} driveWet ${v}`);
+    for (const v of [...A.eqHigh, ...A.eqLow]) assert(v >= M.TONE.minDb && v <= M.TONE.maxDb, `${n} eq ${v}`);
+    A.energy.forEach((e, b) => { if (e <= M.DRIVE.wetFrom) equal(A.driveWet[b], 0, `${n} clean at bar ${b}`); });
+  });
+  const st = scores["houston-storms"];
+  assert(Math.max(...st.automation.driveWet) > 0, "storm day gets some distortion");
+  equal(st.meta.drive, M.DRIVE.stormAmount, "storm day drives harder");
+});

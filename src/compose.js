@@ -316,6 +316,11 @@ export function compose(f, { units = "metric" } = {}) {
     energy,
     gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (b === 0 ? D.introDb : 0)).toFixed(2)),
     padOpen: energy.map((e) => +(D.padOpenOctaves * e).toFixed(3)),
+    driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
+    eqHigh: H.map((h) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0),
+      M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
+    eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
+      + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     reverbWet: +(R.min + (R.max - R.min) * clamp((stats.rh - R.rhLow) / (R.rhHigh - R.rhLow), 0, 1)).toFixed(3),
   };
 
@@ -328,6 +333,7 @@ export function compose(f, { units = "metric" } = {}) {
     progression: progression.map((d) => chordLabel(mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
     stats, voices: A.voices, swing,
+    drive: A.storm ? M.DRIVE.stormAmount : M.DRIVE.amount,
   };
   meta.notes = linerNotes(f, A, meta, { melody, rain, bells, atmosphere, fx, automation }, units);
   return { meta, melody, bass, pad, rain, bells, atmosphere, fx, automation };
@@ -425,6 +431,11 @@ function linerNotes(f, A, meta, layers, units) {
 
   notes.push(dynamicsNote(f, A, units));
   notes.push(grooveNote(s, meta, layers.melody));
+  const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
+  if (gritty.length) notes.push(`Rough weather → ${A.storm ? "heavy" : "light"} distortion on the band at ${barRanges(gritty)}.`);
+  const dull = mean(layers.automation.eqHigh);
+  if (dull <= -2) notes.push(`${s.cloud >= 0.5 ? "Cloud" : "Fog"} → the treble is turned down about ${Math.round(-dull)}\u00a0dB.`);
+  if (Math.max(...layers.automation.eqLow) >= 1.5) notes.push("Wind → extra bass weight in the gustiest hours.");
 
   const kinds = {};
   for (const a of layers.atmosphere) if (a.kind) (kinds[a.kind] ||= []).push(a.bar);
