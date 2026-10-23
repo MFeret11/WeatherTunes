@@ -4,45 +4,110 @@
 <style>body { font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 16px; } iframe { width: 900px; height: 500px; }</style>
 </head>
 <body>
-<!-- Dev tool: loads the real page, clicks Play, and checks that the song runs.
-     Needs autoplay allowed (headless: --autoplay-policy=no-user-gesture-required). -->
+<!-- Dev tool: drives the real page (with the live weather service) and checks
+     the main flows. Needs autoplay allowed (headless: --autoplay-policy=no-user-gesture-required). -->
 <pre id="out">running…</pre>
-<iframe id="app" src="../index.html?sample=reykjavik-wind"></iframe>
+<iframe id="app"></iframe>
 <script type="module">
 const out = document.getElementById("out");
 const frame = document.getElementById("app");
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const lines = [];
 const errors = [];
-frame.addEventListener("load", async () => {
-  const w = frame.contentWindow, d = frame.contentDocument;
+const check = (ok, msg) => { lines.push(`${ok ? "ok  " : "FAIL"} ${msg}`); out.textContent = lines.join("\n"); };
+
+/** Load the page with a query string and wait until the Play button is ready. */
+async function open(query) {
+  await new Promise((resolve) => {
+    frame.onload = resolve;
+    frame.src = `../index.html${query}`;
+  });
+  const w = frame.contentWindow;
   w.addEventListener("error", (e) => errors.push(e.message));
   w.addEventListener("unhandledrejection", (e) => errors.push(String(e.reason)));
-  const btn = d.getElementById("play");
-  for (let i = 0; i < 50 && btn.disabled; i++) await wait(100);
-  const lines = [];
-  const check = (ok, msg) => lines.push(`${ok ? "ok  " : "FAIL"} ${msg}`);
-  check(!btn.disabled, "Play button enabled after load");
-  check(d.querySelectorAll("#hours .hour").length === 24, "24 hour columns");
-  check(d.querySelectorAll("#notes li").length >= 6, "liner notes shown");
-  btn.click();
-  await wait(5000);
-  check(btn.textContent === "Stop", "button says Stop while playing");
-  check(w.Tone.getTransport().state === "started", "transport running");
-  const now = [...d.querySelectorAll("#hours .hour")].findIndex((el) => el.classList.contains("now"));
-  check(now >= 1, `playhead moved (bar ${now + 1})`);
+  await until(() => !frame.contentDocument.getElementById("play").disabled, 15000);
+  return [w, frame.contentDocument];
+}
+async function until(cond, ms = 10000) {
+  for (let t = 0; t < ms; t += 100) { if (cond()) return true; await wait(100); }
+  return false;
+}
+const text = (d, id) => d.getElementById(id).textContent;
+
+try {
+  localStorage.clear();
+
+  // 1. First visit: today's featured city, live forecast, plays.
+  let [w, d] = await open("");
+  check(text(d, "place-kind") === "Today's featured city", `featured city: ${text(d, "place-name")}`);
+  check(!d.getElementById("status").classList.contains("error"), "live forecast loaded without error");
+  check(d.querySelectorAll("#hours .hour").length === 24 && d.querySelectorAll("#notes li").length >= 6, "hours and liner notes shown");
+  d.getElementById("play").click();
+  await wait(4000);
+  check(w.Tone.getTransport().state === "started" && text(d, "play") === "Stop", "plays");
+
+  // 2. Units toggle changes the words only.
+  const bpm = w.Tone.getTransport().bpm.value;
+  const before = text(d, "notes");
+  d.getElementById("units").click();
+  const after = text(d, "notes");
+  check(before !== after && /°F/.test(before + after) && /°C/.test(before + after), "units toggle switches °C/°F");
+  check(w.Tone.getTransport().bpm.value === bpm, "music unchanged by units");
+
+  // 3. City search with several matches, then pick one while playing.
+  d.getElementById("q").value = "Paris";
+  d.getElementById("search").requestSubmit();
+  await until(() => !d.getElementById("results").hidden);
+  const options = [...d.querySelectorAll("#results button")].map((b) => b.textContent);
+  check(options.length > 1 && options[0].includes("France"), `search results: ${options.slice(0, 3).join(" | ")}`);
+  d.querySelector("#results button").click();
+  await until(() => text(d, "place-name") === "Paris, France");
+  check(text(d, "place-name") === "Paris, France" && text(d, "place-kind") === "Today in", "picked Paris");
+  const url = new URL(w.location.href);
+  check(url.searchParams.get("lat") === "48.9" && url.searchParams.get("lon") === "2.3", "URL holds rounded coordinates");
+  await wait(1500);
+  check(text(d, "play") === "Stop", "still playing after switching place");
+
+  // 4. A one-match search picks it straight away.
+  d.getElementById("q").value = "Kathmandu";
+  d.getElementById("search").requestSubmit();
+  await until(() => text(d, "place-name").startsWith("Kathmandu"));
+  check(text(d, "place-name").startsWith("Kathmandu"), `single match chosen: ${text(d, "place-name")}`);
+  d.getElementById("q").value = "Qxqzzv";
+  d.getElementById("search").requestSubmit();
+  await until(() => /No places found/.test(text(d, "status")));
+  check(/No places found/.test(text(d, "status")), "no-match message");
+
+  // 5. Sample days still work.
   const sel = d.getElementById("sample");
-  sel.value = "kyoto-spring";
+  sel.value = "oslo-snow";
   sel.dispatchEvent(new Event("change"));
-  await wait(2500);
-  check(w.Tone.getTransport().bpm.value === 79, "switching samples while playing changes tempo");
-  check(btn.textContent === "Stop", "still playing after switching");
-  btn.click();
+  await until(() => text(d, "place-name") === "Oslo, Norway");
+  check(text(d, "place-kind") === "Sample day" && w.Tone.getTransport().bpm.value === 115, "sample day loads");
+  d.getElementById("play").click();
   await wait(300);
-  check(btn.textContent === "Play" && w.Tone.getTransport().state !== "started", "Stop stops");
+  check(text(d, "play") === "Play", "Stop stops");
+
+  // 6. The last searched city comes back on the next visit.
+  [w, d] = await open("");
+  check(text(d, "place-name").startsWith("Kathmandu"), `last city remembered: ${text(d, "place-name")}`);
+
+  // 7. Shared link, and a broken one that falls back to a sample day.
+  [w, d] = await open("?name=Kyoto%2C%20Japan&lat=35.0&lon=135.8");
+  check(text(d, "place-name") === "Kyoto, Japan" && text(d, "place-kind") === "Today in", "shared link opens that place");
+  [w, d] = await open("?name=Nowhere&lat=95&lon=0");
+  check(text(d, "place-kind") === "Sample day" && d.getElementById("status").classList.contains("error"), "service error → sample day with a message");
+
+  // 8. Location in a browser that hasn't granted it.
+  d.getElementById("geo").click();
+  await until(() => d.getElementById("status").classList.contains("error") || text(d, "place-name") === "Near you", 20000);
+  check(/Search for a city|Near you/.test(text(d, "status") + text(d, "place-name")), `location: ${text(d, "status") || text(d, "place-name")}`);
+
   check(errors.length === 0, "no page errors" + (errors.length ? ": " + errors.join("; ") : ""));
-  out.textContent = lines.join("\n");
-  fetch("/__result", { method: "POST", body: out.textContent }).catch(() => {});
-});
+} catch (e) {
+  check(false, "smoke test crashed: " + e.message);
+}
+fetch("/__result", { method: "POST", body: out.textContent }).catch(() => {});
 </script>
 </body>
 </html>

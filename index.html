@@ -29,16 +29,35 @@
 		</header>
 
 		<section class="player card" aria-label="Player">
-			<div class="row">
-				<label class="field">
-					<span>Sample day</span>
-					<select id="sample"></select>
-				</label>
+			<div class="now">
+				<div class="place">
+					<p id="place-kind" class="eyebrow">Loading…</p>
+					<h2 id="place-name">&nbsp;</h2>
+				</div>
 				<button id="play" class="btn primary" type="button" disabled>Play</button>
 			</div>
 			<p id="summary" class="summary mono" aria-live="polite"></p>
 			<div id="hours" class="hours" role="img" aria-label="Hourly temperature, cloud and rain for the day"></div>
-			<p class="hint">No sound on an iPhone? Turn off silent mode.</p>
+
+			<div class="find">
+				<button id="geo" class="btn" type="button">Use my location</button>
+				<form id="search" class="search" role="search">
+					<label for="q" class="sr-only">Search for a city</label>
+					<input id="q" type="search" placeholder="Search for a city" autocomplete="off" enterkeyhint="search">
+					<button class="btn" type="submit">Search</button>
+				</form>
+			</div>
+			<ul id="results" class="results" hidden></ul>
+			<p id="status" class="status" role="status"></p>
+
+			<div class="extras">
+				<label class="samples">
+					<span>Or try a sample day:</span>
+					<select id="sample"><option value="">Choose…</option></select>
+				</label>
+				<button id="units" class="btn small" type="button" aria-label="Switch units"></button>
+			</div>
+			<p class="hint">No sound on an iPhone? Turn off silent mode. Your location stays in your browser: only coordinates rounded to about 11&nbsp;km are sent to the weather service.</p>
 		</section>
 
 		<section class="card" aria-labelledby="notes-h">
@@ -52,7 +71,6 @@
 		</section>
 
 		<footer class="foot">
-			<p>Preview build: these are real forecasts from sample days around the world. Live weather for your location comes next.</p>
 			<p><a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a> (CC BY 4.0) · Sound by <a href="https://tonejs.github.io/">Tone.js</a> · <a href="https://github.com/MFeret11/WeatherTunes">Source on GitHub</a> · <a href="https://mferet.com/">mferet.com</a></p>
 		</footer>
 	</main>

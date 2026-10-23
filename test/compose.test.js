@@ -1,4 +1,4 @@
-import { test, assert, equal, run } from "./harness.js";
+import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
 import { compose, analyze, chordDegreeAt } from "../src/compose.js";
 import { MODES, melodyDegrees, triadPcs, chordLabel } from "../src/theory.js";
@@ -156,4 +156,12 @@ test("same score whatever the hour of the call (seed ignores time)", () => {
   assert(a.stats.tMax - a.stats.tMin < M.MELODY.minSpanC, "flat-day fixture is actually flat");
 });
 
-await run();
+test("units change the wording, never the music", () => {
+  const f = forecasts["phoenix-heat"];
+  const us = compose(f, { units: "us" });
+  const metric = scores["phoenix-heat"];
+  equal({ ...us, meta: { ...us.meta, notes: null } }, { ...metric, meta: { ...metric.meta, notes: null } });
+  assert(us.meta.notes.some((t) => t.includes("116\u00a0°F")), "46.9 °C shows as 116 °F");
+  assert(us.meta.notes.some((t) => t.includes("mph")) && !us.meta.notes.some((t) => t.includes("km/h")), "mph");
+  assert(metric.meta.notes.some((t) => t.includes("46.9\u00a0°C")), "metric keeps °C");
+});

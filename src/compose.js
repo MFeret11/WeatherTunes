@@ -66,7 +66,18 @@ export function chordDegreeAt(bar, progression) {
   return progression[Math.floor(bar / M.BARS_PER_CHORD) % progression.length];
 }
 
-export function compose(f) {
+/**
+ * Display units for the liner notes only; the music is the same either way.
+ * "metric" = °C and km/h, "us" = °F and mph.
+ */
+export function formatTemp(c, units) {
+  return units === "us" ? `${Math.round((c * 9) / 5 + 32)}\u00a0°F` : `${Math.round(c * 10) / 10}\u00a0°C`;
+}
+export function formatSpeed(kmh, units) {
+  return units === "us" ? `${Math.round(kmh / 1.609)}\u00a0mph` : `${Math.round(kmh)}\u00a0km/h`;
+}
+
+export function compose(f, { units = "metric" } = {}) {
   const A = analyze(f);
   const { stats, mode, root, progression, snow } = A;
   const H = f.hours;
@@ -260,7 +271,7 @@ export function compose(f) {
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
     stats,
   };
-  meta.notes = linerNotes(f, A, meta, { rain, bells, atmosphere, fx, automation });
+  meta.notes = linerNotes(f, A, meta, { rain, bells, atmosphere, fx, automation }, units);
   return { meta, melody, bass, pad, rain, bells, atmosphere, fx, automation };
 }
 
@@ -307,7 +318,7 @@ const MODE_HINTS = {
   phrygian: ", the darkest mode used here",
 };
 
-function linerNotes(f, A, meta, layers) {
+function linerNotes(f, A, meta, layers, units) {
   const s = A.stats;
   const r1 = (x) => Math.round(x * 10) / 10;
   const pct = (x) => Math.round(x * 100);
@@ -319,10 +330,10 @@ function linerNotes(f, A, meta, layers) {
     `${pct(s.pop)}% average chance of ${A.snow ? "snow" : "rain"}) → ` +
     `${meta.rootName} ${meta.modeLabel}${MODE_HINTS[A.mode]}.`);
   notes.push(`Average pressure ${Math.round(s.pressure)} hPa → key of ${meta.rootName}.`);
-  notes.push(`Average wind ${Math.round(s.wind)} km/h → ${A.bpm} BPM. ` +
-    `Gusts up to ${Math.round(s.gustMax)} km/h set how busy the melody gets.`);
-  notes.push(`High of ${r1(s.tMax)}\u00a0°C at ${hourLabel(s.tMaxHour)} is the melody's peak (bar ${s.tMaxHour + 1}); ` +
-    `the low of ${r1(s.tMin)}\u00a0°C at ${hourLabel(s.tMinHour)} is where it sits lowest.`);
+  notes.push(`Average wind ${formatSpeed(s.wind, units)} → ${A.bpm} BPM. ` +
+    `Gusts up to ${formatSpeed(s.gustMax, units)} set how busy the melody gets.`);
+  notes.push(`High of ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)} is the melody's peak (bar ${s.tMaxHour + 1}); ` +
+    `the low of ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} is where it sits lowest.`);
   const change = r1(s.pressureChange);
   notes.push(`Pressure ${A.trend === "steady" ? "holds steady" : A.trend} over the day ` +
     `(${change > 0 ? "+" : ""}${change} hPa) → chords ${meta.progression.join("–")}.`);

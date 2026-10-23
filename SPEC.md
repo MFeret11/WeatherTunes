@@ -1,6 +1,6 @@
 # WeatherTunes — Spec
 
-Status: M0–M1 built, 2026-10-23 (the composer, the audio engine and a preview page that plays nine sample days). Replaces the 2022 Python/pyo prototype.
+Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and nine sample days). Replaces the 2022 Python/pyo prototype.
 
 ## 1. The pitch
 
@@ -62,6 +62,8 @@ It's a portfolio piece, so the reasoning should be on screen. Every song comes w
 ### Location: browser Geolocation API
 - `navigator.geolocation.getCurrentPosition` needs a user click and HTTPS (GitHub Pages provides HTTPS).
 - If the user declines or it fails, show the city search box. No IP-based lookup, because it would send visitor data to a third party.
+- Your own location is labelled **"Near you"**, not a town name. Open-Meteo has no reverse geocoding, and the services that do would receive visitors' coordinates. It is never put in the URL. The browser only remembers that you chose your location, and uses it again on later visits only if location permission is already granted.
+- A searched city is remembered in `localStorage` (this browser only) and put in the URL as `?name=&lat=&lon=` with coordinates rounded to 0.1°, so the link can be shared.
 
 ## 5. Architecture
 
@@ -235,7 +237,7 @@ Assertions:
 |---|---|---|
 | **M0** ✅ | Repo cleanup and skeleton: remove the prototype, add `index.html`, bundle Tone.js, enable Pages | `mferet.com/WeatherTunes/` loads and a test tone plays |
 | **M1** ✅ built, needs ears | `compose.js` + `mapping.js` + tests, playing a **fixture** forecast | All tests pass, and every fixture sounds good by ear |
-| **M2** | Live weather: geolocation, city search, caching, attribution, error states | Your location or any searched city plays today's song |
+| **M2** ✅ | Live weather: geolocation, city search, caching, attribution, error states | Your location or any searched city plays today's song |
 | **M3** | Synth panel, "Back to the forecast", play-along keyboard | Every control in §7 works on desktop and phone |
 | **M4** | Forecast chart with playhead, liner notes, share links, mobile layout, accessibility pass | A shared link reproduces the song on another device |
 | **M5** | Portfolio story, homepage card and About mention | Live on mferet.com |
@@ -255,7 +257,7 @@ M1 is the riskiest part (does it sound good?), so it comes before any UI work.
 
 ## 13. Open questions (defaults chosen; change if you disagree)
 
-1. **Units shown:** °F for US visitors and °C elsewhere, based on the browser locale, with a toggle.
-2. **Default before location:** a rotating "song of the day" from a few world cities, so Play works right away.
+1. **Units shown:** °F and mph for US visitors, °C and km/h elsewhere, based on the browser locale, with a toggle that is remembered. *(Built in M2. Units change only the liner notes, never the music.)*
+2. **Default before location:** a rotating "song of the day" from 14 world cities, one per day, so Play works right away. *(Built in M2.)*
 3. **Length:** 24 bars (about 1 min), looping. Could offer a "long" version with 2 bars per hour.
 4. **Time of day:** always play the whole day from midnight. A later option could start at the current hour.

@@ -1,5 +1,6 @@
-// Turns an Open-Meteo /v1/forecast response into a clean Forecast object:
-// exactly 24 hours, no nulls, and plain field names.
+// Open-Meteo access: today's forecast for a place, city search, and turning a
+// /v1/forecast response into a clean Forecast object (exactly 24 hours, no
+// nulls, plain field names).
 
 const FIELDS = {
   temp: "temperature_2m",
@@ -73,4 +74,106 @@ export function normalizeForecast(raw, name) {
     sunset,
     hours,
   };
+}
+
+// ---- Fetching ----------------------------------------------------------------
+
+const FORECAST_API = "https://api.open-meteo.com/v1/forecast";
+const GEOCODE_API = "https://geocoding-api.open-meteo.com/v1/search";
+const CACHE_MINUTES = 60; // Open-Meteo updates hourly
+const TIMEOUT_MS = 10000;
+
+/** Coordinates are rounded to 0.1° (about 11 km) before they leave the browser. */
+export const roundCoord = (x) => Math.round(Number(x) * 10) / 10;
+
+export function forecastUrl(lat, lon) {
+  const q = new URLSearchParams({
+    latitude: roundCoord(lat).toFixed(1),
+    longitude: roundCoord(lon).toFixed(1),
+    hourly: Object.values(FIELDS).join(","),
+    daily: "sunrise,sunset",
+    timezone: "auto",
+    forecast_days: "1",
+  });
+  return `${FORECAST_API}?${q}`;
+}
+
+async function getJson(url, fetchFn) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetchFn(url, { signal: ctl.signal });
+    if (!r.ok) throw new Error(`weather service returned ${r.status}`);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function session() {
+  try { return window.sessionStorage; } catch { return null; }
+}
+
+/**
+ * Today's forecast (in the place's own time zone) as a normalized Forecast.
+ * place = { name, lat, lon }. Cached for an hour per session.
+ */
+export async function fetchForecast(place, { fetchFn = fetch, storage = session(), now = Date.now() } = {}) {
+  const lat = roundCoord(place.lat);
+  const lon = roundCoord(place.lon);
+  const key = `wt:forecast:${lat.toFixed(1)},${lon.toFixed(1)}`;
+  let raw = null;
+  try {
+    const hit = storage && JSON.parse(storage.getItem(key));
+    if (hit && now - hit.savedAt < CACHE_MINUTES * 60000) raw = hit.raw;
+  } catch { /* bad or blocked cache: fetch instead */ }
+  if (!raw) {
+    raw = await getJson(forecastUrl(lat, lon), fetchFn);
+    if (!raw.hourly || !raw.hourly.temperature_2m) throw new Error("forecast had no hourly data");
+    try { storage && storage.setItem(key, JSON.stringify({ savedAt: now, raw })); } catch { /* full or blocked */ }
+  }
+  const f = normalizeForecast(raw, place.name);
+  f.lat = lat; // the rounded values, so the song's seed matches a shared link
+  f.lon = lon;
+  return f;
+}
+
+/** City search. Returns [{ name, label, lat, lon }], best matches first. */
+export async function searchPlaces(query, { fetchFn = fetch, count = 6 } = {}) {
+  const name = String(query || "").trim();
+  if (name.length < 2) return [];
+  const q = new URLSearchParams({ name, count: String(count), language: "en", format: "json" });
+  const data = await getJson(`${GEOCODE_API}?${q}`, fetchFn);
+  return (data.results || []).map((r) => {
+    const parts = [r.name, r.admin1, r.country].filter((x, i, a) => x && a.indexOf(x) === i);
+    return {
+      name: r.country ? `${r.name}, ${r.country}` : r.name,
+      label: parts.join(", "),
+      lat: roundCoord(r.latitude),
+      lon: roundCoord(r.longitude),
+    };
+  });
+}
+
+// "Song of the day" before someone picks a place: one city per day, in turn.
+export const FEATURED = [
+  { name: "Kyoto, Japan", lat: 35.0, lon: 135.8 },
+  { name: "Reykjavik, Iceland", lat: 64.1, lon: -21.9 },
+  { name: "New Orleans, United States", lat: 30.0, lon: -90.1 },
+  { name: "Cape Town, South Africa", lat: -33.9, lon: 18.4 },
+  { name: "Buenos Aires, Argentina", lat: -34.6, lon: -58.4 },
+  { name: "Mumbai, India", lat: 19.1, lon: 72.9 },
+  { name: "Vienna, Austria", lat: 48.2, lon: 16.4 },
+  { name: "Sydney, Australia", lat: -33.9, lon: 151.2 },
+  { name: "Havana, Cuba", lat: 23.1, lon: -82.4 },
+  { name: "Nashville, United States", lat: 36.2, lon: -86.8 },
+  { name: "Lagos, Nigeria", lat: 6.5, lon: 3.4 },
+  { name: "Seoul, South Korea", lat: 37.6, lon: 127.0 },
+  { name: "Lisbon, Portugal", lat: 38.7, lon: -9.1 },
+  { name: "Anchorage, United States", lat: 61.2, lon: -149.9 },
+];
+
+export function featuredPlace(date = new Date()) {
+  const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
+  return FEATURED[day % FEATURED.length];
 }
