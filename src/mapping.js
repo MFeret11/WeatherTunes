@@ -146,6 +146,8 @@ export const WIND_NOISE = { from: 45, full: 100, max: 0.5 };
 //   at `busier` or above, steps melody density and bass pattern up one row
 //   opens the pad's tone filter by up to padOpenOctaves
 export const DYNAMICS = {
+  capeFrom: 500, capeFull: 2500, // CAPE (J/kg, storm fuel in the air) starts counting at capeFrom, full at capeFull
+  capeWeight: 0.8,             // unstable air alone can push intensity this high, even before rain arrives
   rainFullMm: 6,               // this much rain (or snow water) in an hour = full intensity
   gustFrom: 35, gustFull: 85,  // gusts (km/h) start counting at gustFrom, full at gustFull
   lead: [0.35, 0.7],           // weights 2 hours and 1 hour before an event
@@ -267,11 +269,12 @@ export const PAD_VOICES = [
 
 // ---- Drive and tone (distortion + 3-band EQ) --------------------------------
 // The band (melody, bass, pad) passes through a distortion whose wet mix
-// follows each hour's energy (see DYNAMICS): calm hours stay clean, and rough
-// weather adds grit. Storm days get a harder drive.
-//   amount   Tone.Distortion amount (0–1) for the whole song
+// follows each hour's energy (see DYNAMICS, which includes CAPE): calm hours
+// stay clean, and rough or unstable weather adds grit.
+//   amount   Tone.Distortion amount (0–1): `amount` on a stable day, rising to
+//            `maxAmount` as the day's peak CAPE goes from capeFrom to capeFull
 //   wetFrom  energy where the grit starts; wetMax at full energy
-export const DRIVE = { amount: 0.25, stormAmount: 0.5, wetFrom: 0.3, wetMax: 0.35 };
+export const DRIVE = { amount: 0.25, maxAmount: 0.6, wetFrom: 0.3, wetMax: 0.35 };
 
 // The master EQ3 moves hour by hour (dB):
 //   high  cloud dulls the top end (up to cloudCutDb at 100% cloud); fog cuts more

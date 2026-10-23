@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 
 HOURLY = ("temperature_2m,relative_humidity_2m,pressure_msl,wind_speed_10m,wind_gusts_10m,"
-          "wind_direction_10m,precipitation_probability,precipitation,cloud_cover,weather_code,is_day")
+          "wind_direction_10m,precipitation_probability,precipitation,cloud_cover,weather_code,is_day,cape")
 DAILY = "sunrise,sunset,temperature_2m_max,temperature_2m_min"
 API = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 OUT = pathlib.Path(__file__).resolve().parent.parent / "samples"

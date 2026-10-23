@@ -1,6 +1,6 @@
 import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
-import { compose, analyze, chordDegreeAt } from "../src/compose.js";
+import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel } from "../src/compose.js";
 import { MODES, melodyDegrees, triadPcs, chordLabel } from "../src/theory.js";
 import * as M from "../src/mapping.js";
 
@@ -254,5 +254,16 @@ test("drive and tone: in range, clean when calm, gritty in storms", () => {
   });
   const st = scores["houston-storms"];
   assert(Math.max(...st.automation.driveWet) > 0, "storm day gets some distortion");
-  equal(st.meta.drive, M.DRIVE.stormAmount, "storm day drives harder");
+  assert(st.meta.drive > scores["kyoto-spring"].meta.drive, "high CAPE drives harder");
+  equal(scores["kyoto-spring"].meta.drive, M.DRIVE.amount, "stable air keeps the base drive");
+});
+
+test("CAPE: unstable air raises intensity before it rains", () => {
+  const f = forecasts["philadelphia-autumn"];
+  const calm = dynamicsCurve(f.hours).raw;
+  const charged = dynamicsCurve(f.hours.map((h, b) => (b === 12 ? { ...h, cape: M.DYNAMICS.capeFull } : h)));
+  assert(calm.every((v) => v < 0.5), "calm day stays calm");
+  assert(Math.abs(charged.raw[12] - M.DYNAMICS.capeWeight) < 1e-9, "full CAPE → capeWeight");
+  assert(charged.energy[10] > 0 && charged.energy[11] > charged.energy[10], "swell builds ahead of it");
+  equal(capeLevel(undefined), 0, "missing CAPE counts as stable");
 });

@@ -14,9 +14,10 @@ const FIELDS = {
   cloud: "cloud_cover",
   code: "weather_code",
   isDay: "is_day",
+  cape: "cape",
 };
 // Used only when a whole column is missing.
-const DEFAULTS = { temp: 15, rh: 60, pressure: 1013, wind: 10, gust: 15, dir: 0, pop: 0, precip: 0, cloud: 50, code: 0, isDay: 1 };
+const DEFAULTS = { temp: 15, rh: 60, pressure: 1013, wind: 10, gust: 15, dir: 0, pop: 0, precip: 0, cloud: 50, code: 0, isDay: 1, cape: 0 };
 // These are categories, so gaps copy the nearest value instead of averaging.
 const DISCRETE = new Set(["code", "isDay"]);
 

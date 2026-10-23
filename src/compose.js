@@ -80,12 +80,19 @@ export function pickVoices(stats, storm, snow) {
  * Weather intensity per hour (raw) and the spread curve the music follows (energy).
  * Energy rises a couple of bars before rough weather and fades a few bars after.
  */
+/** 0–1: how much storm fuel (CAPE, J/kg) is in the air. */
+export function capeLevel(cape) {
+  const D = M.DYNAMICS;
+  return clamp(((cape ?? 0) - D.capeFrom) / (D.capeFull - D.capeFrom), 0, 1);
+}
+
 export function dynamicsCurve(H) {
   const D = M.DYNAMICS;
   const raw = H.map((h) => Math.max(
     clamp(h.precip / D.rainFullMm, 0, 1),
     clamp((h.gust - D.gustFrom) / (D.gustFull - D.gustFrom), 0, 1),
     M.THUNDER_CODES.includes(h.code) ? 1 : 0,
+    capeLevel(h.cape) * D.capeWeight,
   ));
   const energy = raw.map((r, b) => {
     let e = r;
@@ -333,7 +340,8 @@ export function compose(f, { units = "metric" } = {}) {
     progression: progression.map((d) => chordLabel(mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
     stats, voices: A.voices, swing,
-    drive: A.storm ? M.DRIVE.stormAmount : M.DRIVE.amount,
+    capeMax: Math.max(...f.hours.map((h) => h.cape ?? 0)),
+    drive: +(M.DRIVE.amount + (M.DRIVE.maxAmount - M.DRIVE.amount) * capeLevel(Math.max(...f.hours.map((h) => h.cape ?? 0)))).toFixed(3),
   };
   meta.notes = linerNotes(f, A, meta, { melody, rain, bells, atmosphere, fx, automation }, units);
   return { meta, melody, bass, pad, rain, bells, atmosphere, fx, automation };
@@ -397,6 +405,7 @@ function dynamicsNote(f, A, units) {
   const why = [];
   if (M.THUNDER_CODES.includes(h.code)) why.push("thunder");
   if (h.precip >= 0.5) why.push(`${Math.round(h.precip * 10) / 10}\u00a0mm of ${M.SNOW_CODES.includes(h.code) ? "snow" : "rain"}`);
+  if (capeLevel(h.cape) > 0) why.push(`unstable air`);
   if (h.gust >= D.gustFrom) why.push(`gusts of ${formatSpeed(h.gust, units)}`);
   const loud = A.energy.map((e, b) => (e >= D.busier ? b : -1)).filter((b) => b >= 0);
   const head = `Weather peaks at ${hourLabel(at)} (${why.join(", ")})`;
@@ -432,7 +441,9 @@ function linerNotes(f, A, meta, layers, units) {
   notes.push(dynamicsNote(f, A, units));
   notes.push(grooveNote(s, meta, layers.melody));
   const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
-  if (gritty.length) notes.push(`Rough weather → ${A.storm ? "heavy" : "light"} distortion on the band at ${barRanges(gritty)}.`);
+  const unstable = capeLevel(meta.capeMax) > 0;
+  if (unstable) notes.push(`Unstable air (CAPE up to ${Math.round(meta.capeMax)} J/kg, storm fuel) → the band swells and ${meta.drive >= 0.4 ? "drives hard" : "picks up grit"}.`);
+  if (gritty.length) notes.push(`Rough weather → ${meta.drive >= 0.4 ? "heavy" : "light"} distortion on the band at ${barRanges(gritty)}.`);
   const dull = mean(layers.automation.eqHigh);
   if (dull <= -2) notes.push(`${s.cloud >= 0.5 ? "Cloud" : "Fog"} → the treble is turned down about ${Math.round(-dull)}\u00a0dB.`);
   if (Math.max(...layers.automation.eqLow) >= 1.5) notes.push("Wind → extra bass weight in the gustiest hours.");
