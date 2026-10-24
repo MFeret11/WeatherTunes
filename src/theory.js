@@ -47,6 +47,12 @@ export function triadPcs(rootPc, mode, deg) {
   return [0, 2, 4].map((k) => (rootPc + iv[(deg + k) % 7]) % 12);
 }
 
+/** Semitones from the chord root up to the mode's note `k` steps above it (k = 1 second, 3 fourth, 6 seventh). */
+export function stepAbove(mode, deg, k) {
+  const iv = MODES[mode];
+  return (iv[(deg + k) % 7] - iv[deg] + 12) % 12;
+}
+
 /** Roman-numeral label for a triad, e.g. "IV", "vi", "bVII". */
 export function chordLabel(mode, deg) {
   const iv = MODES[mode];

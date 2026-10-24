@@ -2,9 +2,10 @@
 // Same forecast in, same score out (randomness comes from a seeded RNG).
 
 import * as M from "./mapping.js";
+import { skyFor, auroraReach } from "./sky.js";
 import {
   MODES, MODE_LABELS, keyName, midiToNote, melodyDegrees, scalePitches, triadPcs,
-  chordLabel, hashString, mulberry32, clamp, mean,
+  chordLabel, stepAbove, hashString, mulberry32, clamp, mean,
 } from "./theory.js";
 
 export function seedFor(f) {
@@ -22,6 +23,8 @@ export function analyze(f) {
     tMinHour: temps.indexOf(tMin),
     tMaxHour: temps.indexOf(tMax),
     tMean: mean(temps),
+    feelsMean: mean(H.map((h) => h.feels ?? h.temp)),
+    dewMean: mean(H.map((h) => h.dew ?? h.temp)),
     cloud: mean(H.map((h) => h.cloud)) / 100,
     pop: mean(H.map((h) => h.pop)) / 100,
     precipSum: H.reduce((a, h) => a + h.precip, 0),
@@ -66,7 +69,8 @@ export function analyze(f) {
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
 export function pickVoices(stats, storm, snow) {
-  const melody = M.MELODY_VOICES.find((v) => stats.tMean < v.maxTemp);
+  // The melody follows how the day feels (humidity and wind included).
+  const melody = M.MELODY_VOICES.find((v) => (stats.feelsMean ?? stats.tMean) < v.maxTemp);
   const holds = ({ when: w }) =>
     (w.storm == null || w.storm === storm) &&
     (w.snow == null || w.snow === snow) &&
@@ -276,6 +280,63 @@ export function storyChords(arc, A, seed) {
   return bars;
 }
 
+/**
+ * A chord's colour from the weather in its hours (see CHORD_COLOUR):
+ * { sus: null | "sus2" | "sus4", seventh: 0–1, ninth: 0–1, open: bool }.
+ * Only intervals that sit well are used: a whole-tone 2nd or 9th, a perfect 4th.
+ */
+export function chordColour(hrs, mode, deg, final) {
+  const K = M.CHORD_COLOUR;
+  const avg = (fn) => mean(hrs.map(fn));
+  const second = stepAbove(mode, deg, 1) === 2;
+  const fourth = stepAbove(mode, deg, 3) === 5;
+  let sus = null;
+  let susBy = null;
+  if (!final) {
+    const foggy = hrs.some((h) => K.susFogCodes.includes(h.code));
+    const moving = Math.abs(hrs[hrs.length - 1].pressure - hrs[0].pressure) * (2 / Math.max(1, hrs.length - 1)) >= K.sus4PressureHpa;
+    if (foggy && second) sus = "sus2";
+    else if ((foggy || moving) && fourth) sus = "sus4";
+    if (sus) susBy = foggy ? "fog" : "pressure";
+  }
+  const ramp = (x, a, b) => clamp((x - a) / (b - a), 0, 1);
+  const seventh = +ramp(avg((h) => h.dew ?? h.temp), K.seventh.dewFrom, K.seventh.dewFull).toFixed(3);
+  const clearDay = avg((h) => (1 - h.cloud / 100) * (h.isDay ? 1 : 0));
+  const ninth = second && sus !== "sus2" ? +ramp(clearDay, K.ninth.from, K.ninth.full).toFixed(3) : 0;
+  return { sus, susBy, seventh, ninth, open: avg((h) => h.wind) >= K.openWind };
+}
+
+/**
+ * Place a chord's pitch classes between voicing.low and .high so the notes move
+ * as little as possible from the previous chord (or sit near PAD.center for the
+ * first one). An open chord must span more than voicing.openSpan semitones.
+ */
+export function voiceChord(pcs, prev, open) {
+  const V = M.CHORD_COLOUR.voicing;
+  const cands = pcs.map((pc) => {
+    const out = [];
+    for (let m = V.low; m <= V.high; m++) if (m % 12 === pc) out.push(m);
+    return out;
+  });
+  let best = null;
+  let bestCost = Infinity;
+  const walk = (i, chosen) => {
+    if (i === cands.length) {
+      const span = Math.max(...chosen) - Math.min(...chosen);
+      if (open && span <= V.openSpan) return;
+      const centre = Math.abs(mean(chosen) - M.PAD.center);
+      const move = prev ? chosen.reduce((a, n) => a + Math.min(...prev.map((p) => Math.abs(n - p))), 0) : 0;
+      // Moving little matters most; then stay near the middle and keep a closed chord compact.
+      const cost = move + 0.3 * centre + (open ? 0 : 0.2 * span);
+      if (cost < bestCost) { bestCost = cost; best = chosen.slice(); }
+      return;
+    }
+    for (const m of cands[i]) walk(i + 1, [...chosen, m]);
+  };
+  walk(0, []);
+  return (best ?? cands.map((c) => c[0])).sort((a, b) => a - b);
+}
+
 function majorTriad(mode, deg) {
   const iv = MODES[mode];
   return (iv[(deg + 2) % 7] - iv[deg] + 12) % 12 === 4 && (iv[(deg + 4) % 7] - iv[deg] + 12) % 12 === 7;
@@ -298,6 +359,73 @@ export function formatSpeed(kmh, units) {
   return units === "us" ? `${Math.round(kmh / 1.609)}\u00a0mph` : `${Math.round(kmh)}\u00a0km/h`;
 }
 
+/**
+ * The sky and the air, hour by hour: moonlight, auroras, haze, UV, snow on the
+ * ground and frost, plus the day's events (moonrise, eclipse, meteor shower,
+ * solstice or equinox, holiday, first frost). Pure, from the forecast alone.
+ */
+export function daySky(f) {
+  const H = f.hours;
+  const X = f.extras ?? {};
+  const sky = skyFor(f);
+  const { moon } = sky;
+  const dark = sky.sunAlt.map((a) => clamp(-a / M.DARK.darkSunAlt, 0, 1));
+  const deepDark = sky.sunAlt.map((a) => clamp((-a - M.DARK.darkSunAlt) / (M.DARK.auroraSunAlt - M.DARK.darkSunAlt), 0, 1));
+  const eclipse = moon.eclipse?.visible ? moon.eclipse : null;
+  const moonlight = H.map((h, b) => {
+    let l = moon.illum * clamp(moon.alt[b] / M.MOON.fullAlt, 0, 1) * dark[b] * (1 - M.MOON.cloudBlock * (h.cloud / 100));
+    if (eclipse && Math.abs(b + 0.5 - eclipse.hour) <= 1) l *= M.MOON.eclipseLight;
+    return +clamp(l, 0, 1).toFixed(3);
+  });
+
+  // Kp per hour: the 3-hour block (UTC) that holds the hour's middle.
+  const kpAt = (b) => {
+    const t = sky.start + (b + 0.5) * 3600000;
+    return X.kp?.find((k) => t >= k.t && t < k.t + 3 * 3600000)?.kp ?? null;
+  };
+  const kp = H.map((_, b) => kpAt(b));
+  const auroraReachH = kp.map((k) => (k == null ? 0 : auroraReach(sky.magLat, k)));
+  const aurora = H.map((h, b) => +(auroraReachH[b] * deepDark[b] * (1 - h.cloud / 100) ** M.AURORA.clearPower).toFixed(3));
+
+  const aqi = X.aqi ?? null;
+  const haze = H.map((_, b) => (aqi ? +clamp((aqi[b] - M.AIR.from) / (M.AIR.full - M.AIR.from), 0, 1).toFixed(3) : 0));
+  const uvShine = H.map((h) => +clamp((h.uv - M.UV.from) / (M.UV.full - M.UV.from), 0, 1).toFixed(3));
+  const snowCm = mean(H.map((h) => h.snowDepth ?? 0));
+  const cover = clamp(snowCm / M.SNOW_COVER.fullCm, 0, 1);
+
+  const FR = M.FROST;
+  const falling = (h) => h.precip >= 0.1 || M.SNOW_CODES.includes(h.code);
+  const frostHours = H.map((h, b) => (b < FR.until && h.temp <= FR.maxTemp && h.cloud < FR.maxCloud && h.wind < FR.maxWind && !falling(h) ? b : -1)).filter((b) => b >= 0);
+  const tMin = Math.min(...H.map((h) => h.temp));
+  const past = X.minTemps;
+  const firstFrost = tMin <= 0 && past != null && past.length >= FR.minHistory && past.every((t) => t > 0);
+
+  const uvs = H.map((h) => h.uv ?? 0);
+  const uvMax = Math.max(...uvs);
+  const aqiMax = aqi ? Math.max(...aqi) : null;
+  const moonUpAtNight = moonlight.some((l) => l > 0.05);
+  return {
+    sky, dark, moon, moonlight, eclipse, kp, kpMax: kp.some((k) => k != null) ? Math.max(...kp.filter((k) => k != null)) : null,
+    aurora, auroraReach: auroraReachH,
+    aqi, aqiMax, aqiMaxHour: aqi ? aqi.indexOf(aqiMax) : null, haze,
+    uvMax: f.has?.uv === false ? null : uvMax, uvMaxHour: uvs.indexOf(uvMax), uvShine,
+    snowCm: +snowCm.toFixed(1), cover,
+    frostHours, firstFrost,
+    holiday: X.holidays?.[0] ?? null,
+    season: sky.season, shower: sky.shower, moonUpAtNight,
+  };
+}
+
+/** US AQI category name. */
+export function aqiCategory(v) {
+  return v <= 50 ? "good" : v <= 100 ? "moderate" : v <= 150 ? "unhealthy for sensitive groups"
+    : v <= 200 ? "unhealthy" : v <= 300 ? "very unhealthy" : "hazardous";
+}
+/** UV index category name. */
+export function uvCategory(v) {
+  return v < 3 ? "low" : v < 6 ? "moderate" : v < 8 ? "high" : v < 11 ? "very high" : "extreme";
+}
+
 export function compose(f, { units = "metric" } = {}) {
   const A = analyze(f);
   const { stats, root, snow, energy } = A;
@@ -309,10 +437,11 @@ export function compose(f, { units = "metric" } = {}) {
     const cold = clamp((G.clipFromC - h.temp) / (G.clipFromC - G.clipFullC), 0, 1);
     return +Math.max(G.gateMin, G.gateDry + (G.gateHumid - G.gateDry) * humid - G.clipMax * cold).toFixed(3);
   };
-  const warm = clamp((stats.tMean - G.clipFromC) / (G.swingWarmC - G.clipFromC), 0, 1);
-  const swing = +(G.swingMax * warm * clamp((stats.rh - G.swingFromRh) / (G.swingFullRh - G.swingFromRh), 0, 1)).toFixed(3);
+  // Muggy air swings: the dew point measures how much water the air holds.
+  const swing = +(G.swingMax * clamp((stats.dewMean - M.DEW.swingFromDew) / (M.DEW.swingFullDew - M.DEW.swingFromDew), 0, 1)).toFixed(3);
   const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
+  const SK = daySky(f);
   const seed = seedFor(f);
   const rng = mulberry32(seed);
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
@@ -334,7 +463,19 @@ export function compose(f, { units = "metric" } = {}) {
   const firstLoops = M.PROGRESSIONS[arc.chapters[0].mode][A.trend];
   const progression = firstLoops[seed % firstLoops.length];
   const chordDeg = (b) => barChords[b].deg;
-  const chordPcs = (b) => triadPcs(root, modeAt(b), chordDeg(b));
+  // Each chord's colour (sevenths, ninths, sus, spread) from its two hours.
+  const colours = Array.from({ length: M.BARS / M.BARS_PER_CHORD }, (_, c) => {
+    const b = c * M.BARS_PER_CHORD;
+    return chordColour(H.slice(b, b + M.BARS_PER_CHORD), modeAt(b), chordDeg(b), b + M.BARS_PER_CHORD >= M.BARS);
+  });
+  const colourAt = (b) => colours[Math.floor(b / M.BARS_PER_CHORD)];
+  // The chord's own tones: a sus chord swaps its third, and the melody's strong beats follow it.
+  const chordPcs = (b) => {
+    const t = triadPcs(root, modeAt(b), chordDeg(b));
+    const { sus } = colourAt(b);
+    if (sus) t[1] = (t[0] + (sus === "sus2" ? 2 : 5)) % 12;
+    return t;
+  };
 
   // ---- Melody ------------------------------------------------------------
   // Melody positions are scale steps relative to the tonic, so a line carries
@@ -437,6 +578,30 @@ export function compose(f, { units = "metric" } = {}) {
     });
   }
 
+  // ---- Held notes: steady weather ties a repeated pitch instead of striking it again ----
+  const HD = M.HOLD;
+  const steadyHour = (b) => {
+    if (b === 0) return false;
+    const a = H[b - 1], h = H[b];
+    return Math.abs(h.gust - a.gust) < HD.gustKmh
+      && Math.abs(h.cloud - a.cloud) < HD.cloud && Math.abs(h.pop - a.pop) < HD.pop
+      && Math.abs(h.precip - a.precip) < HD.precipMm;
+  };
+  const sectionStart = (b) => M.SECTIONS.some((s) => s.start === b);
+  const steady = H.map((_, b) => steadyHour(b));
+  let held = 0;
+  for (let i = 1; i < melody.length; i++) {
+    const p = melody[i - 1], n = melody[i];
+    const touching = p.bar * M.STEPS + p.pos + p.dur === n.bar * M.STEPS + n.pos;
+    // Inside an hour the hour must be steady; across hours the new hour must be steady and not open a section.
+    if (p.midi !== n.midi || !touching || !steady[n.bar] || (p.bar !== n.bar && sectionStart(n.bar))) continue;
+    if (p.dur + n.dur > HD.maxSteps || n.bar === M.BARS - 1) continue;
+    p.dur += n.dur;
+    p.gate = Math.max(p.gate, n.gate);
+    melody.splice(i--, 1);
+    held++;
+  }
+
   // ---- Bass --------------------------------------------------------------
   const bass = [];
   const bassFeel = bassFeels(H, energy, stats);
@@ -492,11 +657,33 @@ export function compose(f, { units = "metric" } = {}) {
     hit("ghost", RB.ghosts, RB.vel.ghost * wet);
   }
   garage.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+
+  // Dry beat (see DRY_BEAT): wind sets the hats, warmth the kick, clear sky the backbeat.
+  // Its own random stream (for the humanizing only), so the rest of the song is unchanged.
+  const DB = M.DRY_BEAT;
+  const brng = mulberry32((seed ^ 0xbea7) >>> 0);
+  const rainBeatBars = new Set(garage.map((x) => x.bar));
+  const beat = [];
+  for (let b = 0; b < M.BARS - 1; b++) {
+    const h = H[b];
+    if (rainBeatBars.has(b) || h.precip >= 0.1 || h.pop >= RB.hourPop || M.SNOW_CODES.includes(h.code)) continue;
+    if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
+    const hit = (kind, pos, v) => beat.push({ bar: b, pos, kind, vel: +clamp(v + (brng() - 0.5) * 2 * DB.humanize, 0.05, 1).toFixed(3) });
+    const k = DB.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
+    if (!k.perChord || b % M.BARS_PER_CHORD === 0) for (const p of k.steps) hit("kick", p, DB.kickVel);
+    const clear = clamp((DB.rimMaxCloud - h.cloud) / DB.rimMaxCloud, 0, 1);
+    if (clear > 0) hit("snare", M.STEPS / 2, DB.rimVel * clear);
+    const hv = Math.min(DB.hatMax, DB.hatVel + DB.hatPerGust * h.gust);
+    for (const p of DB.hats.find((r) => h.wind < r.maxWind).steps) hit("hat", p, p % 4 === 2 ? hv * DB.hatOffAccent : hv);
+  }
+  beat.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+
   const CR = M.CRACKLE;
   const crackle = [];
   for (let b = 0; b < M.BARS; b++) {
-    const amount = clamp((H[b].rh - CR.rhFrom) / (CR.rhFull - CR.rhFrom), 0, 1)
-      * clamp((H[b].cloud - CR.cloudFrom) / (CR.cloudFull - CR.cloudFrom), 0, 1);
+    // Humid grey air crackles; so does hazy, dusty air.
+    const amount = Math.max(clamp((H[b].rh - CR.rhFrom) / (CR.rhFull - CR.rhFrom), 0, 1)
+      * clamp((H[b].cloud - CR.cloudFrom) / (CR.cloudFull - CR.cloudFrom), 0, 1), M.AIR.crackle * SK.haze[b]);
     const count = Math.round(CR.perHour * amount);
     for (let k = 0; k < count; k++) {
       crackle.push({ bar: b, pos: +(rng() * M.STEPS).toFixed(3), vel: +(CR.vel[0] + (CR.vel[1] - CR.vel[0]) * rng() ** 3).toFixed(3) });
@@ -505,19 +692,28 @@ export function compose(f, { units = "metric" } = {}) {
   crackle.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
 
   // ---- Pad: one held chord per chord change (every 2 hours) ----------------------------------
+  // Voice-led: each note moves as little as it can from the last chord.
+  // Colour notes (7th, 9th) sit just above the chord, as loud as the weather makes them.
   const pad = [];
+  const K = M.CHORD_COLOUR;
+  let prevVoicing = null;
   for (let b = 0; b < M.BARS; b += M.BARS_PER_CHORD) {
     const cloud = mean(H.slice(b, b + M.BARS_PER_CHORD).map((h) => h.cloud)) / 100;
-    const notes = chordPcs(b).map((pc) => {
-      let m = M.PAD.center + ((pc - (M.PAD.center % 12) + 12) % 12);
-      if (m > M.PAD.center + 6) m -= 12;
-      return midiToNote(m);
-    });
-    pad.push({
-      bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, notes,
-      vel: +Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
-        + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0)).toFixed(3),
-    });
+    const col = colourAt(b);
+    const midis = voiceChord(chordPcs(b), prevVoicing, col.open);
+    prevVoicing = midis;
+    const vel = +Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
+      + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0)).toFixed(3);
+    const top = Math.max(...midis);
+    const above = (pc) => top + 1 + ((((pc - top - 1) % 12) + 12) % 12); // the first pc above the chord
+    const colour = [];
+    const deg = chordDeg(b);
+    for (const [kind, k, amount] of [["7th", 6, col.seventh], ["9th", 1, col.ninth]]) {
+      if (amount < K.min) continue;
+      const midi = above((root + MODES[modeAt(b)][(deg + k) % 7]) % 12);
+      colour.push({ kind, midi, note: midiToNote(midi), vel: +(vel * K.vel * amount).toFixed(3) });
+    }
+    pad.push({ bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, midis, notes: midis.map(midiToNote), vel, colour });
   }
 
   // ---- Rain shakers (or snow bells) ---------------------------------------
@@ -584,13 +780,84 @@ export function compose(f, { units = "metric" } = {}) {
     fx.push({ bar, pos: clamp(Math.round((t - bar) * M.STEPS), 0, M.STEPS - 1), type: "swell", label });
   }
 
+  // ---- Sky bells and shimmer (see the "Sky and air" section of mapping.js) ----
+  // Their own random stream, so adding them never changes the rest of the song.
+  const srng = mulberry32((seed ^ 0x5eed) >>> 0);
+  const chimes = [];
+  const shimmer = [];
+  const chimePitches = (b, pcs) => tables[modeAt(b)].p.filter((p) => p >= M.CHIMES.low && p <= M.CHIMES.high && (!pcs || pcs.includes(p % 12)));
+  const chime = (bar, pos, midi, vel, kind, dur = 4) => chimes.push({ bar, pos, dur, midi, note: midiToNote(midi), vel: +vel.toFixed(3), kind });
+  const { moon } = SK;
+  // Moonrise after dark: one bell on the key's fifth, louder for a fuller moon.
+  // (Only if it can be seen: after dark, and not behind thick cloud.)
+  if (moon.rise != null && moon.illum >= M.MOON.minIllum && SK.dark[Math.floor(moon.rise)] > 0.3
+    && 1 - M.MOON.cloudBlock * (H[Math.floor(moon.rise)].cloud / 100) >= M.MOON.bellClear) {
+    const bar = Math.floor(moon.rise);
+    const p = chimePitches(bar, [(root + 7) % 12]);
+    const [v0, v1] = M.MOON.bellVel;
+    chime(bar, clamp(Math.round((moon.rise - bar) * M.STEPS), 0, M.STEPS - 1), p[Math.floor(p.length / 2)], v0 + (v1 - v0) * moon.illum, "moon", 8);
+  }
+  // Shooting stars: quick runs of three falling notes from the top of the range.
+  if (SK.shower) {
+    const MT = M.METEORS;
+    let total = 0;
+    for (let b = 0; b < M.BARS && total < MT.maxTotal; b++) {
+      if (SK.dark[b] < 0.9 || H[b].cloud >= MT.maxCloud) continue;
+      const rate = MT.perHour * (SK.shower.zhr / 100) * (SK.shower.peak ? 1 : MT.offPeak) * (1 - MT.moonDim * SK.moonlight[b]);
+      const n = Math.min(MT.maxPerHour, Math.floor(rate) + (srng() < rate % 1 ? 1 : 0), MT.maxTotal - total);
+      const top = chimePitches(b);
+      for (let k = 0; k < n; k++) {
+        const start = top.length - 1 - Math.floor(srng() * 3);
+        const pos = Math.floor(srng() * (M.STEPS - 3));
+        for (let j = 0; j < 3; j++) chime(b, pos + j, top[Math.max(0, start - j * 2)], MT.vel * (1 - j * 0.25), "meteor", 2);
+        total++;
+      }
+    }
+  }
+  // Frost glints in the clear, still early hours.
+  for (const b of SK.frostHours) {
+    const p = chimePitches(b);
+    for (let k = 0; k < (SK.firstFrost ? 2 : 1); k++) chime(b, Math.floor(srng() * M.STEPS), p[p.length - 1 - Math.floor(srng() * 3)], M.FROST.vel, "frost", 1);
+  }
+  // A solstice or equinox rings the root and fifth together at its moment.
+  if (SK.season) {
+    const bar = Math.floor(SK.season.hour);
+    const pos = clamp(Math.round((SK.season.hour - bar) * M.STEPS), 0, M.STEPS - 1);
+    for (const pc of [root, (root + 7) % 12]) chime(bar, pos, chimePitches(bar, [pc])[0], M.CALENDAR.seasonVel, "season", 8);
+  }
+  // A holiday signs off with a rising arpeggio over the final chord.
+  if (SK.holiday) {
+    const bar = M.BARS - 2;
+    const arp = chimePitches(bar, chordPcs(bar)).slice(0, 5);
+    arp.forEach((midi, k) => chime(bar + Math.floor((k * 3) / M.STEPS), (k * 3) % M.STEPS, midi, M.CALENDAR.holidayVel, "holiday", 6));
+  }
+  chimes.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+  // UV: sunny hours double the melody an octave up, softly.
+  for (const n of melody) {
+    const u = SK.uvShine[n.bar];
+    if (u > 0 && n.midi + 12 <= 100) shimmer.push({ kind: "sun", bar: n.bar, pos: n.pos, dur: n.dur, notes: [midiToNote(n.midi + 12)], vel: +(M.UV.vel * u).toFixed(3) });
+  }
+  // Auroras: a slow high chord over each chord change they light up.
+  for (let b = 0; b < M.BARS; b += M.BARS_PER_CHORD) {
+    const level = Math.max(...SK.aurora.slice(b, b + M.BARS_PER_CHORD));
+    if (level < M.AURORA.min) continue;
+    const notes = chordPcs(b).map((pc) => { // voiced around C6, like the pad around C4
+      const m = 84 + ((pc - (84 % 12) + 12) % 12);
+      return midiToNote(m > 90 ? m - 12 : m);
+    });
+    shimmer.push({ kind: "aurora", bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, notes, vel: +(M.AURORA.vel * level).toFixed(3) });
+  }
+
   // ---- Per-bar automation ---------------------------------------------------
   const F = M.FILTER;
   const RV = M.REVERB;
   const automation = {
     pan: H.map((h) => +(M.PAN_WIDTH * Math.sin((h.dir * Math.PI) / 180)).toFixed(3)),
-    cutoff: H.map((h) => Math.round(
-      (F.clearHz - (F.clearHz - F.overcastHz) * (h.cloud / 100)) * (h.isDay ? 1 : F.nightFactor))),
+    // Night closes the filter; moonlight opens it part way again; haze closes it a little.
+    cutoff: H.map((h, b) => Math.round(
+      (F.clearHz - (F.clearHz - F.overcastHz) * (h.cloud / 100))
+      * (h.isDay ? 1 : F.nightFactor + (1 - F.nightFactor) * M.MOON.cutoffLift * SK.moonlight[b])
+      * (1 - M.AIR.cutoffCut * SK.haze[b]))),
     energy,
     // Dramatic days dip in their calm hours, so the storm is a real crescendo.
     gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
@@ -598,23 +865,43 @@ export function compose(f, { units = "metric" } = {}) {
       + (b === 0 ? D.introDb : 0)).toFixed(2)),
     reverbLift: day.phases.map((ph) => (ph === "release" ? R.reverbLift : 0)),
     melodyDb: H.map((h) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)).toFixed(2)),
+    // Moonlight keeps the night from dimming the melody as far.
+    melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])).toFixed(2)),
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
-    eqHigh: H.map((h) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0),
+    eqHigh: H.map((h, b) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0)
+      + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover,
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
-    reverbWet: +(RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1)).toFixed(3),
+    // Snow on the ground soaks up the echoes.
+    reverbWet: +((RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1))
+      * (1 - M.SNOW_COVER.reverbCut * SK.cover)).toFixed(3),
   };
 
+  // Cloud and night together stop at the floor.
+  automation.melodyDayDb = automation.melodyDayDb.map((d, b) =>
+    +Math.max(d, M.MELODY.floorDb - automation.melodyDb[b]).toFixed(2));
+
   const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
+  // With colour: "Imaj7", "ii9", "Vsus4", "IVadd9".
+  const chordNames = chords.map((label, b) => {
+    const col = colourAt(b);
+    const m = modeAt(b);
+    const seventh = col.seventh >= K.min;
+    const ninth = col.ninth >= K.min;
+    const major7 = stepAbove(m, chordDeg(b), 6) === 11;
+    const ext = seventh ? `${major7 ? "maj" : ""}${ninth ? 9 : 7}` : ninth ? "add9" : "";
+    return label + ext + (col.sus ?? "");
+  });
   const meta = {
     name: f.name, date: f.date, seed,
     root, rootName: keyName(root), mode, modeLabel: MODE_LABELS[mode],
     bpm: A.bpm, bars: M.BARS, steps: M.STEPS, sections: M.SECTIONS,
     trend: A.trend, progressionDegrees: progression,
     progression: progression.map((d) => chordLabel(arc.chapters[0].mode, d)),
-    chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
+    chords, chordNames, chordPcs: Array.from({ length: M.BARS }, (_, b) => chordPcs(b)), colours,
+    brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
     stats, voices: A.voices, swing,
     bassSub: +clamp((stats.cloud - M.BASS_TONE.cloudFrom) / (M.BASS_TONE.cloudFull - M.BASS_TONE.cloudFrom), 0, 1).toFixed(3),
     bassFeel,
@@ -625,11 +912,14 @@ export function compose(f, { units = "metric" } = {}) {
     drive: +(M.DRIVE.amount + (M.DRIVE.maxAmount - M.DRIVE.amount) * capeLevel(Math.max(...f.hours.map((h) => h.cape ?? 0)))).toFixed(3),
   };
   meta.arc = day;
+  meta.heldNotes = held;
   meta.stir = stir;
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
-  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, garage, crackle, atmosphere, fx, automation }, units);
+  const { sky: _sky, ...skyMeta } = SK;
+  meta.sky = { ...skyMeta, magLat: SK.sky.magLat };
+  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, garage, beat, crackle, atmosphere, fx, automation, chimes, shimmer }, units);
   meta.notes = notesAsText(meta.liner);
-  return { meta, melody, bass, pad, drums, garage, crackle, rain, bells, atmosphere, fx, automation };
+  return { meta, melody, bass, pad, drums, garage, beat, crackle, rain, bells, atmosphere, fx, automation, chimes, shimmer };
 }
 
 function shuffle(arr, rng) {
@@ -643,6 +933,21 @@ function shuffle(arr, rng) {
 
 // ---- Liner notes: plain-English reasons for today's song -------------------
 
+/**
+ * Melody level from daylight, in dB (0 by day, MELODY.nightDb at night), fading
+ * across sunrise and sunset. Days with no sunrise or sunset (polar night,
+ * midnight sun) stay at full level.
+ */
+export function melodyDaylightDb(f, b) {
+  const { sunrise, sunset } = f;
+  if (sunrise == null || sunset == null || sunset <= sunrise) return 0;
+  const MEL = M.MELODY;
+  const t = b + 0.5; // middle of the hour
+  const up = clamp((t - sunrise) / MEL.fadeHours + 0.5, 0, 1);
+  const down = clamp((sunset - t) / MEL.fadeHours + 0.5, 0, 1);
+  return +(MEL.nightDb * (1 - Math.min(up, down))).toFixed(2);
+}
+
 export function hourLabel(h) {
   const hh = Math.floor(h);
   const mm = Math.round((h - hh) * 60);
@@ -653,17 +958,12 @@ export function hourLabel(h) {
   return mm ? `${h12}:${String(mm).padStart(2, "0")} ${suffix}` : `${h12} ${suffix}`;
 }
 
-/** Group hour slots into readable ranges: [3,4,5,9] → "3–5 am and 9 am". */
-function barRanges(bars) {
-  const r = [];
-  for (const b of bars) {
-    const lastR = r[r.length - 1];
-    if (lastR && b === lastR[1] + 1) lastR[1] = b;
-    else r.push([b, b]);
-  }
-  const parts = r.map(([a, z]) => (a === z ? hourLabel(a) : `${hourLabel(a)}–${hourLabel(z)}`));
-  return (parts.length > 1 ? parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] : parts[0]);
-}
+// Instrument names as sentence subjects, with the right verb.
+const MELODY_PHRASE = { glass: "glass bells play", flute: "a breathy flute plays", keys: "soft keys play", pluck: "plucked strings play",
+  mallet: "a marimba plays", reed: "a reedy pipe plays" };
+const PAD_PHRASE = { storm: "dark, detuned saws hold", snow: "a hushed choir holds", ghost: "ghostly, wordless voices hold",
+  rain: "a wobbling electric piano holds", overcast: "a muffled organ holds", icy: "a thin, icy shimmer holds",
+  lush: "lush strings hold", airy: "an airy, open pad holds" };
 
 const MODE_HINTS = {
   lydian: ", the brightest mode",
@@ -674,156 +974,70 @@ const MODE_HINTS = {
   phrygian: ", the darkest mode used here",
 };
 
-function grooveNote(s, meta, melody) {
-  const feel = meta.swing >= 0.3 ? "a lazy swing" : meta.swing > 0 ? "a light swing" : "a straight beat";
-  const g = mean(melody.map((n) => n.gate));
-  const touch = g >= 0.85 ? "long, slurred notes" : g >= 0.6 ? "even notes" : "short, clipped notes";
-  return `Humidity ${Math.round(s.rh)}%${s.tMean < M.GROOVE.clipFromC ? " in cold air" : ""} → ${feel} with ${touch}.`;
-}
-
-function dynamicsNote(f, A, units) {
-  const D = M.DYNAMICS;
-  const peak = Math.max(...A.intensity);
-  if (peak < D.calm) return "Calm all day → even dynamics, no big swells.";
-  const at = A.intensity.indexOf(peak);
-  const h = f.hours[at];
-  const why = [];
-  if (M.THUNDER_CODES.includes(h.code)) why.push("thunder");
-  if (h.precip >= 0.5) why.push(`${Math.round(h.precip * 10) / 10}\u00a0mm of ${M.SNOW_CODES.includes(h.code) ? "snow" : "rain"}`);
-  if (capeLevel(h.cape) > 0) why.push(`unstable air`);
-  if (h.gust >= D.gustFrom) why.push(`gusts of ${formatSpeed(h.gust, units)}`);
-  const loud = A.energy.map((e, b) => (e >= D.busier ? b : -1)).filter((b) => b >= 0);
-  const head = `Weather peaks at ${hourLabel(at)} (${why.join(", ")})`;
-  if (!loud.length) return `${head} → the band lifts a little around ${hourLabel(at)}.`;
-  return `${head} → the band builds, swells and plays busier around ${barRanges(loud)}, then settles.`;
-}
-
-function storyNote(meta) {
-  const ch = meta.chapters;
-  if (ch.length < 2) return null;
-  const parts = [`opens in ${meta.rootName} ${ch[0].label}`];
-  for (const c of ch.slice(1)) {
-    parts.push(c.turn === "darker"
-      ? `darkens to ${c.label} at ${hourLabel(c.bar)} as the weather turns`
-      : `clears to ${c.label} at ${hourLabel(c.bar)}`);
-  }
-  return `The day's story: ${parts.join(" → ")}.`;
-}
-
-/** One line for the shape of the day: "Calm until 9 am → builds → peaks at 1 pm → a cool breeze from 3 pm." */
-export function arcSummary(arc) {
-  if (!arc.dramatic) return "A calm day: no big swells, just the small shifts of the weather.";
-  const words = { calm: (b) => (b === 0 ? "Calm start" : `settles from ${hourLabel(b)}`),
-    build: (b) => `builds from ${hourLabel(b)}`, peak: (b) => `peaks from ${hourLabel(b)}`,
-    release: (b, m) => (m.breeze ? `breaks into a cool breeze at ${hourLabel(b)}` : `eases off at ${hourLabel(b)}`) };
-  const parts = arc.moments.map((m) => words[m.phase](m.bar, m));
-  const s = parts.join(" → ");
-  return s[0].toUpperCase() + s.slice(1) + ".";
-}
-
 /**
- * Liner notes as data: { story: [sentences], groups: [{ id, title, items: [{ cause, effect }] }] }.
- * cause is the weather, effect is what it does to the music.
+ * Liner notes: one short paragraph, { paragraphs: [text] }. It says what the
+ * weather sets (key, instruments, tune, tempo), how the day is shaped, the most
+ * notable thing in the sky if there is one, and the sunrise and sunset fade.
  */
 function linerNotes(f, A, meta, layers, units) {
   const s = A.stats;
-  const r1 = (x) => Math.round(x * 10) / 10;
-  const pct = (x) => Math.round(x * 100);
-  const sky = s.cloud < 0.2 ? "Clear skies" : s.cloud < 0.5 ? "Partly cloudy"
-    : s.cloud < 0.8 ? "Mostly cloudy" : "Overcast";
-  const groups = [
-    { id: "harmony", title: "Key & harmony", items: [] },
-    { id: "melody", title: "Melody & rhythm", items: [] },
-    { id: "voices", title: "Instruments", items: [] },
-    { id: "dynamics", title: "Dynamics", items: [] },
-    { id: "texture", title: "Texture & space", items: [] },
-  ];
-  const add = (id, cause, effect) => groups.find((g) => g.id === id).items.push({ cause, effect });
-  const split = (id, text) => { // "cause → effect." from the older helpers
-    const [c, e] = text.replace(/\.$/, "").split(" → ");
-    add(id, c, cap(e));
-  };
-
-  // ---- The story, in plain sentences ----
-  const story = [arcSummary(meta.arc)];
-  const chapters = storyNote(meta);
-  if (chapters) story.push(chapters.replace(/^The day's story: /, "The mood "));
-  if (meta.arc.dramatic) story.push("Drums gather as the weather builds; the release plays sparser, longer notes in a bigger room.");
-  else {
-    const lively = meta.stir.map((x, b) => (x >= M.CALM_DETAIL.busier ? b : -1)).filter((b) => b >= 0);
-    story.push(lively.length
-      ? `The music still follows the day's small changes, leaning in at ${barRanges(lively)} when the breeze, clouds or rain chance shift most.`
-      : "The day barely changes, so the music only breathes gently with it.");
-  }
-
-  // ---- Key & harmony ----
-  add("harmony", `${sky}${A.storm ? " with storms" : ""}, ${pct(s.cloud)}% cloud, ${pct(s.pop)}% chance of ${A.snow ? "snow" : "rain"}`,
-    `${meta.rootName} ${meta.modeLabel}${MODE_HINTS[meta.mode]}`);
-  add("harmony", `Average pressure ${Math.round(s.pressure)} hPa`, `Key of ${meta.rootName}`);
-  const change = r1(s.pressureChange);
-  add("harmony", `Pressure ${A.trend === "steady" ? "holds steady" : A.trend} (${change > 0 ? "+" : ""}${change} hPa)`,
-    `Chords ${meta.progression.join("–")}`);
-
-  // ---- Melody & rhythm ----
-  add("melody", `High ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)}, low ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)}`,
-    "The melody's highest and lowest points");
-  add("melody", `Average wind ${formatSpeed(s.wind, units)}`, `${A.bpm} BPM`);
-  add("melody", `Gusts up to ${formatSpeed(s.gustMax, units)}`, "How busy the melody gets");
-  split("melody", grooveNote(s, meta, layers.melody));
-  for (const [feel, why] of [["half", s.tMean < M.BASS_FEEL.halfMeanTemp ? "Freezing air" : "Still air, fog or snow"],
-    ["double", "The roughest hours"]]) {
-    const bars = meta.bassFeel.map((x, b) => (x === feel ? b : -1)).filter((b) => b >= 0);
-    if (bars.length) add("melody", why, `${feel === "half" ? "Half" : "Double"}-time bass at ${barRanges(bars)}`);
-  }
-
-  // ---- Instruments ----
+  const H = f.hours;
   const v = A.voices;
-  const padWhy = { storm: "Stormy day", snow: "Snowy day", rain: "Wet day", ghost: "Cool, grey drizzle", overcast: "Grey sky",
-    icy: "Clear, freezing sky", lush: "Clear, humid sky", airy: "Clear, dry sky" }[v.pad.id];
-  add("voices", `Average ${formatTemp(s.tMean, units)}`, `${cap(v.melody.label)} on the melody`);
-  add("voices", padWhy, `${cap(v.pad.label)} on the pad`);
-  if (layers.drums?.length) add("voices", "A storm on the way", "Low storm drums that gather into a roll");
-  const beatBars = [...new Set(layers.garage.map((n) => n.bar))];
-  const kickBars = [...new Set(layers.garage.filter((n) => n.kind === "kick").map((n) => n.bar))];
-  if (beatBars.length) add("voices", "Rain falling", `A skippy, shuffled beat at ${barRanges(beatBars)}${kickBars.length ? `; the kick joins in the heavier rain at ${barRanges(kickBars)}` : ""}`);
-  if (meta.bassSub >= 0.5) add("voices", `${pct(s.cloud)}% cloud`, meta.bassSub >= 0.9 ? "A deep, round sub bass" : "A rounder, softer bass");
+  const join = (parts) => parts.filter(Boolean).join(" ");
+  const an = (w) => `${/^(8|11|18)(\D|$)/.test(w) ? "an" : "a"} ${w}`;
+  const listOf = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] ?? "");
 
-  // ---- Dynamics ----
-  split("dynamics", dynamicsNote(f, A, units));
-  const greyBars = f.hours.map((h, b) => (h.cloud >= (M.MELODY.overcastFrom + 100) / 2 ? b : -1)).filter((b) => b >= 0);
-  if (greyBars.length) add("dynamics", "Heavy cloud", `The melody steps back and plays quieter at ${barRanges(greyBars)}`);
-  const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
-  if (capeLevel(meta.capeMax) > 0) add("dynamics", `Unstable air (CAPE up to ${Math.round(meta.capeMax)} J/kg, storm fuel)`,
-    `The band swells and ${meta.drive >= 0.4 ? "drives hard" : "picks up grit"}`);
-  if (gritty.length) add("dynamics", "Rough weather", `${meta.drive >= 0.4 ? "Heavy" : "Light"} distortion at ${barRanges(gritty)}`);
-  if (Math.max(...layers.automation.eqLow) >= 1.5) add("dynamics", "Wind", "Extra bass weight in the gustiest hours");
+  const feel = s.tMean < -10 ? "bitterly cold" : s.tMean < 0 ? "freezing" : s.tMean < 8 ? "cold" : s.tMean < 15 ? "cool"
+    : s.tMean < 22 ? "mild" : s.tMean < 28 ? "warm" : s.tMean < 34 ? "hot" : "scorching";
+  const sky = A.storm ? "stormy" : A.snow && s.pop >= 0.3 ? "snowy" : s.pop >= 0.5 ? "rainy"
+    : s.cloud < 0.2 ? "clear" : s.cloud < 0.5 ? "partly cloudy" : s.cloud < 0.8 ? "mostly cloudy" : "overcast";
+  const melodyNoun = MELODY_PHRASE[v.melody.id]?.replace(/ plays?$/, "") ?? v.melody.label;
+  const padNoun = PAD_PHRASE[v.pad.id]?.replace(/ holds?$/, "") ?? v.pad.label;
+  const sets = `A ${feel}, ${sky} day puts the song in ${meta.rootName} ${meta.modeLabel}${MODE_HINTS[meta.mode]}, with ${melodyNoun} on the melody over ${padNoun}.`;
+  const drives = `The tune follows the temperature, from ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} to ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)}, and ${an(formatSpeed(s.wind, units))} average wind sets the tempo at ${A.bpm} BPM.`;
 
-  // ---- Texture & space ----
-  const dull = mean(layers.automation.eqHigh);
-  if (dull <= -2) add("texture", s.cloud >= 0.5 ? "Cloud" : "Fog", `Treble turned down about ${Math.round(-dull)} dB`);
-  const kinds = {};
-  for (const a of layers.atmosphere) if (a.kind) (kinds[a.kind] ||= []).push(a.bar);
-  const kindText = { fog: ["Fog", "A faint hiss"], drizzle: ["Drizzle", "Light white noise"],
-    rain: ["Rain", "Pink-noise rainfall"], showers: ["Showers", "Bursts of pink noise"],
-    snow: ["Snow", "Bells and a muffled hush"], storm: ["Storm hours", "Deep brown noise and thunder"] };
-  for (const [k, bars] of Object.entries(kinds)) add("texture", kindText[k][0], `${kindText[k][1]} at ${barRanges(bars)}`);
-  const shakerBars = [...new Set(layers.rain.map((n) => n.bar))];
-  if (shakerBars.length) add("texture", "Chance of rain", `Shakers at ${barRanges(shakerBars)}; likelier rain, more hits`);
-  const windy = layers.atmosphere.filter((a) => a.wind > 0).map((a) => a.bar);
-  if (windy.length) add("texture", "Strong gusts", `Wind noise at ${barRanges(windy)}`);
-  if (f.sunrise != null) add("texture", `Sunrise ${hourLabel(f.sunrise)}, sunset ${hourLabel(f.sunset)}`, "A cymbal swell for each");
-  else if (f.hours.every((h) => !h.isDay)) add("texture", "Polar night, no sunrise", "Night-time tone all the way through");
-  else add("texture", "Midnight sun, no sunset", "No sunrise or sunset swell");
-  add("texture", `Humidity ${Math.round(s.rh)}%`, `${pct(layers.automation.reverbWet)}% reverb`);
-  const crackleBars = [...new Set(layers.crackle.map((n) => n.bar))];
-  if (crackleBars.length) add("texture", "Damp air under cloud", `Vinyl crackle at ${barRanges(crackleBars)}`);
+  let shape;
+  if (!meta.arc.dramatic) {
+    shape = "It's a calm day, so the music stays even and only breathes with the weather.";
+  } else {
+    const peaks = meta.arc.moments.filter((m) => m.phase === "peak").map((m) => hourLabel(m.bar));
+    const at = A.intensity.indexOf(Math.max(...A.intensity));
+    const h = H[at];
+    const why = [];
+    if (M.THUNDER_CODES.includes(h.code)) why.push("thunder");
+    else if (h.precip >= 0.5) why.push(`heavy ${M.SNOW_CODES.includes(h.code) ? "snow" : "rain"}`);
+    if (h.gust >= M.DYNAMICS.gustFrom) why.push("strong gusts");
+    shape = `The weather peaks ${peaks.length > 1 ? `twice, at ${listOf(peaks)}` : `at ${peaks[0] ?? hourLabel(at)}`}${why.length ? ` with ${listOf(why)}` : ""}, and the music swells with it before easing off.`;
+  }
 
-  return { story, groups: groups.filter((g) => g.items.length) };
+  const daylight = f.sunrise != null && f.sunset > f.sunrise
+    ? `The melody fades in around sunrise and out around sunset.`
+    : H.every((h) => !h.isDay) ? "With no sunrise in the polar night, the melody stays dim all day."
+      : "Under the midnight sun, the melody plays at full strength all day.";
+
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), daylight])] };
 }
 
-const cap = (t) => t[0].toUpperCase() + t.slice(1);
+const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);
 
-/** The notes as plain lines ("cause → effect."), for tests and the text summary. */
+/** The single most notable thing in the sky or the air today, as one sentence (or ""). Rarest first. */
+function skyNote(f, K, layers, units) {
+  const has = (k) => layers.chimes.some((c) => c.kind === k);
+  const lights = f.lat >= 0 ? "northern lights" : "southern lights";
+  const kp = Math.round(K.kpMax * 10) / 10;
+  if (K.eclipse) return `A ${K.eclipse.type} lunar eclipse at ${hourLabel(K.eclipse.hour)} takes the moonlight out of the song.`;
+  if (K.aurora.some((a) => a >= M.AURORA.min)) return `The ${lights} are within reach (Kp ${kp}), so a slow, shimmering chord drifts overhead.`;
+  if (K.shower && has("meteor")) return `Shooting stars from the ${K.shower.name} streak down through the bells.`;
+  if (K.season) return `The ${K.season.name} (${K.season.meaning}) is rung in with a bell.`;
+  if (K.holiday) return `It's ${K.holiday.name}, a public holiday, so the song signs off with a run of bells.`;
+  if (K.firstFrost) return "It's the first frost of the season, and the still hours glint with icy bells.";
+  if (K.auroraReach.some((r, b) => r >= M.AURORA.min && K.dark[b] >= 0.9)) return `The ${lights} are within reach tonight (Kp ${kp}), but cloud hides them.`;
+  if (K.shower) return `It's the ${K.shower.name}, but they're hidden tonight.`;
+  if (K.moonUpAtNight && Math.max(...K.moonlight) >= 0.15 && K.moon.illum >= 0.9) return `A ${moonNoun(K.moon.phase)} keeps the night from going dark.`;
+  return "";
+}
+
+/** The notes as plain lines, for tests and the text summary. */
 export function notesAsText(liner) {
-  return [...liner.story, ...liner.groups.flatMap((g) => g.items.map((it) => `${it.cause} → ${it.effect}.`))];
+  return [...liner.paragraphs];
 }

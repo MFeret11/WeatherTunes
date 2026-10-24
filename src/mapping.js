@@ -23,11 +23,15 @@ export const BRIGHTNESS = {
   storm: 0.2,          // subtracted on storm days (see STORM)
 };
 // Brightest first. Lydian also needs a warm day, or it falls through to Ionian.
+// Set from 89 ordinary days (2026-10-24): typical dry days score about 0.63–0.89
+// and typical wet days 0.38–0.67, so the bands are narrow where most days fall.
+// A clear day is Lydian or major, partly cloudy Mixolydian, grey Dorian, wet
+// minor; Phrygian is left for downpours and storms.
 export const MODE_THRESHOLDS = [
-  { mode: "lydian", min: 0.9, minMeanTemp: 15 },
-  { mode: "ionian", min: 0.7 },
-  { mode: "mixolydian", min: 0.55 },
-  { mode: "dorian", min: 0.4 },
+  { mode: "lydian", min: 0.88, minMeanTemp: 15 },
+  { mode: "ionian", min: 0.76 },
+  { mode: "mixolydian", min: 0.66 },
+  { mode: "dorian", min: 0.56 },
   { mode: "aeolian", min: 0.2 },
   { mode: "phrygian", min: -Infinity },
 ];
@@ -47,10 +51,13 @@ export const SNOW_CODES = [71, 73, 75, 77, 85, 86];
 //            with a cymbal swell
 //   margin   how far past a band edge the brightness must go (stops flicker)
 //   minChords a chapter lasts at least this many chords
-export const STORY = { precipHourFullMm: 3, smooth: [0.2, 0.6, 0.2], margin: 0.1, minChords: 2 };
+export const STORY = { precipHourFullMm: 3, smooth: [0.2, 0.6, 0.2], margin: 0.07, minChords: 2 };
 
 // ---- Key, tempo, register ------------------------------------------------
-export const TEMPO = { base: 120, perKmh: 1, min: 120, max: 156 };
+// bpm = base + perKmh × mean wind (km/h). Ordinary days average 4–19 km/h, so
+// the slope is steep enough to spread them: still air ~110, a breeze ~126,
+// a windy day 150+. Gales hit the ceiling.
+export const TEMPO = { base: 100, perKmh: 2.6, min: 100, max: 156 };
 export const MELODY = {
   spanSteps: 10,       // the day's temperature range covers this many scale steps
   minSpanC: 8,         // flat days are spread over at least this many °C
@@ -65,6 +72,10 @@ export const MELODY = {
   // while the pad, bass and atmosphere stay as they are. (This is a level
   // change after the melody's compressor, so the compressor can't undo it.)
   overcastFrom: 50, overcastDb: -6,
+  // The melody is the daylight: it plays at nightDb between sunset and sunrise and
+  // fades over fadeHours centred on each (on a day with both). Cloud and night
+  // together never take it below floorDb.
+  nightDb: -10, fadeHours: 3, floorDb: -12,
 };
 
 // Notes per hour from wind gusts (km/h): first row whose maxGust exceeds the gust.
@@ -81,6 +92,13 @@ export const RHYTHMS = {
   3: [[4, 2, 2], [2, 2, 4], [3, 3, 2]],
   4: [[2, 2, 2, 2], [3, 1, 2, 2]],
 };
+// Steady weather holds a note: when the melody would strike the same pitch again
+// straight away, and the hour is steady, the two become one longer note (up to
+// maxSteps sixteenths, a whole note). The same pitch already means the
+// temperature held; the hour is steady when, compared with the hour before,
+// gusts moved less than gustKmh, cloud less than cloud %, rain chance less than
+// pop % and rainfall less than precipMm. A new section always strikes a fresh note.
+export const HOLD = { maxSteps: 16, gustKmh: 8, cloud: 20, pop: 20, precipMm: 1 };
 export const REST_PER_CLOUD = 0.3;   // rest chance = this × cloud cover (0–1)
 export const NEIGHBOR_CHANCE = 0.7;  // when the line would repeat a note, step away instead
 
@@ -150,6 +168,30 @@ export const BASS_FEEL = {
   half: [[0, 12, 0], [12, 4, 7]],
 };
 export const PAD = { velMin: 0.25, velPerCloud: 0.45, center: 60 };
+
+// ---- Chord colour: each chord's two hours add notes and shape the voicing ----
+//   seventh  the dew point fades in the chord's 7th, from dewFrom °C to full at
+//            dewFull: muggy air sounds lush and jazzy
+//   ninth    clear daylight, (1 − cloud) × daylight, fades in the 9th from
+//            `from` to full at `full`: an open, airy sound
+//   sus2     fog (susFogCodes) swaps the third for the second: neither major nor minor, hazy
+//   sus4     pressure moving at least sus4PressureHpa over the two hours (a front
+//            passing) swaps the third for the fourth: the chord hangs, unresolved
+//   open     a mean wind of at least openWind km/h spreads the chord over more than an octave
+// Colour notes sit above the chord at vel × the pad's velocity × the amount, and
+// are left out under `min`. Only notes in the mode are used, and only a whole-tone
+// 9th or 2nd and a perfect 4th, so nothing lands a half step from the root.
+// The final chord can take a 7th or 9th, but never a sus: the song ends resolved.
+// Pad notes stay between voicing.low and voicing.high (MIDI), each moving as
+// little as it can from the last chord (voice leading).
+export const CHORD_COLOUR = {
+  seventh: { dewFrom: 10, dewFull: 20 },
+  ninth: { from: 0.5, full: 0.9 },
+  susFogCodes: [45, 48], sus4PressureHpa: 2.5,
+  openWind: 25,
+  vel: 0.8, min: 0.15,
+  voicing: { low: 53, high: 74, openSpan: 12 },
+};
 export const RAIN = { minPop: 10, maxHits: 5, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
 export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 
@@ -275,15 +317,43 @@ export const RAIN_BEAT = {
   vel: { kick: 0.75, snare: 0.5, hat: 0.3, ghost: 0.14 }, humanize: 0.06,
 };
 
+// Dry beat: the same kit, softer, in the hours the rain beat leaves alone (no
+// rain, no snow, not a storm's build or peak, not the last hour). Each part
+// follows one measurement of that hour; steps are sixteenths in the hour (0–7).
+//   hats  the wind (km/h): the first row whose maxWind is above it. Still air
+//         has none; a breeze ticks the off-beats; stronger wind fills in.
+//         Louder with the gusts: hatVel + hatPerGust × gust (km/h), up to hatMax.
+//   kick  the feels-like temperature (°C): the first row whose maxFeels is above it.
+//         Cold air is a slow heartbeat (once per chord), mild air lands on each
+//         beat 1, hot air adds a push into the next hour.
+//   rim   clear sky: a backbeat on the hour's second beat, fading out as the
+//         cloud reaches rimMaxCloud %.
+export const DRY_BEAT = {
+  hats: [
+    { maxWind: 8, steps: [] },
+    { maxWind: 18, steps: [2, 6] },
+    { maxWind: 30, steps: [0, 2, 4, 6] },
+    { maxWind: Infinity, steps: [0, 1, 2, 3, 4, 5, 6, 7] },
+  ],
+  hatVel: 0.14, hatPerGust: 0.004, hatMax: 0.32, hatOffAccent: 1.25,
+  kick: [
+    { maxFeels: 5, steps: [0], perChord: true },
+    { maxFeels: 24, steps: [0] },
+    { maxFeels: Infinity, steps: [0, 6] },
+  ],
+  kickVel: 0.5,
+  rimVel: 0.32, rimMaxCloud: 60,
+  humanize: 0.05,
+};
+
 // ---- Groove and articulation ------------------------------------------------
-// Humid air swings and slurs; dry air plays straight; cold air plays clipped.
-//   swing  the day's mean humidity: 0 below swingFromRh, swingMax at swingFullRh
-//          (Tone's swing on sixteenths: 0 straight, 0.5 a lazy shuffle), faded
-//          out on cold days: none at a mean of clipFromC, full from swingWarmC up
+// Muggy air swings and slurs; dry air plays straight; cold air plays clipped.
+//   swing  up to swingMax from the day's mean dew point (see DEW below)
+//          (Tone's swing on sixteenths: 0 straight, 0.5 a lazy shuffle)
 //   gate   each note sounds for this fraction of its length, from that hour's
 //          humidity (gateDry → gateHumid), minus up to clipMax when it's cold
 export const GROOVE = {
-  swingFromRh: 55, swingFullRh: 95, swingMax: 0.5, swingWarmC: 15,
+  swingMax: 0.5,
   rhLow: 30, rhHigh: 100, gateDry: 0.55, gateHumid: 0.98,
   clipFromC: 5, clipFullC: -20, clipMax: 0.3,
   gateMin: 0.3,
@@ -302,7 +372,8 @@ export const PAN_WIDTH = 0.6;
 //   tone    lowpass cutoff (Hz) on this instrument alone
 //   vibrato [rate Hz, depth 0–1]   (melody)   tremolo [rate Hz, depth 0–1] (pad)
 
-// Melody: the day's mean temperature. First row whose maxTemp (°C) is above it.
+// Melody: the day's mean feels-like temperature. First row whose maxTemp (°C) is above it.
+// Most ordinary days feel 7–18 °C, so that range is split between keys and pluck.
 export const MELODY_VOICES = [
   {
     id: "glass", label: "glass bells", maxTemp: -8, synth: "FMSynth", gain: 0, tone: 7000, vibrato: [0, 0],
@@ -321,10 +392,20 @@ export const MELODY_VOICES = [
     },
   },
   {
-    id: "keys", label: "soft keys", maxTemp: 20, synth: "Synth", gain: 0, tone: 8000, vibrato: [0, 0],
+    id: "keys", label: "soft keys", maxTemp: 13, synth: "Synth", gain: 0, tone: 8000, vibrato: [0, 0],
     options: {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.01, decay: 0.2, sustain: 0.4, release: 0.6 },
+    },
+  },
+  {
+    // A soft pluck: a saw whose filter snaps shut, like a nylon string or harp.
+    id: "pluck", label: "plucked strings", maxTemp: 20, synth: "MonoSynth", gain: 0, tone: 5000, vibrato: [0, 0],
+    options: {
+      oscillator: { type: "sawtooth" },
+      filter: { type: "lowpass", Q: 1, rolloff: -24 },
+      envelope: { attack: 0.002, decay: 0.7, sustain: 0.15, release: 0.5 },
+      filterEnvelope: { attack: 0.001, decay: 0.3, sustain: 0.1, release: 0.4, baseFrequency: 250, octaves: 3.5 },
     },
   },
   {
@@ -389,6 +470,22 @@ export const PAD_VOICES = [
   },
 ];
 
+// ---- Mix: each layer's fader (dB) -----------------------------------------------
+// The starting balance before the weather moves anything. melody, bass, pad and
+// drums then share the band's swell (DYNAMICS); the melody also dips under
+// cloud and at night (MELODY).
+export const MIX = { melody: 0, bass: -17, pad: -17, drums: -8, rain: -2, atmosphere: -8, fx: -10 };
+
+// ---- Master soft clip ---------------------------------------------------------
+// The last stage before the speakers. Below `knee` (0–1 of full scale) the
+// signal passes untouched; above it, peaks are rounded off smoothly towards
+// `ceiling`, so a storm's loudest hits get a little warm crunch instead of
+// harsh digital clipping. `headroom` is how far above full scale (×) the
+// input can go before the curve runs out.
+export const SOFT_CLIP = { knee: 0.6, ceiling: 0.97, headroom: 4 };
+// Storm drums (dB): they sit on the bass's note, so they're trimmed to leave it room.
+export const STORM_DRUMS_DB = -3;
+
 // ---- Drive and tone (distortion + 3-band EQ) --------------------------------
 // The band (melody, bass, pad) passes through a distortion whose wet mix
 // follows each hour's energy (see DYNAMICS, which includes CAPE): calm hours
@@ -406,3 +503,65 @@ export const TONE = {
   windFrom: 20, windFull: 70, windBoostDb: 3, stormBoostDb: 2,
   minDb: -9, maxDb: 5,
 };
+
+// ---- Sky and air: the moon, auroras, the calendar, air quality, UV, snow and frost ----
+// Darkness per hour comes from the sun's altitude (see src/sky.js): 0 in daylight,
+// 1 once the sun is `darkSunAlt`° below the horizon.
+export const DARK = { darkSunAlt: 6, auroraSunAlt: 12 };
+
+// Moonlight (0–1) = moon's lit fraction × how high it is (full at fullAlt°) ×
+// darkness × how much cloud lets through (cloudBlock at 100% cloud).
+// At full moonlight the night dims the melody only (1 − nightLift) as much,
+// and the night filter opens by cutoffLift of the way back to daytime.
+// A moonrise after dark rings one bell (needs minIllum of the face lit).
+// During a visible lunar eclipse the moonlight drops to eclipseLight.
+export const MOON = {
+  fullAlt: 15, cloudBlock: 0.85, nightLift: 0.5, cutoffLift: 0.5,
+  minIllum: 0.15, bellVel: [0.25, 0.5], eclipseLight: 0.1,
+  bellClear: 0.5, // the moonrise bell needs at least this much of the moonlight to get through the cloud
+};
+
+// Auroras: reach (from magnetic latitude and Kp, src/sky.js) × proper darkness
+// × clear sky. Chords whose hours reach `min` get a slow, shimmering high chord
+// (vel scaled by the level), two octaves above the pad.
+export const AURORA = { min: 0.25, vel: 0.55, clearPower: 1.5 };
+
+// Meteor showers: in dark, clear hours (cloud under maxCloud) a run of three
+// falling bell notes, "shooting stars". Count per hour = perHour × zhr/100,
+// fewer (offPeak) a day either side of the peak and under bright moonlight;
+// at most maxPerHour and maxTotal.
+export const METEORS = { maxCloud: 50, perHour: 1.6, offPeak: 0.6, moonDim: 0.6, maxPerHour: 2, maxTotal: 8, vel: 0.32 };
+
+// Air quality (US AQI): haze from `from` (well into "moderate") to full at `full` (unhealthy).
+// Haze dulls the top end (hazeCutDb), lowers the master filter by cutoffCut,
+// and adds dusty crackle (as much as crackle × the CRACKLE amount at full haze).
+// The liner notes mention it from `mention` haze up.
+export const AIR = { from: 75, full: 175, hazeCutDb: -4, cutoffCut: 0.3, crackle: 0.7, mention: 0.15 };
+
+// UV index: from `from` (moderate), sunny hours double the melody an octave up
+// on a soft sine, reaching vel at `full` (very high).
+export const UV = { from: 3, full: 9, vel: 0.3 };
+
+// Dew point (°C) sets the swing, since it's what makes air feel muggy:
+// straight at or below swingFromDew, GROOVE.swingMax at swingFullDew.
+// The melody instrument follows the feels-like temperature (MELODY_VOICES),
+// so a humid 30 °C and a dry 30 °C day can sound different.
+export const DEW = { swingFromDew: 10, swingFullDew: 22 };
+
+// Snow on the ground (cm) soaks up sound: from 0 to fullCm it takes away up to
+// reverbCut of the reverb and highCutDb of the top end.
+export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
+
+// Frost: clear, still hours at or below maxTemp °C (cloud under maxCloud %,
+// wind under maxWind km/h, nothing falling) between midnight and `until`
+// get a glint, one tiny high bell (two on the season's first frost).
+// The first frost is a day that drops to 0 °C after at least minHistory
+// frost-free days.
+export const FROST = { maxTemp: 0.5, maxCloud: 60, maxWind: 18, until: 10, minHistory: 30, vel: 0.18 };
+
+// A public holiday signs off with a rising bell arpeggio over the last chord.
+// A solstice or equinox rings a bell at the moment it happens.
+export const CALENDAR = { holidayVel: 0.4, seasonVel: 0.35 };
+
+// Bells for all of the above sit in this range (MIDI), above the snow bells.
+export const CHIMES = { low: 72, high: 100 };

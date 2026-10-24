@@ -12,16 +12,24 @@
 import { normalizeForecast } from "../src/weather.js";
 import { compose } from "../src/compose.js";
 const names = ["phoenix-heat", "kyoto-spring", "london-drizzle", "mumbai-monsoon", "houston-storms",
-  "oslo-snow", "mcmurdo-cold", "honolulu-flat", "reykjavik-wind"];
+  "oslo-snow", "mcmurdo-cold", "honolulu-flat", "reykjavik-wind", "philadelphia-autumn"];
 const lines = [];
 for (const n of names) {
   const s = compose(normalizeForecast(await (await fetch(`../samples/${n}.json`)).json()));
   const m = s.meta;
   lines.push(`== ${n}: ${m.rootName} ${m.modeLabel}, ${m.bpm} BPM, ${m.progression.join("–")} (brightness ${m.brightness})`);
-  lines.push(`   melody (${s.melody.length} notes): ` + s.melody.filter((x) => x.pos === 0).map((x) => x.note).join(" "));
+  lines.push(`   melody (${s.melody.length} notes, ${m.heldNotes} held; repeats left ${s.melody.filter((x, i) => i && x.midi === s.melody[i - 1].midi).length}): ` + s.melody.filter((x) => x.pos === 0).map((x) => x.note).join(" "));
+  lines.push("   chords: " + s.pad.map((c) => `${m.chordNames[c.bar]} [${c.notes.join(" ")}${c.colour.length ? " + " + c.colour.map((x) => x.note).join(" ") : ""}]`).join("  "));
+  for (let b = 0; b < 24; b += 6) lines.push(`   beat ${b}-${b + 5}h: ` + [b, b + 1, b + 2, b + 3, b + 4, b + 5].map((h) => {
+    const g = Array(8).fill(".");
+    for (const x of s.beat.filter((x) => x.bar === h)) g[x.pos] = { kick: "K", snare: "S", hat: g[x.pos] === "." ? "h" : g[x.pos] }[x.kind] ?? g[x.pos];
+    for (const x of s.garage.filter((x) => x.bar === h)) g[x.pos] = "r";
+    return g.join("");
+  }).join(" "));
   for (const t of m.notes) lines.push("   · " + t);
 }
 document.getElementById("out").textContent = lines.join("\n");
+fetch("/__result", { method: "POST", body: lines.join("\n") }).catch(() => {});
 </script>
 </body>
 </html>

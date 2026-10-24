@@ -1,7 +1,7 @@
 // describe(forecast, units) → a few plain sentences about the day's weather,
 // like a forecaster would say it. Weather only; no music here.
 
-import { hourLabel, formatSpeed } from "./compose.js";
+import { hourLabel, formatSpeed, daySky, aqiCategory, uvCategory } from "./compose.js";
 import { THUNDER_CODES, SNOW_CODES } from "./mapping.js";
 
 // Brightest first, so we can tell "clearing" from "turning".
@@ -81,14 +81,20 @@ function tempSentence(H, units) {
   const temps = H.map((h) => h.temp);
   const lo = Math.min(...temps), hi = Math.max(...temps);
   const mean = temps.reduce((a, b) => a + b, 0) / temps.length;
-  const rh = H.reduce((a, h) => a + h.rh, 0) / H.length;
+  const dew = H.reduce((a, h) => a + (h.dew ?? 0), 0) / H.length;
   const feel = mean < -10 ? "Bitterly cold" : mean < 0 ? "Freezing" : mean < 8 ? "Cold" : mean < 15 ? "Cool"
     : mean < 22 ? "Mild" : mean < 28 ? "Warm" : mean < 34 ? "Hot" : "Scorching";
-  const muggy = mean >= 20 && rh >= 75 ? " and muggy" : mean < 28 && rh <= 30 ? " and dry" : "";
+  // The dew point says how sticky the air feels, whatever the temperature.
+  const muggy = dew >= 21 ? " and oppressively humid" : dew >= 18 ? " and muggy" : mean >= 10 && dew <= 0 ? " and dry" : "";
   const t = (c) => (units === "us" ? `${Math.round((c * 9) / 5 + 32)} °F` : `${Math.round(c)} °C`);
-  const loAt = hourLabel(temps.indexOf(lo)), hiAt = hourLabel(temps.indexOf(hi));
-  if (Math.round(hi) - Math.round(lo) <= 2) return `${feel}${muggy}, holding near ${t(mean)} all day.`;
-  return `${feel}${muggy}, with a low of ${t(lo)} at ${loAt} and a high of ${t(hi)} at ${hiAt}.`;
+  const loI = temps.indexOf(lo), hiI = temps.indexOf(hi);
+  const loAt = hourLabel(loI), hiAt = hourLabel(hiI);
+  // Feels-like at the extremes: humidity at the warmest hour, wind at the coldest.
+  const feelsHi = H[hiI].feels, feelsLo = H[loI].feels;
+  const hot = feelsHi != null && feelsHi - hi >= 3 ? `, feeling like ${t(feelsHi)}` : "";
+  const chill = feelsLo != null && lo - feelsLo >= 4 ? ` (feeling like ${t(feelsLo)} in the wind)` : "";
+  if (Math.round(hi) - Math.round(lo) <= 2) return `${feel}${muggy}, holding near ${t(mean)} all day${hot || chill}.`;
+  return `${feel}${muggy}, with a low of ${t(lo)} at ${loAt}${chill} and a high of ${t(hi)} at ${hiAt}${hot}.`;
 }
 
 function windSentence(H, units) {
@@ -110,7 +116,20 @@ function rainSentence(H, units) {
   return snow ? `About ${amount} of melted snow in all.` : `About ${amount} of rain in all.`;
 }
 
+/** Air quality, UV, snow on the ground and frost: only when they're worth a mention. */
+function airSentences(f, units) {
+  let K;
+  try { K = daySky(f); } catch { return []; }
+  const out = [];
+  if (K.snowCm >= 1) out.push(`About ${units === "us" ? `${Math.round(K.snowCm / 2.54)}\u00a0in` : `${Math.round(K.snowCm)}\u00a0cm`} of snow on the ground.`);
+  if (K.firstFrost) out.push("The first frost of the season.");
+  else if (K.frostHours.length) out.push("Frost likely early.");
+  if (K.aqiMax != null && K.aqiMax > 100) out.push(`Air quality is ${aqiCategory(K.aqiMax)} (AQI ${Math.round(K.aqiMax)}) around ${hourLabel(K.aqiMaxHour)}.`);
+  if (K.uvMax != null && K.uvMax >= 8) out.push(`UV is ${uvCategory(K.uvMax)} around ${hourLabel(K.uvMaxHour)}.`);
+  return out;
+}
+
 export function describe(f, units = "metric") {
   const H = f.hours;
-  return [skySentence(H), tempSentence(H, units), windSentence(H, units), rainSentence(H, units)].filter(Boolean).join(" ");
+  return [skySentence(H), tempSentence(H, units), windSentence(H, units), rainSentence(H, units), ...airSentences(f, units)].filter(Boolean).join(" ");
 }

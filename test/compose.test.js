@@ -1,7 +1,7 @@
 import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
-import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels } from "../src/compose.js";
-import { MODES, melodyDegrees, triadPcs, chordLabel } from "../src/theory.js";
+import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels, chordColour, voiceChord } from "../src/compose.js";
+import { MODES, melodyDegrees, triadPcs, chordLabel, stepAbove } from "../src/theory.js";
 import * as M from "../src/mapping.js";
 
 export const FIXTURES = [
@@ -17,7 +17,8 @@ const scores = Object.fromEntries(FIXTURES.map((n) => [n, compose(forecasts[n])]
 const each = (fn) => { for (const n of FIXTURES) fn(n, scores[n], forecasts[n]); };
 // Each bar has its own mode (the day's story) and chord.
 const melodyPcs = (s, bar) => { const m = s.meta.barModes[bar]; return new Set(melodyDegrees(m, s.meta.snow).map((d) => (s.meta.root + MODES[m][d]) % 12)); };
-const chordAt = (s, bar) => triadPcs(s.meta.root, s.meta.barModes[bar], s.meta.chordDegrees[bar]);
+// The chord as played: its triad, or a sus chord with the third swapped (see CHORD_COLOUR).
+const chordAt = (s, bar) => s.meta.chordPcs[bar];
 
 // ---- weather.js ----------------------------------------------------------
 
@@ -76,8 +77,7 @@ test("beats 1 and 3 are chord tones", () => each((n, s) => {
 test("sections end on the root or fifth (or a chord tone), the piece ends on the root", () => each((n, s) => {
   const tonic = [s.meta.root, (s.meta.root + 7) % 12];
   for (const sec of M.SECTIONS.slice(1).map((x) => x.start - 1).concat([M.BARS - 1])) {
-    const notes = s.melody.filter((x) => x.bar === sec);
-    const lastNote = notes[notes.length - 1];
+    const lastNote = s.melody.filter((x) => x.bar <= sec).pop(); // may be held from an earlier hour
     const chord = chordAt(s, sec);
     const want = chord.some((pc) => tonic.includes(pc)) ? tonic : chord; // half cadence if the chord lacks both
     assert(want.includes(lastNote.midi % 12), `${n} section ending bar ${sec + 1}: ${lastNote.note}`);
@@ -99,18 +99,18 @@ test("all notes stay between C2 and C7", () => each((n, s) => {
 }));
 
 test("rhythms fit their bars without overlapping", () => each((n, s) => {
-  for (const layer of ["melody"]) {
-    for (let b = 0; b < M.BARS; b++) {
-      const notes = s[layer].filter((x) => x.bar === b);
-      assert(notes.length > 0, `${n} ${layer} bar ${b} is empty`);
-      let end = 0;
-      for (const x of notes) {
-        assert(x.pos >= end, `${n} ${layer} bar ${b} overlaps`);
-        end = x.pos + x.dur;
-      }
-      assert(end <= M.STEPS, `${n} ${layer} bar ${b} runs over`);
-    }
+  // Notes never overlap; a note may run into later hours only as a held note.
+  let end = 0;
+  const covered = new Set();
+  for (const x of s.melody) {
+    const start = x.bar * M.STEPS + x.pos;
+    assert(start >= end, `${n} melody bar ${x.bar} overlaps`);
+    assert(x.dur <= M.HOLD.maxSteps, `${n} melody bar ${x.bar} longer than a whole note`);
+    end = start + x.dur;
+    for (let t = start; t < end; t++) covered.add(Math.floor(t / M.STEPS));
   }
+  assert(end <= M.BARS * M.STEPS, `${n} melody runs past the end`);
+  for (let b = 0; b < M.BARS; b++) assert(covered.has(b), `${n} melody hour ${b} is silent`);
 }));
 
 test("bass fits each chord without overlapping (half-time spans the chord)", () => each((n, s) => {
@@ -160,7 +160,7 @@ test("atmosphere follows conditions", () => {
 });
 
 test("liner notes are filled in", () => each((n, s) => {
-  assert(s.meta.notes.length >= 6, n);
+  assert(s.meta.notes.length === 1 && s.meta.notes[0].length > 120 && s.meta.notes[0].length < 900, n);
   for (const line of s.meta.notes) assert(!/undefined|NaN|null/.test(line), `${n}: ${line}`);
 }));
 
@@ -184,11 +184,11 @@ test("units change the wording, never the music", () => {
 test("climate picks the instruments", () => {
   const expect = {
     "mcmurdo-cold": ["glass", "icy"],
-    "oslo-snow": ["flute", "snow"],
+    "oslo-snow": ["glass", "snow"], // −5 °C, but the snowstorm's wind makes it feel like −11 °C
     "reykjavik-wind": ["flute", "storm"], // a gale with rain counts as a storm
     "kyoto-spring": ["keys", "airy"],
     "philadelphia-autumn": ["keys", "airy"],
-    "london-drizzle": ["keys", "ghost"],
+    "london-drizzle": ["pluck", "ghost"],
     "honolulu-flat": ["mallet", "lush"],
     "houston-storms": ["mallet", "storm"],
     "mumbai-monsoon": ["mallet", "rain"],
@@ -246,7 +246,7 @@ test("dynamics: busy bars step up a density row", () => {
 });
 
 test("dynamics: the liner notes mention it", () => each((n, s) => {
-  assert(s.meta.notes.some((l) => /Calm all day|Weather peaks/.test(l)), n);
+  assert(s.meta.notes.some((l) => /calm day|weather peaks/i.test(l)), n);
 }));
 
 test("groove: humidity swings and slurs, cold clips", () => {
@@ -367,7 +367,18 @@ test("overcast hours play the melody quieter", () => {
   assert(grey.automation.melodyDb.every((d) => d === M.MELODY.overcastDb), "full cloud → full cut every hour");
   assert(clear.automation.melodyDb.every((d, b) => d <= 0 && (f.hours[b].cloud, true)), "never boosted");
   assert(Math.min(...clear.automation.melodyDb) > M.MELODY.overcastDb, "a clear day keeps most of its melody");
-  assert(JSON.stringify(grey.meta.notes).includes("Heavy cloud"), "liner notes mention it");
+});
+
+test("the melody fades in at sunrise and out at sunset", () => {
+  const s = scores["houston-storms"]; // sunrise 6:20 am, sunset 8:22 pm
+  const day = s.automation.melodyDayDb;
+  const total = day.map((d, b) => d + s.automation.melodyDb[b]);
+  assert(day[2] < 0 && day[12] === 0 && day[23] < 0, "soft at night, full at midday");
+  assert(day[5] <= day[6] && day[6] <= day[7] && day[19] >= day[20] && day[20] >= day[21], "rises at dawn, falls at dusk");
+  assert(day.some((d) => d < 0 && d > M.MELODY.nightDb), "fades through in-between levels");
+  assert(total.every((d) => d >= M.MELODY.floorDb - 0.01), "cloud and night stop at the floor");
+  assert(scores["mcmurdo-cold"].automation.melodyDayDb.every((d) => d === 0), "polar night keeps its melody");
+  assert(JSON.stringify(s.meta.notes).includes("fades in around sunrise"), "liner notes mention it");
 });
 
 test("weather traits: crackle, round bass and the rain beat follow their measurements", () => {
@@ -385,9 +396,202 @@ test("weather traits: crackle, round bass and the rain beat follow their measure
     }
     for (const x of sc.crackle) assert(x.pos >= 0 && x.pos < M.STEPS && x.vel > 0 && x.vel <= 1, `${n} crackle`);
   });
-  // Dry, clear days have none of it.
+  // Dry, clear days have none of it, except dust crackle in hazy air.
   for (const n of ["phoenix-heat", "kyoto-spring", "philadelphia-autumn"]) {
     const sc = scores[n];
-    assert(sc.garage.length === 0 && sc.crackle.length === 0 && sc.meta.bassSub === 0, `${n} is dry and clear`);
+    assert(sc.garage.length === 0 && sc.meta.bassSub === 0, `${n} is dry and clear`);
+    for (const x of sc.crackle) assert(sc.meta.sky.haze[x.bar] > 0, `${n}: crackle only in hazy hours`);
   }
 });
+
+// ---- Sky and air ------------------------------------------------------------
+
+const withDate = (n, date, extras) => ({ ...forecasts[n], date, extras: { ...forecasts[n].extras, ...extras } });
+const inRange = (c) => c.midi >= M.CHIMES.low && c.midi <= M.CHIMES.high;
+
+test("sky extras add parts but never change the rest of the song", () => each((n, s, f) => {
+  const bare = compose({ ...f, extras: {} });
+  for (const k of ["melody", "bass", "pad", "drums", "rain", "bells", "garage"]) equal(bare[k], s[k], `${n} ${k}`);
+  for (const c of s.chimes) assert(inRange(c) && c.vel > 0 && c.vel <= 1 && c.pos >= 0 && c.pos < M.STEPS, `${n} chime ${JSON.stringify(c)}`);
+  for (const x of s.shimmer) assert(x.notes.length && x.vel > 0 && x.vel <= 1, `${n} shimmer`);
+}));
+
+test("songs still compose with no extras and no sky data at all", () => {
+  const f = { ...forecasts["kyoto-spring"], extras: undefined, has: undefined, timezone: undefined };
+  const s = compose(f);
+  assert(s.meta.notes.length === 1 && !/undefined|NaN/.test(s.meta.notes.join(" ")), "notes still read cleanly");
+});
+
+test("moonlight lifts the night, and a visible moonrise rings a bell", () => {
+  const s = scores["philadelphia-autumn"]; // crescent rising at 2:14 am under a clear sky
+  const bell = s.chimes.find((c) => c.kind === "moon");
+  assert(bell && bell.bar === 2, "bell at the moonrise hour");
+  const dark = compose({ ...forecasts["philadelphia-autumn"], date: "2025-10-21" }); // new moon
+  assert(!dark.chimes.some((c) => c.kind === "moon"), "no bell at new moon");
+  const lit = compose({ ...forecasts["phoenix-heat"] }); // 99% lit, up all evening
+  const unlit = compose({ ...forecasts["phoenix-heat"], date: "2025-07-24" }); // new moon
+  assert(lit.automation.melodyDayDb[22] > unlit.automation.melodyDayDb[22], "melody dims less under a bright moon");
+  assert(lit.automation.cutoff[22] > unlit.automation.cutoff[22], "and the filter opens");
+  assert(!scores["london-drizzle"].chimes.some((c) => c.kind === "moon"), "no bell behind thick cloud");
+});
+
+test("auroras: a shimmering chord where they can be seen", () => {
+  const r = scores["reykjavik-wind"]; // Kp 6, gaps in the cloud
+  const a = r.shimmer.filter((x) => x.kind === "aurora");
+  assert(a.length > 0, "Reykjavik gets the chord");
+  for (const x of a) assert(Math.max(...r.meta.sky.aurora.slice(x.bar, x.bar + 2)) >= M.AURORA.min, "only where bright enough");
+  assert(!scores["houston-storms"].shimmer.some((x) => x.kind === "aurora"), "never in Houston, even at Kp 6.7");
+  assert(scores["oslo-snow"].meta.notes.some((t) => /northern lights .* cloud hides them/.test(t)), "a snowstorm hides them, and the notes say so");
+});
+
+test("meteor showers, solstices and holidays", () => {
+  const p = compose(withDate("phoenix-heat", "2025-08-12"));
+  const stars = p.chimes.filter((c) => c.kind === "meteor");
+  assert(stars.length >= 3 && stars.every((c) => p.meta.sky.dark[c.bar] >= 0.9), `Perseids in the dark: ${stars.length}`);
+  assert(p.meta.notes.some((t) => /Perseids/.test(t)), "named in the notes");
+  const sol = compose(withDate("london-drizzle", "2025-12-21"));
+  assert(sol.chimes.filter((c) => c.kind === "season").length === 2 && sol.meta.notes.some((t) => /December solstice .* shortest day/.test(t)), "solstice bell");
+  const hol = compose(withDate("philadelphia-autumn", "2025-10-16", { holidays: [{ name: "Test Day", localName: "Test Day" }] }));
+  const arp = hol.chimes.filter((c) => c.kind === "holiday");
+  assert(arp.length >= 3 && arp.every((c) => c.bar >= M.BARS - 2), "a closing arpeggio");
+  assert(arp.every((c, i) => i === 0 || c.midi > arp[i - 1].midi), "rising");
+  assert(hol.meta.notes.some((t) => /Test Day, a public holiday/.test(t)), "named");
+});
+
+test("haze, UV, snow cover and frost", () => {
+  const ph = scores["phoenix-heat"]; // AQI 108, UV 9
+  assert(ph.crackle.length > 0 && ph.automation.eqHigh.some((d, b) => d < compose({ ...forecasts["phoenix-heat"], extras: {} }).automation.eqHigh[b]), "haze crackles and dulls");
+  assert(ph.shimmer.some((x) => x.kind === "sun") && !scores["london-drizzle"].shimmer.some((x) => x.kind === "sun"), "UV shimmer only under real sun");
+  const os = scores["oslo-snow"]; // 12 cm of snow
+  assert(os.automation.reverbWet < compose({ ...forecasts["oslo-snow"], hours: forecasts["oslo-snow"].hours.map((h) => ({ ...h, snowDepth: 0 })) }).automation.reverbWet, "snow soaks up reverb");
+  const cold = forecasts["philadelphia-autumn"].hours.map((h) => ({ ...h, temp: h.hour < 9 ? -2 : h.temp }));
+  const fr = compose({ ...forecasts["philadelphia-autumn"], hours: cold, extras: { ...forecasts["philadelphia-autumn"].extras, minTemps: Array(40).fill(5) } });
+  assert(fr.meta.sky.firstFrost && fr.chimes.some((c) => c.kind === "frost"), "first frost glints");
+  assert(fr.meta.notes.some((t) => /first frost of the season/.test(t)), "and is named");
+  const notFirst = compose({ ...forecasts["philadelphia-autumn"], hours: cold, extras: { ...forecasts["philadelphia-autumn"].extras, minTemps: [5, -1, ...Array(38).fill(5)] } });
+  assert(!notFirst.meta.sky.firstFrost, "an earlier frost means it isn't the first");
+});
+
+test("swing follows the dew point", () => {
+  assert(scores["mumbai-monsoon"].meta.swing >= 0.45, "monsoon dew point swings hard");
+  assert(scores["phoenix-heat"].meta.swing === 0, "desert air (46 °C but a 10 °C dew point) plays straight");
+});
+
+test("the forecast paragraph mentions feels-like, air, UV, snow and frost when they matter", async () => {
+  const { describe } = await import("../src/describe.js");
+  const ph = describe(forecasts["phoenix-heat"]);
+  assert(/Air quality is unhealthy for sensitive groups \(AQI 108\)/.test(ph) && /UV is very high/.test(ph), ph);
+  const mc = describe(forecasts["mcmurdo-cold"]);
+  assert(/feeling like −?-?\d+ °C in the wind/.test(mc) && /103 cm of snow on the ground/.test(mc), mc);
+  const mu = describe(forecasts["mumbai-monsoon"]);
+  assert(/oppressively humid/.test(mu), mu);
+  assert(!/Air quality|UV is/.test(describe(forecasts["london-drizzle"])), "nothing extra on an ordinary grey day");
+});
+
+// ---- Chord colour -----------------------------------------------------------
+
+test("chords are their triad, or a sus with a whole-tone 2nd or perfect 4th", () => each((n, s) => {
+  for (let b = 0; b < M.BARS; b++) {
+    const m = s.meta.barModes[b], d = s.meta.chordDegrees[b];
+    const t = triadPcs(s.meta.root, m, d);
+    const got = s.meta.chordPcs[b];
+    const sus = s.meta.colours[Math.floor(b / M.BARS_PER_CHORD)].sus;
+    equal([got[0], got[2]], [t[0], t[2]], `${n} bar ${b} root and fifth`);
+    if (!sus) equal(got[1], t[1], `${n} bar ${b} third`);
+    else equal((got[1] - got[0] + 12) % 12, sus === "sus2" ? 2 : 5, `${n} bar ${b} ${sus}`);
+    if (sus === "sus2") equal(stepAbove(m, d, 1), 2, `${n} bar ${b} sus2 is in the mode`);
+    if (sus === "sus4") equal(stepAbove(m, d, 3), 5, `${n} bar ${b} sus4 is in the mode`);
+  }
+  assert(!s.meta.colours[s.meta.colours.length - 1].sus, `${n} the last chord resolves`);
+}));
+
+test("pad: chord tones in range, colour notes above them, in the mode and never a half step off", () => each((n, s) => {
+  const V = M.CHORD_COLOUR.voicing;
+  for (const c of s.pad) {
+    equal(c.midis.map((x) => x % 12).sort(), s.meta.chordPcs[c.bar].slice().sort(), `${n} pad bar ${c.bar} plays its chord`);
+    for (const x of c.midis) assert(x >= V.low && x <= V.high, `${n} pad ${x}`);
+    const top = Math.max(...c.midis);
+    for (const x of c.colour) {
+      assert(x.midi > top && x.midi <= top + 12, `${n} ${x.kind} sits above the chord`);
+      assert(melodyPcs({ meta: { ...s.meta, snow: false } }, c.bar).has(x.midi % 12), `${n} ${x.kind} in the mode`);
+      const fromRoot = (x.midi - s.meta.chordPcs[c.bar][0] + 12) % 12;
+      assert(fromRoot !== 1, `${n} ${x.kind} a half step above the root`);
+      assert(x.vel > 0 && x.vel <= c.vel, `${n} ${x.kind} vel ${x.vel}`);
+    }
+    if (s.meta.colours[c.bar / M.BARS_PER_CHORD].open) assert(top - Math.min(...c.midis) > V.openSpan, `${n} open chord spreads`);
+  }
+}));
+
+test("pad voice leading: closed chords move by a few semitones per voice", () => each((n, s) => {
+  for (let i = 1; i < s.pad.length; i++) {
+    const a = s.pad[i - 1].midis, b = s.pad[i].midis;
+    if (s.meta.colours[i].open !== s.meta.colours[i - 1].open) continue;
+    const move = b.reduce((t, x) => t + Math.min(...a.map((y) => Math.abs(x - y))), 0) / b.length;
+    assert(move <= 4, `${n} chord ${i} moves ${move.toFixed(1)} per voice`);
+  }
+}));
+
+test("chord colour follows the air", () => {
+  const has = (n, k) => scores[n].pad.some((c) => c.colour.some((x) => x.kind === k));
+  assert(has("mumbai-monsoon", "7th") && has("houston-storms", "7th") && has("london-drizzle", "7th"), "humid days get sevenths");
+  assert(!has("kyoto-spring", "7th") && !has("mcmurdo-cold", "7th"), "dry days don't");
+  assert(has("kyoto-spring", "9th") && has("philadelphia-autumn", "9th"), "clear days get ninths");
+  assert(!has("london-drizzle", "9th") && !has("mumbai-monsoon", "9th"), "grey days don't");
+  assert(scores["reykjavik-wind"].meta.colours.some((c) => c.susBy === "pressure"), "a fast pressure change suspends a chord");
+  assert(scores["reykjavik-wind"].meta.colours.some((c) => c.open), "a windy day spreads the chords");
+  // Fog gives sus2 where the mode has a whole-tone 2nd.
+  const fog = Array.from({ length: 2 }, () => ({ code: 45, pressure: 1013, dew: 5, temp: 6, cloud: 100, isDay: 1, wind: 5 }));
+  equal(chordColour(fog, "ionian", 0, false).sus, "sus2", "fog on I");
+  equal(chordColour(fog, "phrygian", 0, false).sus, "sus4", "fog on Phrygian i (b2 would clash) → sus4");
+  equal(chordColour(fog, "ionian", 0, true).sus, null, "never on the final chord");
+  equal(voiceChord([0, 4, 7], [60, 64, 67], false), [60, 64, 67], "same chord stays put");
+});
+
+// ---- Dry beat ----------------------------------------------------------------
+
+test("dry beat: only in dry hours the rain beat and storm leave alone", () => each((n, s, f) => {
+  const rainBars = new Set(s.garage.map((x) => x.bar));
+  for (const x of s.beat) {
+    const h = f.hours[x.bar];
+    assert(!rainBars.has(x.bar), `${n} hour ${x.bar} has both beats`);
+    assert(h.precip < 0.1 && h.pop < M.RAIN_BEAT.hourPop && !M.SNOW_CODES.includes(h.code), `${n} hour ${x.bar} is wet`);
+    assert(x.bar < M.BARS - 1, `${n} beat in the last hour`);
+    const ph = s.meta.arc.phases[x.bar];
+    assert(!(s.meta.arc.stormy && (ph === "build" || ph === "peak")), `${n} beat under storm drums`);
+    assert(x.pos >= 0 && x.pos < M.STEPS && x.vel > 0 && x.vel <= 1, `${n} beat hit ${x.pos} ${x.vel}`);
+  }
+}));
+
+test("dry beat: hats follow the wind, kick the warmth, rim the clear sky", () => each((n, s, f) => {
+  const B = M.DRY_BEAT;
+  for (const b of new Set(s.beat.map((x) => x.bar))) {
+    const h = f.hours[b];
+    const hits = (k) => s.beat.filter((x) => x.bar === b && x.kind === k).map((x) => x.pos);
+    equal(hits("hat"), B.hats.find((r) => h.wind < r.maxWind).steps, `${n} hour ${b} hats`);
+    const k = B.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
+    equal(hits("kick"), !k.perChord || b % M.BARS_PER_CHORD === 0 ? k.steps : [], `${n} hour ${b} kick`);
+    equal(hits("snare").length, h.cloud < B.rimMaxCloud ? 1 : 0, `${n} hour ${b} rim`);
+  }
+  if (n === "oslo-snow" || n === "london-drizzle") equal(s.beat.length, 0, `${n} has no dry hours`);
+  if (n === "kyoto-spring" || n === "phoenix-heat") assert(s.beat.length > 0, `${n} has a dry beat`);
+}));
+
+// ---- Held notes --------------------------------------------------------------
+
+test("steady weather holds a repeated note instead of striking it again", () => each((n, s, f) => {
+  const H = f.hours, D = M.HOLD;
+  const steady = (b) => b > 0 && Math.abs(H[b].gust - H[b - 1].gust) < D.gustKmh
+    && Math.abs(H[b].cloud - H[b - 1].cloud) < D.cloud && Math.abs(H[b].pop - H[b - 1].pop) < D.pop && Math.abs(H[b].precip - H[b - 1].precip) < D.precipMm;
+  const opens = (b) => M.SECTIONS.some((x) => x.start === b);
+  for (let i = 1; i < s.melody.length; i++) {
+    const p = s.melody[i - 1], x = s.melody[i];
+    if (p.midi !== x.midi || p.bar * M.STEPS + p.pos + p.dur !== x.bar * M.STEPS + x.pos) continue;
+    // A re-strike is only allowed when the weather changed, a section opens, the hold is full, or it's the last hour.
+    const ok = !steady(x.bar) || (p.bar !== x.bar && opens(x.bar)) || p.dur + x.dur > D.maxSteps || x.bar === M.BARS - 1;
+    assert(ok, `${n} hour ${x.bar} repeats ${x.note} in steady weather`);
+  }
+  for (const x of s.melody) {
+    const hours = Math.ceil((x.pos + x.dur) / M.STEPS);
+    for (let k = 1; k < hours; k++) assert(steady(x.bar + k) && !opens(x.bar + k), `${n} ${x.note} held into a changing hour ${x.bar + k}`);
+  }
+}));

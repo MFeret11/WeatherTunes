@@ -14,6 +14,7 @@
 import { normalizeForecast } from "../src/weather.js";
 import { compose } from "../src/compose.js";
 import { Engine, LAYERS } from "../src/engine.js";
+import { SOFT_CLIP } from "../src/mapping.js";
 
 const q = new URLSearchParams(location.search);
 const names = (q.get("fixture") || "phoenix-heat").split(",");
@@ -37,7 +38,7 @@ for (const name of names) {
   }, seconds, 2, 44100);
 
   const ch = buffer.toArray();
-  let peak = 0, sum = 0, clipped = 0, nan = 0, n = 0;
+  let peak = 0, sum = 0, clipped = 0, shaped = 0, nan = 0, n = 0;
   const windowRms = [];
   const win = buffer.sampleRate; // 1 s windows
   for (let i = 0; i < ch[0].length; i += win) {
@@ -48,6 +49,7 @@ for (const name of names) {
       const a = Math.abs(v);
       if (a > peak) peak = a;
       if (a >= 0.999) clipped++;
+      if (a > SOFT_CLIP.knee) shaped++; // rounded off by the soft clip
       sum += v * v; n++; ws += v * v; wn++;
     }
     windowRms.push(Math.sqrt(ws / wn));
@@ -55,7 +57,7 @@ for (const name of names) {
   const db = (x) => (20 * Math.log10(Math.max(x, 1e-9))).toFixed(1);
   const quiet = windowRms.filter((r) => r < 0.003).length;
   lines.push(`${name}${solo ? " (solo " + solo + ")" : ""}: ${seconds.toFixed(0)} s rendered in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-  lines.push(`   peak ${db(peak)} dBFS, rms ${db(Math.sqrt(sum / n))} dBFS, clipped samples ${clipped}, NaN ${nan}, near-silent seconds ${quiet}`);
+  lines.push(`   peak ${db(peak)} dBFS, rms ${db(Math.sqrt(sum / n))} dBFS, clipped samples ${clipped}, soft-clipped ${(1000 * shaped / Math.max(n, 1)).toFixed(2)}‰, NaN ${nan}, near-silent seconds ${quiet}`);
   lines.push(`   loudness per second (dB): ${windowRms.map((r) => db(r)).join(" ")}`);
 }
 out.textContent = lines.join("\n");

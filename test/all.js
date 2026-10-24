@@ -2,4 +2,5 @@
 import { run } from "./harness.js";
 import "./compose.test.js";
 import "./weather.test.js";
+import "./sky.test.js";
 await run();

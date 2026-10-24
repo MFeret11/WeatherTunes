@@ -41,7 +41,7 @@ try {
   let [w, d] = await open("");
   check(text(d, "place-kind") === "Today's featured city", `featured city: ${text(d, "place-name")}`);
   check(!d.getElementById("status").classList.contains("error"), "live forecast loaded without error");
-  check(d.querySelectorAll("#hours .hour").length === 24 && d.querySelectorAll("#notes li").length >= 6, "hours and liner notes shown");
+  check(d.querySelectorAll("#hours .hour").length === 24 && d.querySelectorAll("#notes p").length >= 1, "hours and liner notes shown");
   d.getElementById("play").click();
   await wait(4000);
   check(w.Tone.getTransport().state === "started" && text(d, "play") === "Stop", "plays");
@@ -83,10 +83,15 @@ try {
   sel.value = "oslo-snow";
   sel.dispatchEvent(new Event("change"));
   await until(() => text(d, "place-name") === "Oslo, Norway");
-  check(text(d, "place-kind") === "Sample day" && w.Tone.getTransport().bpm.value === 115, "sample day loads");
+  check(text(d, "place-kind") === "Sample day" && w.Tone.getTransport().bpm.value === 149, "sample day loads");
   d.getElementById("play").click();
   await wait(300);
   check(text(d, "play") === "Play", "Stop stops");
+  d.getElementById("play").click();
+  await until(() => w.Tone.getTransport().state === "started", 5000);
+  // ~20 s of song; slow machines render audio slower than real time, so allow plenty.
+  const ended = await until(() => text(d, "play") === "Play" && w.Tone.getTransport().state !== "started", 120000);
+  check(ended, "plays once, then stops by itself");
 
   // 6. The last searched city comes back on the next visit.
   [w, d] = await open("");

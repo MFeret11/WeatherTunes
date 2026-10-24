@@ -16,12 +16,39 @@ const FLAKES = `<g fill="var(--snow)" stroke="var(--cloud-edge)" stroke-width=".
 const BOLT = `<path d="M13 15.5l-3 4.5h2.5l-1.5 4 4.5-5.5h-2.6l1.6-3z" fill="var(--bolt)"/>`;
 const FOG = `<g stroke="var(--muted)" stroke-width="1.6" stroke-linecap="round"><path d="M4 9h16M6 13h12M4 17h16"/></g>`;
 
+const STARS = `<g fill="var(--moon)"><path d="M9 5l1 2.6 2.6 1-2.6 1L9 12.2 8 9.6 5.4 8.6 8 7.6z"/><circle cx="16.5" cy="7" r="1.1"/><circle cx="15" cy="15.5" r="1.4"/><circle cx="7" cy="17" r=".9"/></g>`;
+
+/**
+ * The moon as it looks tonight: a dim disc with its lit part. `illum` 0–1,
+ * `waxing` lit on the right (in the north; mirrored for `south`).
+ */
+export function moonDisc(cx, cy, r, { illum, waxing, south = false }) {
+  const right = waxing !== south; // which side is lit
+  const rx = (r * Math.abs(1 - 2 * illum)).toFixed(2);
+  const gibbous = illum > 0.5;
+  const top = `${cx} ${cy - r}`, bottom = `${cx} ${cy + r}`;
+  // Outer edge on the lit side, then back along the terminator (an ellipse).
+  const lit = `M${top}A${r} ${r} 0 0 ${right ? 1 : 0} ${bottom}A${rx} ${r} 0 0 ${right === gibbous ? 1 : 0} ${top}Z`;
+  return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--moon)" opacity=".22"/><path d="${lit}" fill="var(--moon)"/>`;
+}
+
 const svg = (body, label) =>
   `<svg viewBox="0 0 24 24" width="100%" height="100%" role="img" aria-label="${label}"><title>${label}</title>${body}</svg>`;
 
-/** Returns { svg, label } for a WMO weather code. */
-export function weatherIcon(code, isDay) {
+/**
+ * Returns { svg, label } for a WMO weather code. At night, pass `moon`
+ * ({ illum, waxing, south, up }) to draw tonight's moon, or stars when it's down.
+ */
+export function weatherIcon(code, isDay, moon) {
   const c = Number(code);
+  if (!isDay && moon && c <= 2) {
+    const shown = moon.up && moon.illum >= 0.03;
+    const label = c === 2 ? "Partly cloudy" : c === 1 ? "Mostly clear" : "Clear";
+    const body = c === 2
+      ? (shown ? moonDisc(8, 8, 4.6, moon) : SMALL_MOON) + cloud(1)
+      : shown ? moonDisc(12, 12, 8, moon) : STARS;
+    return { svg: svg(body, label), label };
+  }
   if (c >= 95) return { svg: svg(cloud(-3, DARK) + BOLT, "Thunderstorm"), label: "Thunderstorm" };
   if ((c >= 71 && c <= 77) || c === 85 || c === 86) return { svg: svg(cloud(-3) + FLAKES, "Snow"), label: "Snow" };
   if (c >= 61 && c <= 82) {

@@ -2,25 +2,53 @@
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
 //   melody → trim → vibrato → lowpass → panner → comp ─┐
-//   bass, drums, 2-step kit ────────────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
+//   bass, drums, kit (rain + dry beat)──────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
 //   pad → trim → tremolo → lowpass → comp ─────────────┘        │
-//   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
+//   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → fade → limiter → out
 //   bells ──────────────────────────────────────────────────────┘
 //   white/pink/brown noise → gains → lowpass (atmosphere); vinyl crackle → bandpass
 //   pink noise → auto-filter → gain (wind)
 //   thunder, swell (one-shots)
+//   sky bells (moonrise, meteors, frost, holiday, solstice), UV sparkle, aurora chord → fx
+
+import { SOFT_CLIP, STORM_DRUMS_DB, MIX } from "./mapping.js";
 
 const Tone = () => window.Tone;
 
+/**
+ * Soft-clip transfer curve for a WaveShaper fed through a 1/headroom gain:
+ * x in [-1, 1] stands for an input of x × headroom. Straight up to the knee,
+ * then a tanh shoulder that approaches the ceiling and never passes it.
+ */
+export function softClipCurve({ knee, ceiling, headroom }) {
+  return (x) => {
+    const u = Math.abs(x * headroom);
+    const y = u <= knee ? u : knee + (ceiling - knee) * Math.tanh((u - knee) / (ceiling - knee));
+    return Math.sign(x) * y;
+  };
+}
+
 export const LAYERS = ["melody", "bass", "pad", "drums", "rain", "atmosphere", "fx"];
 const BAND = ["melody", "bass", "pad", "drums"];
-export const DEFAULT_LEVELS = { melody: 0, bass: -17, pad: -17, drums: -8, rain: -2, atmosphere: -8, fx: -10 };
+// The song plays once, fading in and out so it never starts or stops abruptly:
+//   inSec     fade-in from silence at the start
+//   outHours  the fade-out starts this many hour slots before the end...
+//   outGap    ...and reaches silence this far (in sixteenths) past the last bar,
+//             so the last note and the reverb tail die away instead of being cut;
+//             the song then stops by itself
+//   stopSec   pressing Stop fades out over this long first
+export const FADE = { inSec: 1.2, outHours: 1, outGap: 10, stopSec: 0.3 };
+export const DEFAULT_LEVELS = MIX; // see mapping.js
 
 export class Engine {
-  constructor({ onBar, onEvent } = {}) {
+  constructor({ onBar, onEvent, onEnd } = {}) {
     const T = Tone();
     this.onBar = onBar;
     this.onEvent = onEvent; // (type) for visuals: "thunder", "swell"
+    this.onEnd = onEnd; // the song has played through and stopped by itself
+    // Screen updates (hour highlight, flashes) that run late on a busy device show up late
+    // instead of being dropped (Tone's default drops anything over 0.25 s late).
+    Tone().getDraw().expiration = 1;
     this.transport = T.getTransport();
     this.score = null;
 
@@ -31,8 +59,16 @@ export class Engine {
     this.delay = new T.FeedbackDelay({ delayTime: "8n.", feedback: 0.25, wet: 0.12 });
     this.reverb = new T.Reverb({ decay: 4, preDelay: 0.02, wet: 0.3 });
     this.master = new T.Volume(0);
+    this.fade = new T.Gain(0); // silent until the transport fades it in
     this.limiter = new T.Limiter(-1);
-    this.bus.chain(this.eq, this.filter, this.delay, this.reverb, this.master, this.limiter, T.getDestination());
+    // Soft clip: the limiter is too slow for drum hits, so whatever gets past it
+    // is rounded off here (see SOFT_CLIP in mapping.js).
+    this.clipIn = new T.Gain(1 / SOFT_CLIP.headroom);
+    this.softClip = new T.WaveShaper(softClipCurve(SOFT_CLIP), 4096);
+    this.softClip.oversample = "4x";
+    this.bus.chain(this.eq, this.filter, this.delay, this.reverb, this.master, this.fade, this.limiter,
+      this.clipIn, this.softClip, T.getDestination());
+    this.stopToken = 0;
     this.ready = this.reverb.ready;
 
     // ---- Layer volumes (one fader + mute per layer) ----
@@ -77,7 +113,7 @@ export class Engine {
     this.drums = new T.MembraneSynth({
       pitchDecay: 0.06, octaves: 3,
       envelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
-    }).connect(new T.Filter({ type: "lowpass", frequency: 900 }).connect(this.vol.drums));
+    }).connect(new T.Filter({ type: "lowpass", frequency: 900 }).connect(new T.Volume(STORM_DRUMS_DB).connect(this.vol.drums)));
 
     // Rain-beat kit: a short deep kick, a rimshot and hats.
     this.kick = new T.MembraneSynth({
@@ -142,6 +178,28 @@ export class Engine {
       noise: { type: "white" },
       envelope: { attack: 2.5, decay: 0.1, sustain: 1, release: 1.5, attackCurve: "exponential" },
     }).connect(this.swellLevel);
+
+    // Sky bells: glassy FM bells, a little brighter and longer than the snow bells.
+    this.chimes = new T.PolySynth(T.FMSynth, {
+      harmonicity: 2.01, modulationIndex: 5,
+      oscillator: { type: "sine" }, modulation: { type: "sine" },
+      envelope: { attack: 0.002, decay: 2.2, sustain: 0, release: 2.2 },
+      modulationEnvelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
+    }).connect(new T.Volume(7).connect(this.vol.fx));
+    this.chimes.maxPolyphony = 8;
+    // UV: a soft sine an octave over the melody.
+    this.sparkle = new T.PolySynth(T.Synth, {
+      oscillator: { type: "sine" },
+      envelope: { attack: 0.005, decay: 0.35, sustain: 0.15, release: 0.6 },
+    }).connect(new T.Volume(-2).connect(this.vol.fx));
+    this.sparkle.maxPolyphony = 6;
+    // Aurora: a slow, wavering high chord.
+    this.auroraVibrato = new T.Vibrato({ frequency: 0.35, depth: 0.25 }).connect(new T.Volume(-4).connect(this.vol.fx));
+    this.aurora = new T.PolySynth(T.Synth, {
+      oscillator: { type: "fatsine", count: 3, spread: 22 },
+      envelope: { attack: 2.2, decay: 0.5, sustain: 0.9, release: 3 },
+    }).connect(this.auroraVibrato);
+    this.aurora.maxPolyphony = 6;
   }
 
   /** Build the melody and pad synths a score asks for (kept if they haven't changed). */
@@ -149,7 +207,7 @@ export class Engine {
     const T = Tone();
     const build = (v, out) => {
       const synth = new T.PolySynth(T[v.synth || "Synth"], v.options).connect(out);
-      synth.maxPolyphony = 8;
+      synth.maxPolyphony = 12; // a pad chord with colour is 5 notes, and its release overlaps the next
       return synth;
     };
     if (this.voiceIds.melody !== melody.id) {
@@ -187,11 +245,10 @@ export class Engine {
     tr.bpm.value = score.meta.bpm;
     tr.swing = score.meta.swing ?? 0;
     tr.swingSubdivision = "16n";
-    tr.loop = true;
-    tr.loopStart = 0;
+    tr.loop = false; // plays once; pressing Play again starts it over
     const steps = score.meta.steps ?? 16; // sixteenths per hour slot
     const realBars = Math.ceil((score.meta.bars * steps) / 16);
-    tr.loopEnd = `${realBars + 1}:0:0`; // a bar of silence before it repeats
+
     this.reverb.wet.value = score.automation.reverbWet;
     this.drive.distortion = score.meta.drive ?? 0.25;
     // Cloud rounds the bass off (meta.bassSub 0–1): the saw's upper harmonics
@@ -217,12 +274,17 @@ export class Engine {
       tr.schedule((t) => this.bass.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.85), t, n.vel), at(n.bar, n.pos));
     }
     for (const c of score.pad) {
-      tr.schedule((t) => this.pad.triggerAttackRelease(c.notes, this.s16(c.dur) * 0.95, t, c.vel), at(c.bar, c.pos));
+      tr.schedule((t) => {
+        this.pad.triggerAttackRelease(c.notes, this.s16(c.dur) * 0.95, t, c.vel);
+        // Colour notes (7th, 9th) each at their own, weather-set level.
+        for (const x of c.colour ?? []) this.pad.triggerAttackRelease(x.note, this.s16(c.dur) * 0.95, t, x.vel);
+      }, at(c.bar, c.pos));
     }
     for (const n of score.drums ?? []) {
       tr.schedule((t) => this.drums.triggerAttackRelease(n.note, this.s16(n.dur) * 2, t, n.vel), at(n.bar, n.pos));
     }
-    for (const n of score.garage ?? []) {
+    // The rain beat and the dry beat share one kit.
+    for (const n of [...(score.garage ?? []), ...(score.beat ?? [])]) {
       const play = { kick: (t) => this.kick.triggerAttackRelease("A1", "16n", t, n.vel),
         snare: (t) => this.rim.triggerAttackRelease(0.1, t, n.vel),
         hat: (t) => this.hat.triggerAttackRelease(0.03, t, n.vel),
@@ -231,14 +293,26 @@ export class Engine {
     }
     // Crackle sits between the sixteenths, so it's placed in ticks.
     const ticks16 = tr.PPQ / 4;
+    // Two clicks can't share a start time on one synth, so a clash moves on a tick.
+    const used = new Set();
     for (const n of score.crackle ?? []) {
-      tr.schedule((t) => this.crackle.triggerAttackRelease(0.004, t, n.vel), `${Math.round((n.bar * steps + n.pos) * ticks16)}i`);
+      let tick = Math.round((n.bar * steps + n.pos) * ticks16);
+      while (used.has(tick)) tick++;
+      used.add(tick);
+      tr.schedule((t) => this.crackle.triggerAttackRelease(0.004, t, n.vel), `${tick}i`);
     }
     for (const n of score.rain) {
       tr.schedule((t) => this.shaker.triggerAttackRelease(0.05, t, n.vel), at(n.bar, n.pos));
     }
     for (const n of score.bells) {
       tr.schedule((t) => this.bells.triggerAttackRelease(n.note, this.s16(n.dur), t, n.vel), at(n.bar, n.pos));
+    }
+    for (const c of score.chimes ?? []) {
+      tr.schedule((t) => this.chimes.triggerAttackRelease(c.note, this.s16(c.dur), t, c.vel), at(c.bar, c.pos));
+    }
+    for (const x of score.shimmer ?? []) {
+      const synth = x.kind === "aurora" ? this.aurora : this.sparkle;
+      tr.schedule((t) => synth.triggerAttackRelease(x.notes, this.s16(x.dur) * (x.kind === "aurora" ? 0.9 : 0.8), t, x.vel), at(x.bar, x.pos));
     }
     for (const f of score.fx) {
       const note = (t) => { if (this.onEvent) Tone().getDraw().schedule(() => this.onEvent(f.type), t); };
@@ -254,7 +328,7 @@ export class Engine {
         this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
         if (bar === 0) this.band.volume.setValueAtTime(A.gainDb[0], t);
         else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
-        const mDb = A.melodyDb?.[bar] ?? 0;
+        const mDb = (A.melodyDb?.[bar] ?? 0) + (A.melodyDayDb?.[bar] ?? 0);
         if (bar === 0) this.melodyLevel.volume.setValueAtTime(mDb, t);
         else this.melodyLevel.volume.rampTo(mDb, ramp * 2, t);
         this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
@@ -271,15 +345,37 @@ export class Engine {
         if (this.onBar) Tone().getDraw().schedule(() => this.onBar(bar), t);
       }, at(bar, 0));
     });
-    // Fade the beds out in the gap bar before the loop restarts.
+    // Fade in at the top of every pass; fade out across the last hour into the gap.
+    const g = this.fade.gain;
+    tr.schedule((t) => {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(0, t);
+      g.linearRampToValueAtTime(1, t + FADE.inSec);
+    }, "0:0:0");
+    tr.schedule((t) => {
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(1, t);
+      g.linearRampToValueAtTime(0, t + this.s16(FADE.outHours * steps + FADE.outGap));
+    }, at(score.meta.bars - FADE.outHours, 0));
+    // Fade the beds out after the last bar, then stop once the fade-out is done.
     tr.schedule((t) => {
       for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, this.s16(8), t);
       this.windGain.gain.rampTo(0, this.s16(8), t);
       if (this.onBar) Tone().getDraw().schedule(() => this.onBar(null), t);
     }, `${realBars}:0:0`);
+    // A timer rather than Draw, so it also ends in a background tab.
+    tr.schedule((t) => {
+      const token = this.stopToken;
+      setTimeout(() => {
+        if (token !== this.stopToken) return; // Stop or Play was pressed meanwhile
+        this.halt();
+        if (this.onEnd) this.onEnd();
+      }, Math.max(0, (t - Tone().now()) * 1000));
+    }, at(score.meta.bars, FADE.outGap + 2));
   }
 
   start(when) {
+    this.stopToken++; // cancels a fade-out stop still in progress
     for (const n of Object.values(this.noise)) if (n.state !== "started") n.start(when);
     if (this.windNoise.state !== "started") {
       this.windNoise.start(when);
@@ -288,11 +384,26 @@ export class Engine {
     this.transport.start(when, 0);
   }
 
+  /** Fade out quickly, then stop (a new start in the meantime wins). */
   stop() {
+    const token = ++this.stopToken;
+    const now = Tone().now();
+    const g = this.fade.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.getValueAtTime(now), now);
+    g.linearRampToValueAtTime(0, now + FADE.stopSec);
+    if (this.onBar) this.onBar(null);
+    setTimeout(() => { if (token === this.stopToken) this.halt(); }, FADE.stopSec * 1000 + 30);
+  }
+
+  halt() {
     this.transport.stop();
     this.melody?.releaseAll();
     this.pad?.releaseAll();
     this.bells.releaseAll();
+    this.chimes.releaseAll();
+    this.sparkle.releaseAll();
+    this.aurora.releaseAll();
     for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, 0.3);
     this.windGain.gain.rampTo(0, 0.3);
     if (this.onBar) this.onBar(null);

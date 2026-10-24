@@ -1,6 +1,6 @@
 # WeatherTunes — Spec
 
-Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and ten sample days). After M2 the climate also picks the melody and pad instruments (§6.2), so places sound different, not just play different notes. Replaces the 2022 Python/pyo prototype.
+Status: M0–M2 built and live at mferet.com/WeatherTunes/, 2026-10-23 (the composer, the audio engine, live weather for your location or any city, and ten sample days). After M2 the climate also picks the melody and pad instruments (§6.2), so places sound different, not just play different notes. On 2026-10-24 the sky and the air joined in (§6.3b): the moon, auroras, meteor showers, solstices, holidays, air quality, UV, dew point, snow cover and frost. Replaces the 2022 Python/pyo prototype.
 
 ## 1. The pitch
 
@@ -54,6 +54,15 @@ It's a portfolio piece, so the reasoning should be on screen. Every song comes w
   ```
   Shared links for past dates add `&past_days=N` (Open-Meteo allows up to 92) or use `start_date`/`end_date`.
 
+### Sky, air and calendar (added 2026-10-24)
+All optional: each is fetched alongside the forecast with a 4-second limit, and a song simply leaves out anything that doesn't arrive. CORS open on all three (checked 2026-10-24).
+- **Air quality:** Open-Meteo's air-quality API (`air-quality-api.open-meteo.com/v1/air-quality?hourly=us_aqi`), same terms and rounded coordinates as the forecast.
+- **Aurora activity:** NOAA SWPC's planetary Kp forecast (`services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json`), 3-hourly, public domain. No location is sent. Sample days use GFZ Potsdam's definitive Kp (CC BY 4.0).
+- **Public holidays:** Nager.Date (`date.nager.at/api/v3/PublicHolidays/{year}/{cc}`). Only the country code is sent; it comes from the city search, the featured-city list, a `cc` link parameter, or (for your own location) the browser's language region. Cached a week per country.
+- **Recent lows** for "first frost": the forecast API's daily minimum with `past_days=60`.
+- **UV index and snow depth** join the main forecast request. **Dew point and feels-like** are calculated from temperature, humidity and wind (Magnus formula; the Australian apparent temperature, as Open-Meteo uses).
+- **The moon and the calendar need no service:** `src/sky.js` works out the moon's phase, rise and set, lunar eclipses, solstices and equinoxes, meteor showers (a table of the eight major ones) and magnetic latitude in the browser. Times use the browser's time-zone rules, because Open-Meteo reports today's UTC offset even for past dates.
+
 ### Sound: Tone.js
 - **[Tone.js](https://github.com/Tonejs/Tone.js)** (MIT) is a Web Audio framework with a transport and scheduler, ready-made synths (`Synth`, `FMSynth`, `AMSynth`, `MonoSynth`, `PolySynth`, `NoiseSynth`, `MetalSynth`), and effects (`EQ3`, `Filter`, `Reverb`, `FeedbackDelay`, `Recorder`). That covers almost the whole audio engine.
 - Pin **15.1.22** (latest stable, April 2025). Bundle it as `vendor/tone-15.1.22.js` (345 KB, about 80 KB gzipped) instead of loading it from a CDN. The portfolio has a no-CDN rule because a dead CDN broke it once.
@@ -74,7 +83,8 @@ WeatherTunes/
   index.html            page shell, controls, liner notes
   styles.css            uses the portfolio's tokens and both themes
   src/
-    weather.js          fetch + normalize Open-Meteo → Forecast object; geocoding; cache
+    weather.js          fetch + normalize Open-Meteo → Forecast object; geocoding; cache; extras (air, Kp, holidays, lows)
+    sky.js              PURE: moon, eclipses, solstices, meteor showers, magnetic latitude
     compose.js          PURE: (Forecast, seed) → Score   ← the heart; no Tone, no DOM
     mapping.js          all tunable constants (ranges, mode table, progressions)
     engine.js           Tone.js graph: instruments, effects, schedules a Score
@@ -113,21 +123,21 @@ Score = {
 All numbers live in `mapping.js` so they can be tuned by ear without touching the logic. The rule of thumb is **weather picks the musical choices, music theory keeps them in tune.**
 
 ### 6.1 Form
-- 24 hourly values give **24 half-bar slots (12 bars of 4/4)**, from midnight to 11 pm local time. That's about 20–24 s at 120–156 BPM. Every hour keeps its own slot, so a storm that passes in an hour still gets its moment.
+- 24 hourly values give **24 half-bar slots (12 bars of 4/4)**, from midnight to 11 pm local time. That's about 18–29 s at 100–156 BPM. Every hour keeps its own slot, so a storm that passes in an hour still gets its moment.
 - Three 8-bar sections: Night (0–7), Day (8–15), Evening (16–23). These line up with the 4-chord loop at 2 bars per chord, which a 6-bar section would not.
-- The piece loops by default with a 1-bar gap. A toggle switches to play-once.
+- The piece plays once, fading in at the start and out over the last hour, then stops. Pressing Play again starts it over.
 
 ### 6.2 Global choices (computed once per day)
 
 | Musical choice | Weather input | Rule |
 |---|---|---|
-| **Mode (scale)** | "Brightness" = 1 − cloud − rain chance − rainfall − storm | Modes ranked bright to dark: **Lydian → Ionian (major) → Mixolydian → Dorian → Aeolian (minor) → Phrygian**. Lydian also needs a warm day (mean ≥ 15 °C), so a clear polar day is plain major. Sunny is Lydian or Ionian, overcast is Dorian, rainy is Aeolian, storms are Phrygian. A **storm day** is any thunder code, any hour with ≥ 8 mm of rain, or ≥ 75 km/h gusts with rain. Thunder codes alone aren't enough because the forecast model rarely issues them. Snow days keep the mode's chords but play a **pentatonic** melody (soft, bell-like). |
+| **Mode (scale)** | "Brightness" = 1 − cloud − rain chance − rainfall − storm | Modes ranked bright to dark: **Lydian → Ionian (major) → Mixolydian → Dorian → Aeolian (minor) → Phrygian**. Lydian also needs a warm day (mean ≥ 15 °C), so a clear polar day is plain major. Sunny is Lydian or Ionian, partly cloudy Mixolydian, grey Dorian, rainy Aeolian, downpours and storms Phrygian. The cut-offs (0.88, 0.76, 0.66, 0.56, 0.2) were set from 89 ordinary days, so everyday weather spreads across the modes instead of bunching in the bright ones. A **storm day** is any thunder code, any hour with ≥ 8 mm of rain, or ≥ 75 km/h gusts with rain. Thunder codes alone aren't enough because the forecast model rarely issues them. Snow days keep the mode's chords but play a **pentatonic** melody (soft, bell-like). |
 | **Key (root)** | Mean sea-level pressure (hPa) | `root = round(meanPressure) mod 12`. Pressure ranges from about 980 to 1040 hPa, so every key turns up. |
-| **Tempo** | Mean wind speed | `bpm = clamp(120 + wind_kmh, 120, 156)` |
+| **Tempo** | Mean wind speed | `bpm = clamp(100 + 2.6 × wind_kmh, 100, 156)`: ordinary days (4–19 km/h) spread from about 110 to 150 |
 | **Register** | Daily mean temperature | Cold days sit lower and hot days higher, shifting by up to ±3 scale steps |
 | **Chord progression** | Pressure trend over the day (rising, steady, falling) | Each mode has two proven 4-chord loops per trend, and the day's seed picks one. Rising (clearing) loops climb or resolve, like I–V–vi–IV or i–ii–♭III–IV. Falling (worsening) loops descend, like IV–♭III–ii–i or i–♭VII–♭VI–v. Diminished chords are left out. The chord changes every 2 bars, the loop runs 3 times, and the last 2 bars always return to the tonic chord. |
 | **Reverb amount** | Mean humidity | 10 % at 30 % RH up to 60 % at 100 % RH, so muggy days sound wetter |
-| **Melody instrument** | Mean temperature | Below −8 °C glass bells (FM), below 6 °C a breathy flute with vibrato, below 20 °C soft keys (triangle), below 30 °C a marimba (FM), hotter a reedy pipe (pulse wave with vibrato). Named in the liner notes. |
+| **Melody instrument** | Mean feels-like temperature (§6.3b) | Below −8 °C glass bells (FM), below 6 °C a breathy flute with vibrato, below 13 °C soft keys (triangle), below 20 °C plucked strings (a saw with a snapping filter), below 30 °C a marimba (FM), hotter a reedy pipe (pulse wave with vibrato). Named in the liner notes. |
 | **Pad instrument** | Storm, snow, rain, cloud, temperature, humidity (first match wins) | Storm: dark detuned saws. Snow: hushed choir. Wet (≥ 50 % rain chance or ≥ 5 mm): wobbling electric piano (tremolo). Cloudy (≥ 50 %): muffled organ. Clear and below 0 °C: thin icy shimmer. Clear and humid (≥ 60 % RH): lush strings. Otherwise an airy, open pad. |
 
 ### 6.3 Per-bar choices (hour by hour)
@@ -147,11 +157,51 @@ All numbers live in `mapping.js` so they can be tuned by ear without touching th
 | **Wind noise** | Gusts above 45 km/h | Pink noise through a slowly sweeping band-pass filter, reaching full level at 100 km/h. The threshold is high because models often forecast 40 km/h gusts on calm days. |
 | **Snow** | Weather codes 71–77, 85–86 | Rain hits become FM bell notes in the scale. |
 | **Thunder** | Storm hours (see Mode) | A low brown-noise rumble on beat 3 of that bar. |
-| **Sunrise / sunset** | Daily sunrise and sunset times | A short cymbal-like swell at those bars, named in the liner notes. |
+| **Sunrise / sunset** | Daily sunrise and sunset times | A short cymbal-like swell at those bars, and the melody fades in and out around them. |
 
 ### 6.3a The day's story
 
 The day's mode is only the starting mood. Each chord (2 hours) takes the brightness of its darker hour, lightly smoothed, and when that clearly leaves the current mode's band (by `STORY.margin`, after at least `STORY.minChords` chords) the song starts a new chapter in that mode on the same tonic. Darker chapters open straight on their tonic; brighter ones (a clearing) are prepared by V or IV of the new mode and get a cymbal swell. A calm, even day keeps one mood; a day that builds to a storm and clears tells that story. Bass feel, distortion, EQ and dynamics follow the same weather hour by hour, never the clock.
+
+### 6.3a+ Chord colour and the dry beat (added 2026-10-24)
+
+Numbers are in `CHORD_COLOUR` and `DRY_BEAT` in `mapping.js`. Each chord (2 hours) takes its colour from its own hours:
+
+| Input | What you hear |
+|---|---|
+| **Dew point** (10 → 20 °C) | The chord's 7th fades in, so humid days sound lush (i7, IVmaj7). |
+| **Clear daylight** ((1 − cloud) × daylight, 0.5 → 0.9) | The 9th fades in, so sunny days sound open (add9). Only a whole-tone 9th. |
+| **Fog** | sus2: the third gives way to the second, neither major nor minor. |
+| **Pressure moving ≥ 2.5 hPa in 2 hours** | sus4: a front passing leaves the chord hanging. Only a perfect 4th; never on the final chord. |
+| **Mean wind ≥ 25 km/h** | The chord spreads over more than an octave. |
+
+Pad chords are voice-led (each note moves as little as it can), and colour notes sit just above the chord. On a sus chord the melody's strong beats follow the sus note instead of the third.
+
+**Held notes** (`HOLD`): when the melody would strike the same pitch again straight away and the hour is steady (gusts, cloud, rain chance and rainfall barely moved since the hour before), the two notes become one, up to a whole note. The same pitch already means the temperature held. A new section always strikes a fresh note, and a change in the weather strikes it again.
+
+The **dry beat** plays in the hours the rain beat leaves alone (no rain, no snow, not a storm's build or peak): hi-hats from the wind (none when still, off-beats in a breeze, up to sixteenths), the kick from the feels-like temperature (a heartbeat once per chord in cold air, every beat 1 when mild, plus a push when hot), and a rim backbeat from clear sky, fading out by 60 % cloud.
+
+The master ends in a **soft clip** (`SOFT_CLIP`): untouched below 60 % of full scale, then a smooth shoulder that never passes −0.3 dBFS, so a storm's loudest hits get a little warm crunch instead of digital clipping. `test/render.html` reports how much of a song it rounds off.
+
+### 6.3b Sky and air
+
+None of these change the melody, bass, pad or drums; they add parts on top or shape the mix, so a song with no extras is the same song minus these touches. Numbers are in the "Sky and air" section of `mapping.js`.
+
+| Input | What you hear |
+|---|---|
+| **Moonlight** (lit fraction × height × darkness × clear sky) | The night dims the melody and filter less under a bright moon. A moonrise after dark, under a clear enough sky, rings one bell on the key's fifth. A visible lunar eclipse takes the moonlight away for its hour. |
+| **Aurora** (magnetic latitude and Kp → reach, × deep darkness × clear sky) | A slow, wavering chord two octaves above the pad over each chord change it reaches. |
+| **Meteor shower** (within a day or two of a major peak, radiant high enough) | Shooting stars: quick runs of three falling bell notes in dark, clear hours, fewer under moonlight. |
+| **Solstice or equinox** | Root and fifth rung together at the exact moment. |
+| **Public holiday** | A rising bell arpeggio over the final chord. |
+| **Air quality** (US AQI, from 75 to full at 175) | Haze: the top end dulls, the master filter closes a little, and dust crackles in. |
+| **UV index** (from 3 to full at 9) | A soft sine doubles the melody an octave up. |
+| **Dew point** | Sets the swing (straight at 10 °C, full at 22 °C), since it's what makes air feel muggy. Replaces the old humidity × warmth rule. |
+| **Feels-like temperature** | Picks the melody instrument (§6.2), so wind chill or humid heat can change it. |
+| **Snow on the ground** | Soaks up the room: up to 45% less reverb and a softer top end at 15 cm. |
+| **Frost** (clear, still, ≤ 0.5 °C, before 10 am) | Tiny high bells; two per hour on the season's first frost (no frost in the past 60 days). |
+
+The page shows these as chips under the forecast, draws tonight's real moon phase (or stars when it's down) on the chart, and glows green over aurora hours. The liner notes mention the most notable of these (an eclipse, auroras, a meteor shower, a solstice or equinox, a holiday, the first frost) in one sentence.
 
 ### 6.4 The rules that keep it musical
 1. Every melody note is in the scale, with no exceptions.
@@ -189,7 +239,7 @@ The weather sets the defaults, and the user can change anything. A marker shows 
 
 1. **Header:** "WeatherTunes", a location chip ("Kyoto · Use my location · Search"), and the date.
 2. **Hero:** the big Play button and a forecast chart. The temperature line is the melody line, with rain bars below, cloud shading behind and a sun or moon strip on top. A playhead moves across the hours, and notes light up as they play.
-3. **Liner notes:** 3–6 plain-English lines explaining today's choices.
+3. **Liner notes:** one short plain-English paragraph explaining today's choices.
 4. **Synth panel:** collapsible groups (Master, Melody, Bass, Pad, Rain).
 5. **Footer:** Open-Meteo attribution, a "How it works" link to the mapping table, a GitHub link and a link back to mferet.com.
 
@@ -245,6 +295,8 @@ Assertions:
 | **M0** ✅ | Repo cleanup and skeleton: remove the prototype, add `index.html`, bundle Tone.js, enable Pages | `mferet.com/WeatherTunes/` loads and a test tone plays |
 | **M1** ✅ built, needs ears | `compose.js` + `mapping.js` + tests, playing a **fixture** forecast | All tests pass, and every fixture sounds good by ear |
 | **M2** ✅ | Live weather: geolocation, city search, caching, attribution, error states | Your location or any searched city plays today's song |
+| **M2b** ✅ | Sky and air (§6.3b): moon, aurora, meteors, solstices, holidays, air quality, UV, dew point, feels-like, snow cover, frost | Every sample day shows and plays its sky; tests check the sky maths against published events |
+| **M2c** ✅ | Chord colour, dry beat, soft clip (§6.3a+) | Every sample day shows its chord names in `test/summary.html`; no sample clips hard |
 | **M3** | Synth panel, "Back to the forecast", play-along keyboard | Every control in §7 works on desktop and phone |
 | **M4** | Forecast chart with playhead, liner notes, share links, mobile layout, accessibility pass | A shared link reproduces the song on another device |
 | **M5** | Portfolio story, homepage card and About mention | Live on mferet.com |
@@ -261,10 +313,11 @@ M1 is the riskiest part (does it sound good?), so it comes before any UI work.
 | User denies location | City search is always visible and the page works without location |
 | Mobile audio quirks | Start audio on tap, show the iOS ringer note, cap polyphony to keep CPU low |
 | Location privacy | Round coordinates to 0.1°, keep everything in the browser, use no third-party analytics |
+| An extra service (air, Kp, holidays) is slow or down | Each has a 4-second limit and is optional; the song is built without it |
 
 ## 13. Open questions (defaults chosen; change if you disagree)
 
 1. **Units shown:** °F and mph for US visitors, °C and km/h elsewhere, based on the browser locale, with a toggle that is remembered. *(Built in M2. Units change only the liner notes, never the music.)*
 2. **Default before location:** a rotating "song of the day" from 14 world cities, one per day, so Play works right away. *(Built in M2.)*
-3. **Length:** 12 bars (about 20 s), looping. Could offer a "long" version with a bar or more per hour.
+3. **Length:** 12 bars (about 20 s), played once. Could offer a "long" version with a bar or more per hour.
 4. **Time of day:** always play the whole day from midnight. A later option could start at the current hour.

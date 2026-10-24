@@ -9,3 +9,6 @@ __pycache__/
 
 # Local secrets, never committed
 .env
+
+# Local tuning set (ordinary days), never published
+local/
