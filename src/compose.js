@@ -57,17 +57,22 @@ export function analyze(f) {
     Math.round((stats.tMean - M.MELODY.registerCenterC) * M.MELODY.registerPerC),
     -M.MELODY.registerMax, M.MELODY.registerMax,
   );
-  const voices = pickVoices(stats, storm, snow);
+  const GRn = M.GREY_RAIN;
+  const greyRain = !storm && !snow && stats.cloud >= GRn.minCloud
+    && stats.tMean >= GRn.minTemp && stats.tMean <= GRn.maxTemp
+    && H.filter((h) => h.precip >= 0.1).length >= GRn.minWetHours;
+  const voices = pickVoices(stats, storm, snow, greyRain);
   const { raw: intensity, energy } = dynamicsCurve(H);
-  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
+  return { stats, storm, stormHour, snow, greyRain, brightness, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
 }
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
-export function pickVoices(stats, storm, snow) {
+export function pickVoices(stats, storm, snow, greyRain = false) {
   const melody = M.MELODY_VOICES.find((v) => stats.tMean < v.maxTemp);
   const holds = ({ when: w }) =>
     (w.storm == null || w.storm === storm) &&
     (w.snow == null || w.snow === snow) &&
+    (w.greyRain == null || w.greyRain === greyRain) &&
     (w.minPop == null || stats.pop >= w.minPop || stats.precipSum >= w.minRainMm) &&
     (w.minCloud == null || stats.cloud >= w.minCloud) &&
     (w.maxTemp == null || stats.tMean < w.maxTemp) &&
@@ -306,7 +311,8 @@ export function compose(f, { units = "metric" } = {}) {
     return +Math.max(G.gateMin, G.gateDry + (G.gateHumid - G.gateDry) * humid - G.clipMax * cold).toFixed(3);
   };
   const warm = clamp((stats.tMean - G.clipFromC) / (G.swingWarmC - G.clipFromC), 0, 1);
-  const swing = +(G.swingMax * warm * clamp((stats.rh - G.swingFromRh) / (G.swingFullRh - G.swingFromRh), 0, 1)).toFixed(3);
+  const swingCurve = +(G.swingMax * warm * clamp((stats.rh - G.swingFromRh) / (G.swingFullRh - G.swingFromRh), 0, 1)).toFixed(3);
+  const swing = A.greyRain ? Math.max(swingCurve, M.GREY_RAIN.swing) : swingCurve;
   const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
   const seed = seedFor(f);
@@ -388,7 +394,8 @@ export function compose(f, { units = "metric" } = {}) {
     const anchor = anchors[b];
     const next = last ? anchor : anchors[b + 1];
     const sectionEnd = M.SECTIONS.some((s) => s.start === b + 1) || last;
-    const vel = MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b] + C.velBoost * stir[b];
+    const grey = 1 - MEL.overcastDuck * clamp((h.cloud - MEL.overcastFrom) / (100 - MEL.overcastFrom), 0, 1);
+    const vel = grey * (MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b] + C.velBoost * stir[b]);
 
     let pos = 0;
     rhythm.forEach((dur, k) => {
@@ -465,6 +472,39 @@ export function compose(f, { units = "metric" } = {}) {
     });
   }
   for (const d of drums) d.note = midiToNote(d.midi);
+
+  // ---- Grey rain: a 2-step beat in the wet hours, and vinyl crackle all day ----
+  const GR = M.GREY_RAIN;
+  const garage = [];
+  const crackle = [];
+  if (A.greyRain) {
+    for (let b = 0; b < M.BARS - 1; b++) {
+      const h = H[b];
+      if (h.cloud < GR.hourCloud || (h.precip < 0.1 && h.pop < GR.hourPop)) continue;
+      const off = (b % 2) * M.STEPS; // where this hour sits in the 2-hour pattern
+      const hit = (kind, steps, v) => {
+        for (const st of steps) {
+          if (st < off || st >= off + M.STEPS) continue;
+          garage.push({ bar: b, pos: st - off, kind, vel: +clamp(v + (rng() - 0.5) * 2 * GR.humanize, 0.05, 1).toFixed(3) });
+        }
+      };
+      const wet = 0.7 + 0.3 * (h.pop / 100);
+      if (h.precip >= GR.kickMm) hit("kick", GR.kick, GR.vel.kick * wet);
+      hit("snare", GR.snare, GR.vel.snare * wet);
+      hit("hat", GR.hats, GR.vel.hat * wet);
+      hit("ghost", GR.ghosts, GR.vel.ghost * wet);
+    }
+    garage.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+    const [rl, rh] = GR.crackleRh;
+    const [v0, v1] = GR.crackleVel;
+    for (let b = 0; b < M.BARS; b++) {
+      const count = Math.round(GR.cracklePerHour * clamp((H[b].rh - rl) / (rh - rl), 0.25, 1));
+      for (let k = 0; k < count; k++) {
+        crackle.push({ bar: b, pos: +(rng() * M.STEPS).toFixed(3), vel: +(v0 + (v1 - v0) * rng() ** 3).toFixed(3) });
+      }
+    }
+    crackle.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+  }
 
   // ---- Pad: one held chord per chord change (every 2 hours) ----------------------------------
   const pad = [];
@@ -565,7 +605,8 @@ export function compose(f, { units = "metric" } = {}) {
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
-    reverbWet: +(RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1)).toFixed(3),
+    reverbWet: +Math.min(0.85, RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1)
+      + (A.greyRain ? M.GREY_RAIN.reverbLift : 0)).toFixed(3),
   };
 
   const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
@@ -576,7 +617,7 @@ export function compose(f, { units = "metric" } = {}) {
     trend: A.trend, progressionDegrees: progression,
     progression: progression.map((d) => chordLabel(arc.chapters[0].mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
-    stats, voices: A.voices, swing,
+    stats, voices: A.voices, swing, greyRain: A.greyRain, bassVoice: A.greyRain ? "sub" : "synth",
     bassFeel,
     barModes: barChords.map((x) => x.mode),
     chordDegrees: barChords.map((x) => x.deg),
@@ -587,9 +628,9 @@ export function compose(f, { units = "metric" } = {}) {
   meta.arc = day;
   meta.stir = stir;
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
-  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, atmosphere, fx, automation }, units);
+  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, garage, atmosphere, fx, automation }, units);
   meta.notes = notesAsText(meta.liner);
-  return { meta, melody, bass, pad, drums, rain, bells, atmosphere, fx, automation };
+  return { meta, melody, bass, pad, drums, garage, crackle, rain, bells, atmosphere, fx, automation };
 }
 
 function shuffle(arr, rng) {
@@ -738,14 +779,22 @@ function linerNotes(f, A, meta, layers, units) {
 
   // ---- Instruments ----
   const v = A.voices;
-  const padWhy = { storm: "Stormy day", snow: "Snowy day", rain: "Wet day", overcast: "Grey sky",
+  const padWhy = { storm: "Stormy day", snow: "Snowy day", rain: "Wet day", ghost: "Cool, grey drizzle", overcast: "Grey sky",
     icy: "Clear, freezing sky", lush: "Clear, humid sky", airy: "Clear, dry sky" }[v.pad.id];
   add("voices", `Average ${formatTemp(s.tMean, units)}`, `${cap(v.melody.label)} on the melody`);
   add("voices", padWhy, `${cap(v.pad.label)} on the pad`);
   if (layers.drums?.length) add("voices", "A storm on the way", "Low storm drums that gather into a roll");
+  if (meta.greyRain) {
+    add("voices", "Cool, grey drizzle all day", "A deep sub bass, vinyl crackle and a shuffled beat");
+    const beatBars = [...new Set(layers.garage.map((n) => n.bar))];
+    const kickBars = [...new Set(layers.garage.filter((n) => n.kind === "kick").map((n) => n.bar))];
+    if (beatBars.length) add("voices", "Wet hours", `A skippy 2-step beat at ${barRanges(beatBars)}${kickBars.length ? `; the kick joins in the heavier rain at ${barRanges(kickBars)}` : ""}`);
+  }
 
   // ---- Dynamics ----
   split("dynamics", dynamicsNote(f, A, units));
+  const greyBars = f.hours.map((h, b) => (h.cloud >= (M.MELODY.overcastFrom + 100) / 2 ? b : -1)).filter((b) => b >= 0);
+  if (greyBars.length) add("dynamics", "Heavy cloud", `The melody steps back and plays quieter at ${barRanges(greyBars)}`);
   const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
   if (capeLevel(meta.capeMax) > 0) add("dynamics", `Unstable air (CAPE up to ${Math.round(meta.capeMax)} J/kg, storm fuel)`,
     `The band swells and ${meta.drive >= 0.4 ? "drives hard" : "picks up grit"}`);

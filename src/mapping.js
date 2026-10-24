@@ -60,6 +60,10 @@ export const MELODY = {
   maxLeap: 9,          // semitones (a major sixth)
   low: 48, high: 91,   // MIDI range clamp (C3–G6)
   velLow: 0.6, velHigh: 0.9, accent: 0.05,
+  // Under a grey sky the melody steps back into the mix: from overcastFrom %
+  // cloud, each hour's notes play quieter, by overcastDuck (×) at 100% cloud
+  // (0.35 ≈ −4 dB), while the pad, bass and atmosphere stay as they are.
+  overcastFrom: 50, overcastDuck: 0.35,
 };
 
 // Notes per hour from wind gusts (km/h): first row whose maxGust exceeds the gust.
@@ -243,6 +247,28 @@ export const CALM_DETAIL = {
   margin: 0.04,
 };
 
+// ---- Grey rain: a cool, overcast, drizzly day -----------------------------
+// The day qualifies when it isn't a storm or snow day, the mean cloud cover is
+// at least minCloud, at least minWetHours hours have rain or drizzle, and the
+// mean temperature sits between minTemp and maxTemp (a warm monsoon doesn't count).
+// On such a day:
+//   2-step drums   a skippy UK-garage beat in the wet hours (cloud ≥ hourCloud and
+//                  rain falling or pop ≥ hourPop). Drizzle plays the rim and hats;
+//                  kickMm of rain in the hour brings in the kick.
+//                  Steps are sixteenths across a 2-hour chord (0–15).
+//   crackle        vinyl crackle all day, crackleRh: more pops the damper the air
+//   ghost pad      the pad becomes wordless, ghostly voices (PAD_VOICES "ghost")
+//   sub bass       the bass turns into a round sine sub
+//   swing          at least `swing`, even on a cool day; reverb opens by reverbLift
+export const GREY_RAIN = {
+  minCloud: 0.75, minWetHours: 6, minTemp: 0, maxTemp: 20,
+  hourCloud: 60, hourPop: 40, kickMm: 1,
+  kick: [0, 10], snare: [4, 12], hats: [2, 6, 10, 14], ghosts: [3, 7, 11, 15],
+  vel: { kick: 0.75, snare: 0.5, hat: 0.3, ghost: 0.14 }, humanize: 0.06,
+  cracklePerHour: 12, crackleRh: [60, 100], crackleVel: [0.08, 0.35],
+  swing: 0.4, reverbLift: 0.12,
+};
+
 // ---- Groove and articulation ------------------------------------------------
 // Humid air swings and slurs; dry air plays straight; cold air plays clipped.
 //   swing  the day's mean humidity: 0 below swingFromRh, swingMax at swingFullRh
@@ -327,6 +353,11 @@ export const PAD_VOICES = [
   {
     id: "snow", label: "hushed choir", when: { snow: true }, gain: 4, tone: 2000, tremolo: [0, 0],
     options: { oscillator: { type: "fatsine", count: 3, spread: 30 }, envelope: { attack: 2.5, decay: 0.5, sustain: 0.9, release: 3.5 } },
+  },
+  {
+    // Wordless "ooh" voices: soft detuned saws through a low formant-like filter, with a slow tape wobble.
+    id: "ghost", label: "ghostly, wordless voices", when: { greyRain: true }, gain: 3, tone: 900, tremolo: [0.35, 0.3],
+    options: { oscillator: { type: "fatsawtooth", count: 4, spread: 28 }, envelope: { attack: 1.8, decay: 0.5, sustain: 0.85, release: 3.5 } },
   },
   {
     id: "rain", label: "wobbling electric piano", when: { minPop: 0.5, minRainMm: 5 }, gain: 2, tone: 1100, tremolo: [4, 0.45],

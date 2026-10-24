@@ -2,11 +2,11 @@
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
 //   melody → trim → vibrato → lowpass → panner → comp ─┐
-//   bass, drums ───────────────────────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
+//   bass, drums, 2-step kit ────────────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
 //   pad → trim → tremolo → lowpass → comp ─────────────┘        │
 //   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → limiter → out
 //   bells ──────────────────────────────────────────────────────┘
-//   white/pink/brown noise → gains → lowpass (atmosphere)
+//   white/pink/brown noise → gains → lowpass (atmosphere); vinyl crackle → bandpass
 //   pink noise → auto-filter → gain (wind)
 //   thunder, swell (one-shots)
 
@@ -76,6 +76,28 @@ export class Engine {
       pitchDecay: 0.06, octaves: 3,
       envelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
     }).connect(new T.Filter({ type: "lowpass", frequency: 900 }).connect(this.vol.drums));
+
+    // Grey-rain 2-step kit: a short deep kick, a rimshot and hats.
+    this.kick = new T.MembraneSynth({
+      pitchDecay: 0.03, octaves: 5,
+      envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.1 },
+    }).connect(new T.Volume(2).connect(this.vol.drums));
+    this.rimFilter = new T.Filter({ type: "bandpass", frequency: 1800, Q: 1.2 }).connect(new T.Volume(4).connect(this.vol.drums));
+    this.rim = new T.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.05 },
+    }).connect(this.rimFilter);
+    this.hatFilter = new T.Filter({ type: "highpass", frequency: 7500 }).connect(new T.Volume(-2).connect(this.vol.drums));
+    this.hat = new T.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.035, sustain: 0, release: 0.02 },
+    }).connect(this.hatFilter);
+    // Vinyl crackle: tiny clicks of noise.
+    this.crackleFilter = new T.Filter({ type: "bandpass", frequency: 3000, Q: 0.6 }).connect(new T.Volume(-4).connect(this.vol.atmosphere));
+    this.crackle = new T.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.0005, decay: 0.004, sustain: 0, release: 0.002 },
+    }).connect(this.crackleFilter);
 
     this.shakerFilter = new T.Filter({ type: "highpass", frequency: 4000 }).connect(this.vol.rain);
     this.shaker = new T.NoiseSynth({
@@ -170,6 +192,14 @@ export class Engine {
     tr.loopEnd = `${realBars + 1}:0:0`; // a bar of silence before it repeats
     this.reverb.wet.value = score.automation.reverbWet;
     this.drive.distortion = score.meta.drive ?? 0.25;
+    // Grey-rain days swap the saw bass for a round sub (a sine with a touch of
+    // second harmonic, so it still shows up on small speakers).
+    const sub = score.meta.bassVoice === "sub";
+    if (sub) this.bass.oscillator.partials = [1, 0.18];
+    else this.bass.oscillator.type = "sawtooth";
+    this.bass.filterEnvelope.baseFrequency = sub ? 180 : 120;
+    this.bass.filterEnvelope.octaves = sub ? 1 : 2.5;
+    this.bass.volume.value = sub ? 5 : 0;
 
     // `bar` in the score is an hour slot of `steps` sixteenths.
     const at = (bar, pos) => {
@@ -188,6 +218,18 @@ export class Engine {
     }
     for (const n of score.drums ?? []) {
       tr.schedule((t) => this.drums.triggerAttackRelease(n.note, this.s16(n.dur) * 2, t, n.vel), at(n.bar, n.pos));
+    }
+    for (const n of score.garage ?? []) {
+      const play = { kick: (t) => this.kick.triggerAttackRelease("A1", "16n", t, n.vel),
+        snare: (t) => this.rim.triggerAttackRelease(0.1, t, n.vel),
+        hat: (t) => this.hat.triggerAttackRelease(0.03, t, n.vel),
+        ghost: (t) => this.hat.triggerAttackRelease(0.03, t, n.vel) }[n.kind];
+      tr.schedule(play, at(n.bar, n.pos));
+    }
+    // Crackle sits between the sixteenths, so it's placed in ticks.
+    const ticks16 = tr.PPQ / 4;
+    for (const n of score.crackle ?? []) {
+      tr.schedule((t) => this.crackle.triggerAttackRelease(0.004, t, n.vel), `${Math.round((n.bar * steps + n.pos) * ticks16)}i`);
     }
     for (const n of score.rain) {
       tr.schedule((t) => this.shaker.triggerAttackRelease(0.05, t, n.vel), at(n.bar, n.pos));

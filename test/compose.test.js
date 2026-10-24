@@ -188,7 +188,7 @@ test("climate picks the instruments", () => {
     "reykjavik-wind": ["flute", "storm"], // a gale with rain counts as a storm
     "kyoto-spring": ["keys", "airy"],
     "philadelphia-autumn": ["keys", "airy"],
-    "london-drizzle": ["keys", "rain"],
+    "london-drizzle": ["keys", "ghost"],
     "honolulu-flat": ["mallet", "lush"],
     "houston-storms": ["mallet", "storm"],
     "mumbai-monsoon": ["mallet", "rain"],
@@ -357,4 +357,30 @@ test("calm days follow their small changes", () => {
   // A dramatic day keeps its own arc untouched.
   const storm = scores["houston-storms"];
   if (storm.meta.arc.dramatic) assert(storm.meta.stir.every((v) => v === 0), "storm day has no calm stir");
+});
+
+test("overcast hours play the melody quieter", () => {
+  const f = structuredClone(forecasts["phoenix-heat"]);
+  const clear = compose(f);
+  for (const h of f.hours) h.cloud = 100;
+  const grey = compose(f);
+  const m = (s) => s.melody.reduce((a, x) => a + x.vel, 0) / s.melody.length;
+  assert(m(grey) < m(clear) * 0.8, `grey melody ${m(grey).toFixed(2)} vs clear ${m(clear).toFixed(2)}`);
+  assert(JSON.stringify(grey.meta.notes).includes("Heavy cloud"), "liner notes mention it");
+});
+
+test("grey rain: London gets the 2-step beat, crackle, ghost pad and sub", () => {
+  const s = scores["london-drizzle"];
+  assert(s.meta.greyRain, "London is a grey-rain day");
+  equal(s.meta.voices.pad.id, "ghost", "ghost pad");
+  equal(s.meta.bassVoice, "sub", "sub bass");
+  assert(s.garage.length > 0 && s.crackle.length > 0, "beat and crackle");
+  for (const n of s.garage) assert(n.pos >= 0 && n.pos < M.STEPS && n.vel > 0 && n.vel <= 1, `garage hit ${JSON.stringify(n)}`);
+  for (const n of s.crackle) assert(n.pos >= 0 && n.pos < M.STEPS && n.vel > 0 && n.vel <= 1, `crackle ${JSON.stringify(n)}`);
+  assert(s.garage.every((n) => n.kind !== "kick" || forecasts["london-drizzle"].hours[n.bar].precip >= M.GREY_RAIN.kickMm), "kick only in heavier rain");
+  assert(s.meta.swing >= M.GREY_RAIN.swing, "it swings");
+  // Warm monsoons, storms and snow keep their own sound.
+  for (const n of ["mumbai-monsoon", "houston-storms", "oslo-snow", "phoenix-heat", "reykjavik-wind"]) {
+    assert(!scores[n].meta.greyRain && scores[n].garage.length === 0 && scores[n].crackle.length === 0, `${n} is not grey rain`);
+  }
 });
