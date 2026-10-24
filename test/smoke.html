@@ -83,7 +83,8 @@ try {
   sel.value = "oslo-snow";
   sel.dispatchEvent(new Event("change"));
   await until(() => text(d, "place-name") === "Oslo, Norway");
-  check(text(d, "place-kind") === "Sample day" && w.Tone.getTransport().bpm.value === 149, "sample day loads");
+  // Oslo's gale-force mean wind hits the tempo ceiling (TEMPO.max).
+  check(text(d, "place-kind") === "Sample day" && Math.round(w.Tone.getTransport().bpm.value) === 156, `sample day loads: ${text(d, "place-kind")} at ${w.Tone.getTransport().bpm.value} BPM`);
   d.getElementById("play").click();
   await wait(300);
   check(text(d, "play") === "Play", "Stop stops");
@@ -91,7 +92,7 @@ try {
   await until(() => w.Tone.getTransport().state === "started", 5000);
   // ~20 s of song; slow machines render audio slower than real time, so allow plenty.
   const ended = await until(() => text(d, "play") === "Play" && w.Tone.getTransport().state !== "started", 120000);
-  check(ended, "plays once, then stops by itself");
+  check(ended, `plays once, then stops by itself (button: ${text(d, "play")}, transport: ${w.Tone.getTransport().state})`);
 
   // 6. The last searched city comes back on the next visit.
   [w, d] = await open("");

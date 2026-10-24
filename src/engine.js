@@ -1,9 +1,9 @@
 // Plays a score with Tone.js (loaded globally from vendor/tone-15.1.22.js).
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
-//   melody → trim → vibrato → lowpass → panner → comp ─┐
+//   melody → trim → vibrato → lowpass → panner → comp → echo ─┐
 //   bass, drums, kit (rain + dry beat)──────────────────────┼→ band ─┐   (band swells with the weather, then a distortion whose mix follows it)
-//   pad → trim → tremolo → lowpass → comp ─────────────┘        │
+//   pad → trim → tremolo → lowpass → comp ─────────────┘        │   (arp → lowpass joins the pad's fader)
 //   shaker → highpass ──────────────────────────────────────────┼→ bus → EQ3 → filter → delay → reverb → master → fade → limiter → out
 //   bells ──────────────────────────────────────────────────────┘
 //   white/pink/brown noise → gains → lowpass (atmosphere); vinyl crackle → bandpass
@@ -11,7 +11,7 @@
 //   thunder, swell (one-shots)
 //   sky bells (moonrise, meteors, frost, holiday, solstice), UV sparkle, aurora chord → fx
 
-import { SOFT_CLIP, STORM_DRUMS_DB, MIX } from "./mapping.js";
+import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL } from "./mapping.js";
 
 const Tone = () => window.Tone;
 
@@ -40,6 +40,12 @@ const BAND = ["melody", "bass", "pad", "drums"];
 export const FADE = { inSec: 1.2, outHours: 1, outGap: 10, stopSec: 0.3 };
 export const DEFAULT_LEVELS = MIX; // see mapping.js
 
+/** How long a score plays, in seconds, from the start to the end of its fade-out. */
+export function songSeconds(score) {
+  const steps = score.meta.steps ?? 16;
+  return ((score.meta.bars * steps + FADE.outGap + 2) * 15) / score.meta.bpm + 0.3;
+}
+
 export class Engine {
   constructor({ onBar, onEvent, onEnd } = {}) {
     const T = Tone();
@@ -48,7 +54,11 @@ export class Engine {
     this.onEnd = onEnd; // the song has played through and stopped by itself
     // Screen updates (hour highlight, flashes) that run late on a busy device show up late
     // instead of being dropped (Tone's default drops anything over 0.25 s late).
-    Tone().getDraw().expiration = 1;
+    // Keep this engine's own context: a download renders offline, and Tone swaps
+    // its global context while it does, which must not touch the live player.
+    this.context = T.getContext();
+    this.draw = T.getDraw();
+    this.draw.expiration = 1;
     this.transport = T.getTransport();
     this.score = null;
 
@@ -84,7 +94,9 @@ export class Engine {
     // loud ends, so the temperature and cloud dynamics still come through.
     // The melody's per-hour level (cloud turns it down) sits after its compressor.
     this.melodyLevel = new T.Volume(0).connect(this.vol.melody);
-    this.melodyComp = new T.Compressor({ threshold: -18, ratio: 3, attack: 0.02, release: 0.25, knee: 6 }).connect(this.melodyLevel);
+    // The melody's echo (ECHO): its wet mix and feedback follow each hour's air.
+    this.melodyEcho = new T.FeedbackDelay({ delayTime: 0.3, feedback: ECHO.feedback[0], wet: ECHO.wet[0] }).connect(this.melodyLevel);
+    this.melodyComp = new T.Compressor({ threshold: -18, ratio: 3, attack: 0.02, release: 0.25, knee: 6 }).connect(this.melodyEcho);
     this.padComp = new T.Compressor({ threshold: -24, ratio: 3, attack: 0.05, release: 0.4, knee: 6 }).connect(this.vol.pad);
 
     // ---- Instruments ----
@@ -108,6 +120,13 @@ export class Engine {
       envelope: { attack: 0.01, decay: 0.3, sustain: 0.6, release: 0.4 },
       filterEnvelope: { attack: 0.01, decay: 0.25, sustain: 0.4, release: 0.5, baseFrequency: 120, octaves: 2.5 },
     }).connect(this.vol.bass);
+
+    // Arpeggio (ARP): a soft pulse wave, like an old game console's square channel.
+    this.arp = new T.Synth({
+      oscillator: { type: "pulse", width: ARP_VOICE.width },
+      envelope: { attack: 0.003, decay: 0.12, sustain: 0.3, release: 0.08 },
+    }).connect(new T.Filter({ type: "lowpass", frequency: ARP_VOICE.tone, rolloff: -12 })
+      .connect(new T.Volume(ARP_VOICE.gain).connect(this.vol.pad)));
 
     // Storm drums: a low, timpani-like membrane.
     this.drums = new T.MembraneSynth({
@@ -172,11 +191,13 @@ export class Engine {
       noise: { type: "brown" },
       envelope: { attack: 0.08, decay: 3.5, sustain: 0, release: 1 },
     }).connect(this.thunderFilter);
-    this.swellFilter = new T.Filter({ type: "highpass", frequency: 4000 }).connect(this.vol.fx);
-    this.swellLevel = new T.Volume(-12).connect(this.swellFilter);
+    // Swell (SWELL): noise band-passed between the highpass and lowpass.
+    this.swellFilter = new T.Filter({ type: "highpass", frequency: SWELL.highpass })
+      .connect(new T.Filter({ type: "lowpass", frequency: SWELL.lowpass, rolloff: -12 }).connect(this.vol.fx));
+    this.swellLevel = new T.Volume(SWELL.db).connect(this.swellFilter);
     this.swell = new T.NoiseSynth({
-      noise: { type: "white" },
-      envelope: { attack: 2.5, decay: 0.1, sustain: 1, release: 1.5, attackCurve: "exponential" },
+      noise: { type: "pink" },
+      envelope: { attack: SWELL.attack, decay: SWELL.decay, sustain: SWELL.sustain, release: SWELL.release, attackCurve: "sine" },
     }).connect(this.swellLevel);
 
     // Sky bells: glassy FM bells, a little brighter and longer than the snow bells.
@@ -206,7 +227,7 @@ export class Engine {
   setVoices({ melody, pad }) {
     const T = Tone();
     const build = (v, out) => {
-      const synth = new T.PolySynth(T[v.synth || "Synth"], v.options).connect(out);
+      const synth = new T.PolySynth({ context: this.context, voice: T[v.synth || "Synth"], options: v.options }).connect(out);
       synth.maxPolyphony = 12; // a pad chord with colour is 5 notes, and its release overlaps the next
       return synth;
     };
@@ -243,6 +264,9 @@ export class Engine {
     this.score = score;
     this.setVoices(score.meta.voices);
     tr.bpm.value = score.meta.bpm;
+    // Tempo-synced delays, set now that the tempo is known.
+    this.delay.delayTime.value = (60 / score.meta.bpm) * 0.75; // a dotted eighth
+    this.melodyEcho.delayTime.value = (60 / score.meta.bpm) * ECHO.beats;
     tr.swing = score.meta.swing ?? 0;
     tr.swingSubdivision = "16n";
     tr.loop = false; // plays once; pressing Play again starts it over
@@ -280,6 +304,9 @@ export class Engine {
         for (const x of c.colour ?? []) this.pad.triggerAttackRelease(x.note, this.s16(c.dur) * 0.95, t, x.vel);
       }, at(c.bar, c.pos));
     }
+    for (const n of score.arp ?? []) {
+      tr.schedule((t) => this.arp.triggerAttackRelease(n.note, this.s16(n.dur) * ARP.gate, t, n.vel), at(n.bar, n.pos));
+    }
     for (const n of score.drums ?? []) {
       tr.schedule((t) => this.drums.triggerAttackRelease(n.note, this.s16(n.dur) * 2, t, n.vel), at(n.bar, n.pos));
     }
@@ -315,9 +342,9 @@ export class Engine {
       tr.schedule((t) => synth.triggerAttackRelease(x.notes, this.s16(x.dur) * (x.kind === "aurora" ? 0.9 : 0.8), t, x.vel), at(x.bar, x.pos));
     }
     for (const f of score.fx) {
-      const note = (t) => { if (this.onEvent) Tone().getDraw().schedule(() => this.onEvent(f.type), t); };
+      const note = (t) => { if (this.onEvent) this.draw.schedule(() => this.onEvent(f.type), t); };
       if (f.type === "thunder") tr.schedule((t) => { this.thunder.triggerAttackRelease(3, t, 0.9); note(t); }, at(f.bar, f.pos));
-      if (f.type === "swell") tr.schedule((t) => { this.swell.triggerAttackRelease(2.5, t, 0.6); note(t); }, at(f.bar, f.pos));
+      if (f.type === "swell") tr.schedule((t) => { this.swell.triggerAttackRelease(SWELL.attack + SWELL.decay + SWELL.hold, t, SWELL.vel); note(t); }, at(f.bar, f.pos));
     }
 
     // Per-hour automation and the playhead.
@@ -334,6 +361,9 @@ export class Engine {
         this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
         this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
         this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);
+        const carry = A.echoCarry?.[bar] ?? 0;
+        this.melodyEcho.wet.rampTo(ECHO.wet[0] + (ECHO.wet[1] - ECHO.wet[0]) * carry, ramp * 2, t);
+        this.melodyEcho.feedback.rampTo(ECHO.feedback[0] + (ECHO.feedback[1] - ECHO.feedback[0]) * carry, ramp * 2, t);
         this.reverb.wet.rampTo(Math.min(0.85, A.reverbWet + (A.reverbLift?.[bar] ?? 0)), ramp * 3, t);
         this.eq.high.rampTo(A.eqHigh[bar], ramp * 2, t);
         this.eq.low.rampTo(A.eqLow[bar], ramp * 2, t);
@@ -342,7 +372,7 @@ export class Engine {
         }
         this.atmosFilter.frequency.rampTo(a.cutoff, ramp * 2, t);
         this.windGain.gain.rampTo(a.wind, ramp * 2, t);
-        if (this.onBar) Tone().getDraw().schedule(() => this.onBar(bar), t);
+        if (this.onBar) this.draw.schedule(() => this.onBar(bar), t);
       }, at(bar, 0));
     });
     // Fade in at the top of every pass; fade out across the last hour into the gap.
@@ -361,7 +391,7 @@ export class Engine {
     tr.schedule((t) => {
       for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, this.s16(8), t);
       this.windGain.gain.rampTo(0, this.s16(8), t);
-      if (this.onBar) Tone().getDraw().schedule(() => this.onBar(null), t);
+      if (this.onBar) this.draw.schedule(() => this.onBar(null), t);
     }, `${realBars}:0:0`);
     // A timer rather than Draw, so it also ends in a background tab.
     tr.schedule((t) => {
@@ -370,7 +400,7 @@ export class Engine {
         if (token !== this.stopToken) return; // Stop or Play was pressed meanwhile
         this.halt();
         if (this.onEnd) this.onEnd();
-      }, Math.max(0, (t - Tone().now()) * 1000));
+      }, Math.max(0, (t - this.context.now()) * 1000));
     }, at(score.meta.bars, FADE.outGap + 2));
   }
 
@@ -387,7 +417,7 @@ export class Engine {
   /** Fade out quickly, then stop (a new start in the meantime wins). */
   stop() {
     const token = ++this.stopToken;
-    const now = Tone().now();
+    const now = this.context.now();
     const g = this.fade.gain;
     g.cancelScheduledValues(now);
     g.setValueAtTime(g.getValueAtTime(now), now);
@@ -400,6 +430,7 @@ export class Engine {
     this.transport.stop();
     this.melody?.releaseAll();
     this.pad?.releaseAll();
+    this.arp.triggerRelease();
     this.bells.releaseAll();
     this.chimes.releaseAll();
     this.sparkle.releaseAll();

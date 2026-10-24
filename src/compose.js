@@ -716,6 +716,32 @@ export function compose(f, { units = "metric" } = {}) {
     pad.push({ bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, midis, notes: midis.map(midiToNote), vel, colour });
   }
 
+  // ---- Arpeggio: clear daylight runs up and down the chord (see ARP) --------
+  const AR = M.ARP;
+  const arp = [];
+  const shape = AR.shape[A.trend];
+  let step = 0;
+  for (let b = 0; b < M.BARS - 1; b++) {
+    const h = H[b];
+    const amount = clamp(((1 - h.cloud / 100) * (h.isDay ? 1 : 0) - AR.from) / (AR.full - AR.from), 0, 1);
+    if (b % M.BARS_PER_CHORD === 0) step = 0; // each chord starts its run from the bottom (or top)
+    if (amount <= 0 || h.precip >= 0.1 || M.SNOW_CODES.includes(h.code)) continue;
+    if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
+    const pcs = chordPcs(b).slice();
+    if (colourAt(b).seventh >= K.min) pcs.push((root + MODES[modeAt(b)][(chordDeg(b) + 6) % 7]) % 12);
+    const lowest = AR.low + ((((pcs[0] - AR.low) % 12) + 12) % 12); // start on the chord's root
+    const ladder = [];
+    for (let m = lowest; m <= AR.high && ladder.length < pcs.length + 1; m++) if (pcs.includes(m % 12)) ladder.push(m);
+    const run = shape === "down" ? ladder.slice().reverse()
+      : shape === "updown" ? ladder.concat(ladder.slice(1, -1).reverse()) : ladder;
+    const every = AR.rate.find((r) => h.wind < r.maxWind).every;
+    for (let pos = 0; pos < M.STEPS; pos += every) {
+      const midi = run[step++ % run.length];
+      arp.push({ bar: b, pos, dur: every, midi, note: midiToNote(midi),
+        vel: +(AR.vel * amount + (pos % 4 === 0 ? AR.accent * amount : 0)).toFixed(3) });
+    }
+  }
+
   // ---- Rain shakers (or snow bells) ---------------------------------------
   const rain = [];
   const bells = [];
@@ -874,6 +900,12 @@ export function compose(f, { units = "metric" } = {}) {
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
+    // The melody's echo carries in clear, still, dry air (see ECHO).
+    echoCarry: H.map((h) => {
+      const E = M.ECHO;
+      const wet = h.precip >= 0.1 || M.SNOW_CODES.includes(h.code) || E.fogCodes.includes(h.code);
+      return wet ? 0 : +((1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)).toFixed(3);
+    }),
     // Snow on the ground soaks up the echoes.
     reverbWet: +((RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1))
       * (1 - M.SNOW_COVER.reverbCut * SK.cover)).toFixed(3),
@@ -917,9 +949,9 @@ export function compose(f, { units = "metric" } = {}) {
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
   const { sky: _sky, ...skyMeta } = SK;
   meta.sky = { ...skyMeta, magLat: SK.sky.magLat };
-  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, garage, beat, crackle, atmosphere, fx, automation, chimes, shimmer }, units);
+  meta.liner = linerNotes(f, A, meta, { melody, arp, rain, bells, drums, garage, beat, crackle, atmosphere, fx, automation, chimes, shimmer }, units);
   meta.notes = notesAsText(meta.liner);
-  return { meta, melody, bass, pad, drums, garage, beat, crackle, rain, bells, atmosphere, fx, automation, chimes, shimmer };
+  return { meta, melody, bass, pad, arp, drums, garage, beat, crackle, rain, bells, atmosphere, fx, automation, chimes, shimmer };
 }
 
 function shuffle(arr, rng) {
@@ -1015,7 +1047,13 @@ function linerNotes(f, A, meta, layers, units) {
     : H.every((h) => !h.isDay) ? "With no sunrise in the polar night, the melody stays dim all day."
       : "Under the midnight sun, the melody plays at full strength all day.";
 
-  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), daylight])] };
+  const arpHours = new Set(layers.arp.map((n) => n.bar)).size;
+  const echoes = layers.automation.echoCarry.filter((c) => c >= 0.5).length >= 3;
+  const arp = arpHours >= 3
+    ? `Clear daylight sets a soft arpeggio running over the chords${echoes ? ", and the melody echoes in the still air" : ""}.`
+    : echoes ? "The melody echoes in the clear, still air." : "";
+
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, daylight])] };
 }
 
 const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);

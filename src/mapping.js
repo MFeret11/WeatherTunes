@@ -192,6 +192,36 @@ export const CHORD_COLOUR = {
   vel: 0.8, min: 0.15,
   voicing: { low: 53, high: 74, openSpan: 12 },
 };
+// ---- Game-music touches: an arpeggio and an echo -----------------------------
+// Video game area themes have two signatures this song borrows: chords broken
+// into quick arpeggios (old sound chips could play only a few notes at once) and
+// an echo on the lead (the SNES sound). Each follows the weather, and stays quiet.
+
+// Arpeggio: in clear daylight a soft pulse wave runs up and down the chord,
+// above the pad. Per hour, amount = clear daylight ((1 − cloud) × daylight)
+// from `from` to full at `full`. Hours with rain or snow, a storm's build or
+// peak, and the last hour have none.
+//   rate       the wind (km/h) sets the speed: the first row whose maxWind is
+//              above the hour's wind gives `every` (sixteenths between notes)
+//   shape      the pressure trend sets the direction: rising climbs, falling
+//              descends, steady goes up and back down
+//   low, high  the register (MIDI); the chord's 7th joins when CHORD_COLOUR adds one
+//   vel        at full amount, with `accent` more on each beat; gate is the note length
+export const ARP = {
+  from: 0.4, full: 0.85,
+  rate: [{ maxWind: 12, every: 2 }, { maxWind: Infinity, every: 1 }],
+  shape: { rising: "up", steady: "updown", falling: "down" },
+  low: 67, high: 86,
+  vel: 0.28, accent: 0.06, gate: 0.5,
+};
+
+// Echo on the melody, `beats` long (0.75 = a dotted eighth, synced to the tempo). Sound carries in clear, still, dry
+// air, so per hour, carry = clear sky × still air × nothing falling, where
+// still air is 1 at or under calmGust km/h and 0 by windyGust, and rain, snow
+// or fog take it away. Wet and feedback go from their low value at no carry to
+// their high value at full carry.
+export const ECHO = { beats: 0.75, calmGust: 12, windyGust: 45, wet: [0.04, 0.24], feedback: [0.15, 0.38], fogCodes: [45, 48] };
+
 export const RAIN = { minPop: 10, maxHits: 5, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
 export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 
@@ -400,7 +430,7 @@ export const MELODY_VOICES = [
   },
   {
     // A soft pluck: a saw whose filter snaps shut, like a nylon string or harp.
-    id: "pluck", label: "plucked strings", maxTemp: 20, synth: "MonoSynth", gain: 0, tone: 5000, vibrato: [0, 0],
+    id: "pluck", label: "plucked strings", maxTemp: 20, synth: "MonoSynth", gain: 4, tone: 5000, vibrato: [0, 0],
     options: {
       oscillator: { type: "sawtooth" },
       filter: { type: "lowpass", Q: 1, rolloff: -24 },
@@ -474,7 +504,10 @@ export const PAD_VOICES = [
 // The starting balance before the weather moves anything. melody, bass, pad and
 // drums then share the band's swell (DYNAMICS); the melody also dips under
 // cloud and at night (MELODY).
-export const MIX = { melody: 0, bass: -17, pad: -17, drums: -8, rain: -2, atmosphere: -8, fx: -10 };
+// Balanced 2026-10-24 on ordinary days (paris-apr, madrid-jul, berlin-oct-wet):
+// in daytime the pad sits about 5 dB under the melody, drums about 6 dB, effects
+// about 10 dB, so the weather's other sounds come through.
+export const MIX = { melody: -4, bass: -20, pad: -11, drums: -6, rain: 6, atmosphere: -5, fx: -3 };
 
 // ---- Master soft clip ---------------------------------------------------------
 // The last stage before the speakers. Below `knee` (0–1 of full scale) the
@@ -483,6 +516,13 @@ export const MIX = { melody: 0, bass: -17, pad: -17, drums: -8, rain: -2, atmosp
 // harsh digital clipping. `headroom` is how far above full scale (×) the
 // input can go before the curve runs out.
 export const SOFT_CLIP = { knee: 0.6, ceiling: 0.97, headroom: 4 };
+// The swell: a breath of filtered noise at sunrise, sunset, a clearing and a storm
+// breaking. It rises over `attack` seconds, falls to `sustain` (0–1) over `decay`,
+// holds for `hold` seconds, then fades over `release`. Band-passed between
+// highpass and lowpass (Hz) so it's airy rather than hissy; `db` is its level.
+export const SWELL = { attack: 1.2, decay: 0.6, sustain: 0.3, hold: 1.4, release: 1.2, highpass: 3000, lowpass: 7500, db: -17, vel: 0.6 };
+// The arpeggio's level (dB) and tone: a quarter-width pulse, rounded off by a lowpass.
+export const ARP_VOICE = { gain: -8, tone: 3200, width: 0.25 };
 // Storm drums (dB): they sit on the bass's note, so they're trimmed to leave it room.
 export const STORM_DRUMS_DB = -3;
 

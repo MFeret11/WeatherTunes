@@ -54,7 +54,6 @@
 					<span>Or try a sample day</span>
 					<select id="sample"><option value="">Choose…</option></select>
 				</label>
-				<button id="units" class="btn small" type="button" aria-label="Switch units"></button>
 			</div>
 			<p id="status" class="status" role="status"></p>
 		</section>
@@ -71,6 +70,7 @@
 					<p id="summary" class="summary"></p>
 					<div class="play-row">
 						<button id="play" class="play" type="button" disabled><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg><span>Play</span></button>
+						<button id="download" class="btn small download" type="button" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m-5-5 5 5 5-5M5 19h14"/></svg><span>Download</span></button>
 						<p id="nowhour" class="nowhour" aria-live="off"></p>
 						<button id="change-place" class="change-place" type="button">Change place</button>
 					</div>
@@ -85,6 +85,7 @@
 					<li><span class="sw temp"></span>Temperature <small>cold → hot</small></li>
 					<li><span class="sw rain"></span>Chance of rain or snow</li>
 				</ul>
+				<button id="units" class="btn small units" type="button" aria-label="Switch units"></button>
 			</div>
 			<div class="stage">
 				<div id="sky" class="sky" aria-hidden="true"><div class="rainfx"></div><div class="flash"></div></div>
@@ -92,7 +93,7 @@
 			</div>
 			<div class="factors-head">
 				<h3 id="factors-h" class="fc-title">The factors</h3>
-				<span class="fc-hint">Each plays a part. Tap one to mute it.</span>
+				<span class="fc-hint">The weather behind each part. Tap one to mute it.</span>
 			</div>
 			<div id="layers" class="factors" role="group" aria-labelledby="factors-h"></div>
 		</section>

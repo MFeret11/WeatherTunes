@@ -4,7 +4,8 @@
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, roundCoord } from "./weather.js";
 import { compose, hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./compose.js";
 import { describe } from "./describe.js";
-import { Engine, LAYERS } from "./engine.js";
+import { Engine, LAYERS, songSeconds } from "./engine.js";
+import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor, moonDisc } from "./icons.js";
 import { coverArt } from "./cover.js";
 
@@ -20,35 +21,24 @@ const SAMPLES = [
   ["oslo-snow", "Oslo · snowstorm"],
   ["reykjavik-wind", "Reykjavik · gale"],
 ];
-// The factors: which part of the weather plays which layer of the song.
+// The factors: each layer of the song and the weather that plays it.
 const ICON = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const CHANNELS = [
-  { layer: "melody", weather: "Temperature", plays: (m) => m.voices.melody.label,
+  { layer: "melody", name: () => "Melody", weather: "temperature",
     icon: ICON('<path d="M10 14V5a2 2 0 1 1 4 0v9a4 4 0 1 1-4 0z"/><path d="M12 9v7"/>') },
-  { layer: "pad", weather: "Sky", plays: (m) => m.voices.pad.label,
+  { layer: "pad", name: () => "Pad", weather: "sky",
     icon: ICON('<path d="M7 18h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 9.5 4.3 4.3 0 0 0 7 18z"/>') },
-  { layer: "bass", weather: "Pressure & cloud", plays: (m) => (m.bassSub >= 0.5 ? "deep bass" : "bass"),
-    icon: ICON('<circle cx="12" cy="13" r="7"/><path d="M12 13l3-3M12 6V4"/>') },
-  { layer: "rain", weather: "Rain & snow", plays: (m) => (m.snow ? "bells & shakers" : "shakers"),
+  { layer: "bass", name: (m) => (m.bassSub >= 0.5 ? "Deep bass" : "Bass"), weather: "pressure & cloud",
+    icon: ICON('<circle cx="12" cy="12" r="8"/><path d="M7.5 15.5l.8-.6M6.5 11h1M8.8 7.6l.6.8M12 6.5v1M15.2 7.6l-.6.8M17.5 11h-1M16.5 15.5l-.8-.6M12 12l3.2-3.2"/><circle cx="12" cy="12" r=".6"/>') },
+  { layer: "rain", name: (m) => (m.snow ? "Shakers & bells" : "Shakers"), weather: "rain & snow",
     icon: ICON('<path d="M12 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z"/>') },
-  { layer: "drums", weather: "Storms & downpours", plays: () => "drums",
-    icon: ICON('<path d="M13 3L6 13h5l-1 8 7-10h-5z"/>') },
-  { layer: "atmosphere", weather: "Wind & air", plays: () => "wind & rain noise",
+  { layer: "drums", name: () => "Beat", weather: "wind, warmth & storms",
+    icon: ICON('<ellipse cx="12" cy="8" rx="7" ry="3"/><path d="M5 8v8c0 1.7 3.1 3 7 3s7-1.3 7-3V8"/>') },
+  { layer: "atmosphere", name: () => "Noise", weather: "gusts, rain & fog",
     icon: ICON('<path d="M3 9h11a3 3 0 1 0-3-3M3 15h15a3 3 0 1 1-3 3M3 12h7"/>') },
-  { layer: "fx", weather: "Sun, moon & sky", plays: (m, sc) => skyPlays(m, sc),
+  { layer: "fx", name: () => "Sparkles", weather: "sun, moon & sky",
     icon: ICON('<circle cx="12" cy="15" r="4"/><path d="M12 5v3M5 15H3M21 15h-2M6.3 9.3l1.4 1.4M17.7 9.3l-1.4 1.4M3 20h18"/>') },
 ];
-/** What the sky layer plays today, in a few words. */
-function skyPlays(m, sc) {
-  // The two most notable sounds, so the label fits on one line.
-  const parts = [];
-  if (sc.shimmer.some((x) => x.kind === "aurora")) parts.push("aurora chord");
-  if (sc.fx.some((x) => x.type === "thunder")) parts.push("thunder");
-  if (sc.chimes.length) parts.push("bells");
-  if (sc.shimmer.some((x) => x.kind !== "aurora")) parts.push("shimmer");
-  parts.push("swells");
-  return parts.slice(0, 2).join(" & ");
-}
 // Your own location has no place name, so holidays use your browser's region.
 const BROWSER_CC = (navigator.language || "").split("-")[1]?.toUpperCase() || null;
 const KIND_LABELS = {
@@ -124,6 +114,7 @@ async function choose({ kind, place, sample, reveal = false }) {
   const wasPlaying = playing;
   $("results").hidden = true;
   playBtn.disabled = true;
+  dlBtn.disabled = !!rendering;
   let f;
   try {
     if (kind === "sample") {
@@ -157,6 +148,7 @@ async function choose({ kind, place, sample, reveal = false }) {
     document.querySelector(".player").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   }
   playBtn.disabled = false;
+  dlBtn.disabled = !!rendering;
   if (wasPlaying) {
     engine.stop();
     play();
@@ -268,16 +260,31 @@ function renderHours() {
     <path d="${line}" fill="none" stroke="url(#hr-temp)" stroke-width="3" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
   </svg>`;
 
+  // Icons only where the sky changes (a new kind of weather, sunrise or sunset, the moon
+  // rising or setting). Phones have narrow columns, so there a change right after the
+  // last icon waits for room (gap columns), and shows only if it still differs by then.
+  const icons = hours.map((h, i) => weatherIcon(h.code, h.isDay, { ...moonLook, up: sk.moon.alt[i] > 0 }));
+  const changes = (gap) => {
+    const shown = new Set();
+    let last = null, at = -Infinity;
+    icons.forEach((ic, i) => {
+      if (ic.svg !== last && i - at >= gap) { shown.add(i); last = ic.svg; at = i; }
+    });
+    return shown;
+  };
+  const iconWide = changes(1), iconNarrow = changes(3);
+
   const cols = hours.map((h, i) => {
     const col = document.createElement("div");
     const aur = sk.aurora[i];
     col.className = "hour" + (h.isDay ? "" : " night") + (i === hiI ? " hi" : "") + (i === loI ? " lo" : "") + (aur >= 0.25 ? " aurora" : "") +
-      (tLabels.has(i) ? " show-t" : "") + (i % 3 ? "" : " major") + (i % 6 ? "" : " axis6") + (i === 0 ? " first" : i === 23 ? " last" : "");
+      (tLabels.has(i) ? " show-t" : "") + (i % 3 ? "" : " major") + (i % 6 ? "" : " axis6") +
+      (iconWide.has(i) ? " sky-wide" : "") + (iconNarrow.has(i) ? " sky-narrow" : "") + (i === 0 ? " first" : i === 23 ? " last" : "");
     col.style.setProperty("--t", t[i].toFixed(3));
     col.style.setProperty("--pop", (h.pop / 100).toFixed(2));
     col.style.setProperty("--bar", tempColor(h.temp));
     col.style.setProperty("--aur", aur.toFixed(2));
-    const icon = weatherIcon(h.code, h.isDay, { ...moonLook, up: sk.moon.alt[i] > 0 });
+    const icon = icons[i];
     col.title = `${hourLabel(i)}: ${icon.label}, ${formatTemp(h.temp, units)}, ${h.cloud}% cloud, ${h.pop}% rain, wind ${formatSpeed(h.wind, units)}`;
     col.innerHTML = `<span class="icon">${icon.svg}</span><span class="tv">${deg(h.temp)}</span><span class="dot"></span>` +
       `<span class="rain">${h.pop >= 5 ? `<i></i>` : ""}${rLabels.has(i) ? `<b>${h.pop}%</b>` : ""}</span>` +
@@ -381,14 +388,15 @@ function renderBand(m) {
   $("layers").replaceChildren(...CHANNELS.map((ch) => {
     const lane = act[ch.layer];
     const silent = lane.every((v) => v === 0);
-    const plays = silent ? "silent today" : ch.plays(m, score);
+    const name = ch.name(m);
+    const by = silent ? "silent today" : ch.weather;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `factor ${ch.layer}` + (muted[ch.layer] ? " muted" : "") + (silent ? " silent" : "");
     btn.setAttribute("aria-pressed", String(!muted[ch.layer]));
-    btn.setAttribute("aria-label", `${ch.weather}: ${plays}`);
-    btn.title = "Mute or unmute";
-    btn.innerHTML = `<span class="f-icon">${ch.icon}</span><span class="f-name">${ch.weather}</span><span class="f-plays">${esc(plays)}</span>`;
+    btn.setAttribute("aria-label", `${name}, played by ${ch.weather}${silent ? ", silent today" : ""}`);
+    btn.title = `${name}: ${by}. Tap to mute or unmute.`;
+    btn.innerHTML = `<span class="f-icon">${ch.icon}</span><span class="f-name">${name}</span><span class="f-plays">${by}</span>`;
     btn.addEventListener("click", () => {
       muted[ch.layer] = !muted[ch.layer];
       btn.setAttribute("aria-pressed", String(!muted[ch.layer]));
@@ -466,6 +474,42 @@ function setPlayState(on) {
 }
 
 playBtn.addEventListener("click", () => (playing ? stop() : play()));
+
+// ---- Download: render the song offline (faster than real time on most devices) and save a WAV.
+// It's the song as it sounds now, so any layers you've muted stay muted.
+const dlBtn = $("download");
+let rendering = null;
+dlBtn.addEventListener("click", async () => {
+  if (!score || rendering) return;
+  const s = score;
+  const label = dlBtn.querySelector("span");
+  rendering = s;
+  dlBtn.disabled = true;
+  label.textContent = "Preparing…";
+  try {
+    const buf = await Tone.Offline(async () => {
+      const e = new Engine();
+      await e.ready;
+      for (const l of LAYERS) e.setMute(l, !!muted[l]);
+      e.load(s);
+      e.start(0);
+    }, songSeconds(s), 2, 44100);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(toWav(buf.get()));
+    a.download = wavName(s.meta.name, s.meta.date);
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    label.textContent = "Download";
+  } catch (e) {
+    console.warn(e);
+    label.textContent = "Couldn't save, try again";
+  } finally {
+    rendering = null;
+    dlBtn.disabled = !score;
+  }
+});
 
 // ---- Controls ----------------------------------------------------------------------
 

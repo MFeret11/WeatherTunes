@@ -595,3 +595,43 @@ test("steady weather holds a repeated note instead of striking it again", () => 
     for (let k = 1; k < hours; k++) assert(steady(x.bar + k) && !opens(x.bar + k), `${n} ${x.note} held into a changing hour ${x.bar + k}`);
   }
 }));
+
+test("arpeggio: chord tones, in range, only in clear dry daylight", () => each((n, s, f) => {
+  for (const x of s.arp) {
+    const h = f.hours[x.bar];
+    assert(h.isDay && h.precip < 0.1 && !M.SNOW_CODES.includes(h.code), `${n} arp in hour ${x.bar}`);
+    assert(x.bar < M.BARS - 1, `${n} arp in the last hour`);
+    assert(x.midi >= M.ARP.low && x.midi <= M.ARP.high, `${n} arp ${x.note} out of range`);
+    const pcs = new Set(chordAt(s, x.bar));
+    if (s.meta.colours[Math.floor(x.bar / M.BARS_PER_CHORD)].seventh >= M.CHORD_COLOUR.min) {
+      const m = s.meta.barModes[x.bar];
+      pcs.add((s.meta.root + MODES[m][(s.meta.chordDegrees[x.bar] + 6) % 7]) % 12);
+    }
+    assert(pcs.has(x.midi % 12), `${n} arp ${x.note} not in the chord at hour ${x.bar}`);
+    assert(x.vel > 0 && x.vel <= M.ARP.vel + M.ARP.accent, `${n} arp vel ${x.vel}`);
+  }
+  const ph = s.meta.arc.phases;
+  if (s.meta.arc.stormy) for (const x of s.arp) assert(ph[x.bar] !== "build" && ph[x.bar] !== "peak", `${n} arp in a storm`);
+}));
+
+test("arpeggio: faster in wind, direction follows pressure", () => {
+  const clear = (wind) => normalizeForecast({ ...raw["phoenix-heat"], hourly: { ...raw["phoenix-heat"].hourly,
+    cloud_cover: Array(24).fill(0), precipitation: Array(24).fill(0), precipitation_probability: Array(24).fill(0),
+    wind_speed_10m: Array(24).fill(wind), wind_gusts_10m: Array(24).fill(wind + 5), weather_code: Array(24).fill(0) } });
+  const still = compose(clear(4)).arp, windy = compose(clear(20)).arp;
+  assert(still.length && windy.length > still.length, `windy ${windy.length} vs still ${still.length}`);
+  assert(still.every((x) => x.dur === 2) && windy.every((x) => x.dur === 1), "rate rows");
+  const s = compose(clear(4));
+  const run = s.arp.filter((x) => x.bar === s.arp[0].bar).map((x) => x.midi);
+  if (s.meta.trend === "rising") assert(run[1] > run[0], "rising climbs");
+  if (s.meta.trend === "falling") assert(run[1] < run[0], "falling descends");
+});
+
+test("echo carries in clear, still, dry air", () => each((n, s, f) => {
+  s.automation.echoCarry.forEach((c, b) => {
+    const h = f.hours[b];
+    assert(c >= 0 && c <= 1, `${n} carry ${c}`);
+    if (h.precip >= 0.1 || M.ECHO.fogCodes.includes(h.code) || M.SNOW_CODES.includes(h.code)) equal(c, 0, `${n} wet hour ${b}`);
+    if (h.gust >= M.ECHO.windyGust) equal(c, 0, `${n} windy hour ${b}`);
+  });
+}));

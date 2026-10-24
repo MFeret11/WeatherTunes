@@ -183,6 +183,17 @@ The **dry beat** plays in the hours the rain beat leaves alone (no rain, no snow
 
 The master ends in a **soft clip** (`SOFT_CLIP`): untouched below 60 % of full scale, then a smooth shoulder that never passes −0.3 dBFS, so a storm's loudest hits get a little warm crunch instead of digital clipping. `test/render.html` reports how much of a song it rounds off.
 
+**Game-music touches** (`ARP`, `ECHO`, `SWELL`, added 2026-10-24). The songs already leaned toward video game area themes, so two of that genre's signatures were added, quietly and driven by the weather:
+
+| Input | What you hear |
+|---|---|
+| **Clear daylight** ((1 − cloud) × daylight, 0.4 → 0.85) | A soft pulse-wave arpeggio of the chord, above the pad. None in rain, snow, a storm's build or peak, or the last hour. |
+| **Wind** (under / over 12 km/h) | The arpeggio plays eighths or sixteenths. |
+| **Pressure trend** | Rising climbs, falling descends, steady goes up and back down. |
+| **Clear, still, dry air** ((1 − cloud) × calm gusts, 0 when wet or foggy) | A dotted-eighth echo on the melody rings out longer. |
+
+The sunrise, sunset and clearing swell is a short, soft breath of band-passed pink noise rather than a long white-noise rise.
+
 ### 6.3b Sky and air
 
 None of these change the melody, bass, pad or drums; they add parts on top or shape the mix, so a song with no extras is the same song minus these touches. Numbers are in the "Sky and air" section of `mapping.js`.
@@ -300,7 +311,7 @@ Assertions:
 | **M3** | Synth panel, "Back to the forecast", play-along keyboard | Every control in §7 works on desktop and phone |
 | **M4** | Forecast chart with playhead, liner notes, share links, mobile layout, accessibility pass | A shared link reproduces the song on another device |
 | **M5** | Portfolio story, homepage card and About mention | Live on mferet.com |
-| Stretch | Download as WAV/WebM (`Tone.Recorder`), MIDI export (`@tonejs/midi`), "what if" sliders to change the weather, side-by-side cities | — |
+| Stretch | ~~Download as WAV~~ (done 2026-10-24: a Download button renders the song offline to a WAV), MIDI export (`@tonejs/midi`), "what if" sliders to change the weather, side-by-side cities | — |
 
 M1 is the riskiest part (does it sound good?), so it comes before any UI work.
 
