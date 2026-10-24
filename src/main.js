@@ -2,7 +2,8 @@
 // city or a sample day), get today's forecast, play it, explain it.
 
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, roundCoord } from "./weather.js";
-import { compose, hourLabel, formatTemp, formatSpeed, arcSummary } from "./compose.js";
+import { compose, hourLabel, formatTemp, formatSpeed } from "./compose.js";
+import { describe } from "./describe.js";
 import { Engine, LAYERS } from "./engine.js";
 import { weatherIcon, tempColor } from "./icons.js";
 
@@ -47,6 +48,28 @@ const muted = {};
 // US-style units for US visitors (and the two other countries using °F), metric for everyone else.
 const region = (navigator.language || "").split("-")[1];
 let units = store.get("wt:units") || (["US", "LR", "MM"].includes(region) ? "us" : "metric");
+
+// ---- Light/dark switch (same button and saved setting as mferet.com) ----------
+
+{
+  const root = document.documentElement;
+  const btn = document.querySelector(".lights");
+  const sync = () => {
+    const dark = root.dataset.theme === "dark";
+    btn.setAttribute("aria-pressed", String(dark));
+    btn.title = dark ? "Lights up" : "Movie mode: dim the lights";
+  };
+  btn.addEventListener("click", () => {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch { /* private mode */ }
+    sync();
+  });
+  sync();
+}
+
+// iPhones and iPads mute web audio in silent mode; only they need the tip.
+const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+$("ios-hint").hidden = !ios;
 
 // ---- Status line -------------------------------------------------------------
 
@@ -120,19 +143,19 @@ function render() {
   $("place-kind").textContent = KIND_LABELS[current.kind];
   $("place-name").textContent = m.name;
   const date = new Date(`${m.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  $("summary").textContent = `${date} → ${m.rootName} ${m.modeLabel} · ${m.bpm} BPM · ${m.progression.join("–")}`;
   renderNotes(m);
   $("units").textContent = units === "us" ? "Show °C" : "Show °F";
 
-  // Forecast heading: high, low and the wettest hour.
+  // High, low and the wettest hour, for the header line.
   const hiI = forecast.hours.reduce((b, h, i, a) => (h.temp > a[b].temp ? i : b), 0);
   const loI = forecast.hours.reduce((b, h, i, a) => (h.temp < a[b].temp ? i : b), 0);
   const wetI = forecast.hours.reduce((b, h, i, a) => (h.pop > a[b].pop ? i : b), 0);
   const wet = forecast.hours[wetI].pop;
-  $("fc-stats").innerHTML =
-    `<span class="hi">High ${formatTemp(forecast.hours[hiI].temp, units)} <small>${hourLabel(hiI)}</small></span>` +
-    `<span class="lo">Low ${formatTemp(forecast.hours[loI].temp, units)} <small>${hourLabel(loI)}</small></span>` +
-    `<span class="wet">${wet >= 10 ? `${weatherIcon(forecast.hours[wetI].code, 1).label === "Snow" ? "Snow" : "Rain"} ${wet}% <small>${hourLabel(wetI)}</small>` : "Dry"}</span>`;
+  // The header line is the weather; the music theory lives in the liner notes.
+  const whole = (c) => (units === "us" ? `${Math.round((c * 9) / 5 + 32)}\u00a0°F` : `${Math.round(c)}\u00a0°C`);
+  const wetWord = weatherIcon(forecast.hours[wetI].code, 1).label === "Snow" ? "Snow" : "Rain";
+  $("summary").textContent = `${date} → High\u00a0${whole(forecast.hours[hiI].temp)} / Low\u00a0${whole(forecast.hours[loI].temp)} / ` +
+    (wet >= 10 ? `${wetWord}\u00a0${wet}%` : "Dry");
 
   // One column per hour: icon = sky, bar height and colour = temperature, blue bar = rain chance.
   const temps = forecast.hours.map((h) => h.temp);
@@ -151,7 +174,7 @@ function render() {
     col.innerHTML = `<span class="icon${i % 3 ? " minor" : ""}">${icon.svg}</span><span class="temp"></span><span class="rain"></span><span class="lbl">${i % 6 === 0 ? hourLabel(i) : ""}</span>`;
     return col;
   }));
-  renderArc();
+  $("desc").textContent = describe(forecast, units);
 }
 
 // ---- Liner notes: credits, the story, then cause → effect cards by group ----
@@ -184,34 +207,6 @@ function renderNotes(m) {
     </section>`).join("");
 }
 
-// ---- The day's arc: a ribbon of phases under the strip, with the intensity curve ----
-
-const PHASE_LABELS = { calm: "Calm", build: "Building", peak: "Peak", release: "Release" };
-
-function renderArc() {
-  const arc = score.meta.arc;
-  const e = score.automation.energy;
-  const n = e.length;
-  // Intensity curve, one point per hour centre, drawn in a 0–100 × 0–40 box.
-  const pts = e.map((v, i) => [((i + 0.5) / n) * 100, 38 - v * 34]);
-  const line = pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-  const area = `${line} L100 40 L0 40 Z`;
-  const cells = arc.phases.map((ph, i) => `<span class="cell ${ph}" style="grid-column:${i + 1}"></span>`).join("");
-  const labels = arc.moments.map((m, i) => {
-    const text = m.phase === "release" && m.breeze ? "Cool breeze" : PHASE_LABELS[m.phase];
-    const span = (arc.moments[i + 1]?.bar ?? n) - m.bar;
-    return `<span class="mark ${m.phase}" style="grid-column:${m.bar + 1} / span ${span}" title="${text} from ${hourLabel(m.bar)}">${text}</span>`;
-  }).join("");
-  $("arc").innerHTML = `
-    <svg class="curve" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
-      <path class="area" d="${area}"/><path class="line" d="${line}" vector-effect="non-scaling-stroke"/>
-    </svg>
-    <div class="ribbon">${cells}</div>
-    <div class="marks">${labels}</div>`;
-  $("arc").setAttribute("aria-label", `The day's shape: ${arcSummary(arc)}`);
-  $("arc-text").textContent = arcSummary(arc);
-}
-
 // ---- Live sky: the player darkens, rains and flashes with the hour being played ----
 
 function skyAt(bar) {
@@ -240,7 +235,6 @@ function onEvent(type) {
 
 function highlight(bar) {
   for (const [i, el] of [...$("hours").children].entries()) el.classList.toggle("now", i === bar);
-  for (const [i, el] of [...document.querySelectorAll("#arc .cell")].entries()) el.classList.toggle("now", i === bar);
   skyAt(bar);
 }
 

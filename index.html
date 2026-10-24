@@ -24,6 +24,7 @@
 <body>
 	<main class="wrap">
 		<header class="top">
+			<button class="lights" type="button" aria-pressed="false"><span class="lights-track" aria-hidden="true"></span><span class="lights-label">Movie mode</span></button>
 			<h1>WeatherTunes</h1>
 			<p class="lede">A day's forecast, played as music. Each hour is two beats: temperature shapes the melody, the sky picks the scale, wind sets the tempo and rain adds percussion.</p>
 		</header>
@@ -39,14 +40,16 @@
 			<p id="summary" class="summary mono" aria-live="polite"></p>
 			<div class="fc-head">
 				<h3 class="fc-title">Today's forecast <span class="fc-sub">hour by hour</span></h3>
-				<p id="fc-stats" class="fc-stats"></p>
+				<ul class="fc-key" aria-label="Key">
+					<li><span class="sw temp"></span>Temperature <small>cold → hot</small></li>
+					<li><span class="sw rain"></span>Chance of rain or snow</li>
+				</ul>
 			</div>
 			<div class="stage">
 				<div id="sky" class="sky" aria-hidden="true"><div class="rainfx"></div><div class="flash"></div></div>
 				<div id="hours" class="hours" role="img" aria-label="Hourly forecast: sky, temperature and chance of rain"></div>
 			</div>
-			<div id="arc" class="arc"></div>
-			<p id="arc-text" class="arc-text"></p>
+			<p class="desc"><strong>Description:</strong> <span id="desc"></span></p>
 
 			<div class="find">
 				<button id="geo" class="btn" type="button">Use my location</button>
@@ -66,7 +69,7 @@
 				</label>
 				<button id="units" class="btn small" type="button" aria-label="Switch units"></button>
 			</div>
-			<p class="hint">No sound on an iPhone? Turn off silent mode. Your location stays in your browser: only coordinates rounded to about 11&nbsp;km are sent to the weather service.</p>
+			<p id="ios-hint" class="hint" hidden>No sound? Turn off silent mode.</p>
 		</section>
 
 		<section class="card liner" aria-labelledby="notes-h">
@@ -86,6 +89,7 @@
 
 		<footer class="foot">
 			<p><a href="https://open-meteo.com/">Weather data by Open-Meteo.com</a> (CC BY 4.0) · Sound by <a href="https://tonejs.github.io/">Tone.js</a> · <a href="https://github.com/MFeret11/WeatherTunes">Source on GitHub</a> · <a href="https://mferet.com/">mferet.com</a></p>
+			<p>Your location stays in your browser; only coordinates rounded to about 11&nbsp;km are sent for the forecast.</p>
 		</footer>
 	</main>
 </body>

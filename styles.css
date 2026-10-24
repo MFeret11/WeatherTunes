@@ -19,8 +19,6 @@
   --cloud-edge: #b9b3c6;
   --snow: #ffffff;
   --bolt: #f2b416;
-  --hot: #d9542b;
-  --cold: #2f7fc4;
   --sky-top: rgba(2, 119, 189, 0.07);
   --storm-sky: #2a2f4a;
   --ph-calm: #b8c7b0;
@@ -55,8 +53,6 @@
     --cloud-edge: #6d6788;
     --snow: #eef6ff;
     --bolt: #ffd23f;
-    --hot: #ff8a65;
-    --cold: #6cb8f5;
     --sky-top: rgba(79, 195, 247, 0.08);
     --storm-sky: #000000;
     --ph-calm: #4f5e4c;
@@ -87,8 +83,6 @@
   --cloud-edge: #6d6788;
   --snow: #eef6ff;
   --bolt: #ffd23f;
-  --hot: #ff8a65;
-  --cold: #6cb8f5;
   --sky-top: rgba(79, 195, 247, 0.08);
   --storm-sky: #000000;
   --ph-calm: #4f5e4c;
@@ -117,7 +111,31 @@ p { margin: 0 0 1em; }
 .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
 
 /* ---------- Layout ---------- */
-.top { padding: 40px 0 8px; }
+.top { padding: 40px 0 8px; position: relative; }
+
+/* Light/dark switch, copied from mferet.com's "Movie mode" button */
+.lights {
+  position: absolute; top: 16px; right: 0;
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: 500 0.85rem var(--font-body);
+  padding: 6px 12px 6px 8px; min-height: 36px;
+  border-radius: 999px; cursor: pointer;
+}
+.lights:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+.lights-track {
+  width: 30px; height: 18px; position: relative;
+  border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border);
+  transition: background 0.3s;
+}
+.lights-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #f5b942; box-shadow: 0 0 8px #f5b942;
+  transition: transform 0.3s, background 0.3s, box-shadow 0.3s;
+}
+.lights[aria-pressed="true"] .lights-track { background: #241c3d; }
+.lights[aria-pressed="true"] .lights-track::after { transform: translateX(12px); background: #a78bfa; box-shadow: 0 0 10px #7c4dff; }
 .lede { color: var(--muted); max-width: 60ch; font-size: 1.05rem; }
 .card {
   background: var(--surface);
@@ -190,11 +208,13 @@ select, .btn {
 .fc-head { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; justify-content: space-between; margin: 4px 0 10px; }
 .fc-title { font-family: var(--font-display); font-size: 1.05rem; margin: 0; }
 .fc-sub { color: var(--muted); font-weight: 500; font-size: 0.85rem; margin-left: 4px; }
-.fc-stats { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; font-size: 0.9rem; font-weight: 600; }
-.fc-stats small { color: var(--muted); font-weight: 500; }
-.fc-stats .hi { color: var(--hot); }
-.fc-stats .lo { color: var(--cold); }
-.fc-stats .wet { color: var(--rain); }
+.fc-key { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; font-size: 0.82rem; color: var(--muted); }
+.fc-key li { display: inline-flex; align-items: center; gap: 6px; }
+.fc-key small { opacity: 0.8; }
+.fc-key .sw { display: inline-block; width: 14px; height: 10px; border-radius: 3px; }
+/* Same stops as tempColor() in src/icons.js */
+.fc-key .sw.temp { width: 40px; background: linear-gradient(to right, rgb(123, 97, 255), rgb(66, 153, 232), rgb(45, 190, 180), rgb(120, 200, 80), rgb(242, 190, 40), rgb(242, 130, 45), rgb(225, 65, 70)); }
+.fc-key .sw.rain { height: 6px; background: var(--rain); }
 .hours {
   display: grid;
   grid-template-columns: repeat(24, 1fr);
@@ -287,24 +307,9 @@ select, .btn {
 .sky .flash.on { animation: flash 0.7s ease-out; }
 @keyframes flash { 0% { opacity: 0; } 8% { opacity: 0.9; } 20% { opacity: 0.1; } 30% { opacity: 0.7; } 100% { opacity: 0; } }
 
-/* ---------- The day's arc ---------- */
-.arc { margin-top: 6px; }
-.arc .curve { display: block; width: 100%; height: 34px; }
-.arc .area { fill: color-mix(in srgb, var(--ph-peak) 18%, transparent); }
-.arc .line { fill: none; stroke: var(--ph-peak); stroke-width: 2; stroke-linejoin: round; }
-.ribbon, .marks { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; }
-.ribbon .cell { height: 8px; border-radius: 3px; background: var(--ph-calm); opacity: 0.8; }
-.ribbon .cell.build { background: var(--ph-build); }
-.ribbon .cell.peak { background: var(--ph-peak); }
-.ribbon .cell.release { background: var(--ph-release); }
-.ribbon .cell.now { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
-.marks { margin-top: 4px; }
-.marks .mark { grid-row: 1; font-size: 0.72rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mark.calm { color: var(--muted); }
-.mark.build { color: var(--ph-build); }
-.mark.peak { color: var(--ph-peak); }
-.mark.release { color: var(--ph-release); }
-.arc-text { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
+/* ---------- Description ---------- */
+.desc { margin: 12px 0 0; max-width: 75ch; line-height: 1.55; }
+.desc strong { font-family: var(--font-display); font-weight: 700; }
 
 /* ---------- Liner notes ---------- */
 .liner-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
@@ -356,13 +361,14 @@ select, .btn {
 .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 .foot { color: var(--muted); font-size: 0.85rem; padding: 16px 0 40px; }
+.foot p { margin: 0 0 0.4em; }
 
 @media (max-width: 560px) {
+  .lights-label { display: none; }
+  .lights { padding: 6px 8px; }
   .hours { gap: 1px; height: 170px; padding: 4px 0 0; }
   .hour .icon.minor { display: none; }
   .hour .icon { width: 22px; }
-  .ribbon, .marks { gap: 1px; }
-  .marks .mark { font-size: 0.62rem; }
   .hour .lbl { font-size: 0.6rem; }
   .now .btn.primary, #geo { flex: 1 1 100%; }
 }
