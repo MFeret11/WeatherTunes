@@ -364,23 +364,30 @@ test("overcast hours play the melody quieter", () => {
   const clear = compose(f);
   for (const h of f.hours) h.cloud = 100;
   const grey = compose(f);
-  const m = (s) => s.melody.reduce((a, x) => a + x.vel, 0) / s.melody.length;
-  assert(m(grey) < m(clear) * 0.8, `grey melody ${m(grey).toFixed(2)} vs clear ${m(clear).toFixed(2)}`);
+  assert(grey.automation.melodyDb.every((d) => d === M.MELODY.overcastDb), "full cloud → full cut every hour");
+  assert(clear.automation.melodyDb.every((d, b) => d <= 0 && (f.hours[b].cloud, true)), "never boosted");
+  assert(Math.min(...clear.automation.melodyDb) > M.MELODY.overcastDb, "a clear day keeps most of its melody");
   assert(JSON.stringify(grey.meta.notes).includes("Heavy cloud"), "liner notes mention it");
 });
 
-test("grey rain: London gets the 2-step beat, crackle, ghost pad and sub", () => {
+test("weather traits: crackle, round bass and the rain beat follow their measurements", () => {
   const s = scores["london-drizzle"];
-  assert(s.meta.greyRain, "London is a grey-rain day");
-  equal(s.meta.voices.pad.id, "ghost", "ghost pad");
-  equal(s.meta.bassVoice, "sub", "sub bass");
+  equal(s.meta.voices.pad.id, "ghost", "cool grey drizzle → ghost pad");
+  assert(s.meta.bassSub >= 0.9, "overcast → sub bass");
   assert(s.garage.length > 0 && s.crackle.length > 0, "beat and crackle");
-  for (const n of s.garage) assert(n.pos >= 0 && n.pos < M.STEPS && n.vel > 0 && n.vel <= 1, `garage hit ${JSON.stringify(n)}`);
-  for (const n of s.crackle) assert(n.pos >= 0 && n.pos < M.STEPS && n.vel > 0 && n.vel <= 1, `crackle ${JSON.stringify(n)}`);
-  assert(s.garage.every((n) => n.kind !== "kick" || forecasts["london-drizzle"].hours[n.bar].precip >= M.GREY_RAIN.kickMm), "kick only in heavier rain");
-  assert(s.meta.swing >= M.GREY_RAIN.swing, "it swings");
-  // Warm monsoons, storms and snow keep their own sound.
-  for (const n of ["mumbai-monsoon", "houston-storms", "oslo-snow", "phoenix-heat", "reykjavik-wind"]) {
-    assert(!scores[n].meta.greyRain && scores[n].garage.length === 0 && scores[n].crackle.length === 0, `${n} is not grey rain`);
+  each((n, sc, f) => {
+    assert(sc.meta.bassSub >= 0 && sc.meta.bassSub <= 1, `${n} bassSub`);
+    for (const x of sc.garage) {
+      const h = f.hours[x.bar];
+      assert(x.pos >= 0 && x.pos < M.STEPS && x.vel > 0 && x.vel <= 1, `${n} beat hit ${JSON.stringify(x)}`);
+      assert(!M.SNOW_CODES.includes(h.code), `${n} no beat in snow`);
+      assert(x.kind !== "kick" || h.precip >= M.RAIN_BEAT.kickMm, `${n} kick only in heavier rain`);
+    }
+    for (const x of sc.crackle) assert(x.pos >= 0 && x.pos < M.STEPS && x.vel > 0 && x.vel <= 1, `${n} crackle`);
+  });
+  // Dry, clear days have none of it.
+  for (const n of ["phoenix-heat", "kyoto-spring", "philadelphia-autumn"]) {
+    const sc = scores[n];
+    assert(sc.garage.length === 0 && sc.crackle.length === 0 && sc.meta.bassSub === 0, `${n} is dry and clear`);
   }
 });

@@ -46,7 +46,9 @@ export class Engine {
     }
     // Gentle compressors on the two weather-chosen instruments. They only catch the
     // loud ends, so the temperature and cloud dynamics still come through.
-    this.melodyComp = new T.Compressor({ threshold: -18, ratio: 3, attack: 0.02, release: 0.25, knee: 6 }).connect(this.vol.melody);
+    // The melody's per-hour level (cloud turns it down) sits after its compressor.
+    this.melodyLevel = new T.Volume(0).connect(this.vol.melody);
+    this.melodyComp = new T.Compressor({ threshold: -18, ratio: 3, attack: 0.02, release: 0.25, knee: 6 }).connect(this.melodyLevel);
     this.padComp = new T.Compressor({ threshold: -24, ratio: 3, attack: 0.05, release: 0.4, knee: 6 }).connect(this.vol.pad);
 
     // ---- Instruments ----
@@ -77,7 +79,7 @@ export class Engine {
       envelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
     }).connect(new T.Filter({ type: "lowpass", frequency: 900 }).connect(this.vol.drums));
 
-    // Grey-rain 2-step kit: a short deep kick, a rimshot and hats.
+    // Rain-beat kit: a short deep kick, a rimshot and hats.
     this.kick = new T.MembraneSynth({
       pitchDecay: 0.03, octaves: 5,
       envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.1 },
@@ -192,14 +194,15 @@ export class Engine {
     tr.loopEnd = `${realBars + 1}:0:0`; // a bar of silence before it repeats
     this.reverb.wet.value = score.automation.reverbWet;
     this.drive.distortion = score.meta.drive ?? 0.25;
-    // Grey-rain days swap the saw bass for a round sub (a sine with a touch of
-    // second harmonic, so it still shows up on small speakers).
-    const sub = score.meta.bassVoice === "sub";
-    if (sub) this.bass.oscillator.partials = [1, 0.18];
-    else this.bass.oscillator.type = "sawtooth";
-    this.bass.filterEnvelope.baseFrequency = sub ? 180 : 120;
-    this.bass.filterEnvelope.octaves = sub ? 1 : 2.5;
-    this.bass.volume.value = sub ? 5 : 0;
+    // Cloud rounds the bass off (meta.bassSub 0–1): the saw's upper harmonics
+    // fade out, leaving a sine with a touch of the second harmonic so small
+    // speakers still carry it.
+    const sub = score.meta.bassSub ?? 0;
+    this.bass.oscillator.partials = Array.from({ length: 16 }, (_, i) =>
+      (i === 0 ? 1 : i === 1 ? Math.max(0.18, 0.5 * (1 - sub)) : (1 - sub) / (i + 1)));
+    this.bass.filterEnvelope.baseFrequency = 120 + 60 * sub;
+    this.bass.filterEnvelope.octaves = 2.5 - 1.5 * sub;
+    this.bass.volume.value = 5 * sub;
 
     // `bar` in the score is an hour slot of `steps` sixteenths.
     const at = (bar, pos) => {
@@ -251,6 +254,9 @@ export class Engine {
         this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
         if (bar === 0) this.band.volume.setValueAtTime(A.gainDb[0], t);
         else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
+        const mDb = A.melodyDb?.[bar] ?? 0;
+        if (bar === 0) this.melodyLevel.volume.setValueAtTime(mDb, t);
+        else this.melodyLevel.volume.rampTo(mDb, ramp * 2, t);
         this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
         this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
         this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);

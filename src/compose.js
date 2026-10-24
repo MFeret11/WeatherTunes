@@ -25,6 +25,7 @@ export function analyze(f) {
     cloud: mean(H.map((h) => h.cloud)) / 100,
     pop: mean(H.map((h) => h.pop)) / 100,
     precipSum: H.reduce((a, h) => a + h.precip, 0),
+    wetHours: H.filter((h) => h.precip >= 0.1).length,
     rh: mean(H.map((h) => h.rh)),
     wind: mean(H.map((h) => h.wind)),
     gustMax: Math.max(...H.map((h) => h.gust)),
@@ -32,6 +33,7 @@ export function analyze(f) {
     pressureChange: mean(H.slice(-3).map((h) => h.pressure)) - mean(H.slice(0, 3).map((h) => h.pressure)),
   };
 
+  stats.rainRate = stats.wetHours ? stats.precipSum / stats.wetHours : 0; // mm per wet hour
   const stormHour = (h) =>
     M.THUNDER_CODES.includes(h.code) ||
     h.precip >= M.STORM.hourlyPrecipMm ||
@@ -57,22 +59,19 @@ export function analyze(f) {
     Math.round((stats.tMean - M.MELODY.registerCenterC) * M.MELODY.registerPerC),
     -M.MELODY.registerMax, M.MELODY.registerMax,
   );
-  const GRn = M.GREY_RAIN;
-  const greyRain = !storm && !snow && stats.cloud >= GRn.minCloud
-    && stats.tMean >= GRn.minTemp && stats.tMean <= GRn.maxTemp
-    && H.filter((h) => h.precip >= 0.1).length >= GRn.minWetHours;
-  const voices = pickVoices(stats, storm, snow, greyRain);
+  const voices = pickVoices(stats, storm, snow);
   const { raw: intensity, energy } = dynamicsCurve(H);
-  return { stats, storm, stormHour, snow, greyRain, brightness, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
+  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
 }
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
-export function pickVoices(stats, storm, snow, greyRain = false) {
+export function pickVoices(stats, storm, snow) {
   const melody = M.MELODY_VOICES.find((v) => stats.tMean < v.maxTemp);
   const holds = ({ when: w }) =>
     (w.storm == null || w.storm === storm) &&
     (w.snow == null || w.snow === snow) &&
-    (w.greyRain == null || w.greyRain === greyRain) &&
+    (w.minWetHours == null || stats.wetHours >= w.minWetHours) &&
+    (w.maxRainRate == null || stats.rainRate <= w.maxRainRate) &&
     (w.minPop == null || stats.pop >= w.minPop || stats.precipSum >= w.minRainMm) &&
     (w.minCloud == null || stats.cloud >= w.minCloud) &&
     (w.maxTemp == null || stats.tMean < w.maxTemp) &&
@@ -311,8 +310,7 @@ export function compose(f, { units = "metric" } = {}) {
     return +Math.max(G.gateMin, G.gateDry + (G.gateHumid - G.gateDry) * humid - G.clipMax * cold).toFixed(3);
   };
   const warm = clamp((stats.tMean - G.clipFromC) / (G.swingWarmC - G.clipFromC), 0, 1);
-  const swingCurve = +(G.swingMax * warm * clamp((stats.rh - G.swingFromRh) / (G.swingFullRh - G.swingFromRh), 0, 1)).toFixed(3);
-  const swing = A.greyRain ? Math.max(swingCurve, M.GREY_RAIN.swing) : swingCurve;
+  const swing = +(G.swingMax * warm * clamp((stats.rh - G.swingFromRh) / (G.swingFullRh - G.swingFromRh), 0, 1)).toFixed(3);
   const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
   const seed = seedFor(f);
@@ -394,8 +392,7 @@ export function compose(f, { units = "metric" } = {}) {
     const anchor = anchors[b];
     const next = last ? anchor : anchors[b + 1];
     const sectionEnd = M.SECTIONS.some((s) => s.start === b + 1) || last;
-    const grey = 1 - MEL.overcastDuck * clamp((h.cloud - MEL.overcastFrom) / (100 - MEL.overcastFrom), 0, 1);
-    const vel = grey * (MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b] + C.velBoost * stir[b]);
+    const vel = MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b] + C.velBoost * stir[b];
 
     let pos = 0;
     rhythm.forEach((dur, k) => {
@@ -473,38 +470,39 @@ export function compose(f, { units = "metric" } = {}) {
   }
   for (const d of drums) d.note = midiToNote(d.midi);
 
-  // ---- Grey rain: a 2-step beat in the wet hours, and vinyl crackle all day ----
-  const GR = M.GREY_RAIN;
+  // ---- Rain beat and vinyl crackle (see RAIN_BEAT, CRACKLE) ----------------
+  const RB = M.RAIN_BEAT;
   const garage = [];
-  const crackle = [];
-  if (A.greyRain) {
-    for (let b = 0; b < M.BARS - 1; b++) {
-      const h = H[b];
-      if (h.cloud < GR.hourCloud || (h.precip < 0.1 && h.pop < GR.hourPop)) continue;
-      const off = (b % 2) * M.STEPS; // where this hour sits in the 2-hour pattern
-      const hit = (kind, steps, v) => {
-        for (const st of steps) {
-          if (st < off || st >= off + M.STEPS) continue;
-          garage.push({ bar: b, pos: st - off, kind, vel: +clamp(v + (rng() - 0.5) * 2 * GR.humanize, 0.05, 1).toFixed(3) });
-        }
-      };
-      const wet = 0.7 + 0.3 * (h.pop / 100);
-      if (h.precip >= GR.kickMm) hit("kick", GR.kick, GR.vel.kick * wet);
-      hit("snare", GR.snare, GR.vel.snare * wet);
-      hit("hat", GR.hats, GR.vel.hat * wet);
-      hit("ghost", GR.ghosts, GR.vel.ghost * wet);
-    }
-    garage.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
-    const [rl, rh] = GR.crackleRh;
-    const [v0, v1] = GR.crackleVel;
-    for (let b = 0; b < M.BARS; b++) {
-      const count = Math.round(GR.cracklePerHour * clamp((H[b].rh - rl) / (rh - rl), 0.25, 1));
-      for (let k = 0; k < count; k++) {
-        crackle.push({ bar: b, pos: +(rng() * M.STEPS).toFixed(3), vel: +(v0 + (v1 - v0) * rng() ** 3).toFixed(3) });
+  for (let b = 0; b < M.BARS - 1; b++) {
+    const h = H[b];
+    if (h.cloud < RB.hourCloud || (h.precip < 0.1 && h.pop < RB.hourPop)) continue;
+    if (M.SNOW_CODES.includes(h.code)) continue;
+    if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
+    const off = (b % 2) * M.STEPS; // where this hour sits in the 2-hour pattern
+    const hit = (kind, steps, v) => {
+      for (const st of steps) {
+        if (st < off || st >= off + M.STEPS) continue;
+        garage.push({ bar: b, pos: st - off, kind, vel: +clamp(v + (rng() - 0.5) * 2 * RB.humanize, 0.05, 1).toFixed(3) });
       }
-    }
-    crackle.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+    };
+    const wet = 0.7 + 0.3 * (h.pop / 100);
+    if (h.precip >= RB.kickMm) hit("kick", RB.kick, RB.vel.kick * wet);
+    hit("snare", RB.snare, RB.vel.snare * wet);
+    hit("hat", RB.hats, RB.vel.hat * wet);
+    hit("ghost", RB.ghosts, RB.vel.ghost * wet);
   }
+  garage.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+  const CR = M.CRACKLE;
+  const crackle = [];
+  for (let b = 0; b < M.BARS; b++) {
+    const amount = clamp((H[b].rh - CR.rhFrom) / (CR.rhFull - CR.rhFrom), 0, 1)
+      * clamp((H[b].cloud - CR.cloudFrom) / (CR.cloudFull - CR.cloudFrom), 0, 1);
+    const count = Math.round(CR.perHour * amount);
+    for (let k = 0; k < count; k++) {
+      crackle.push({ bar: b, pos: +(rng() * M.STEPS).toFixed(3), vel: +(CR.vel[0] + (CR.vel[1] - CR.vel[0]) * rng() ** 3).toFixed(3) });
+    }
+  }
+  crackle.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
 
   // ---- Pad: one held chord per chord change (every 2 hours) ----------------------------------
   const pad = [];
@@ -599,14 +597,14 @@ export function compose(f, { units = "metric" } = {}) {
       + C.swellDb * (2 * stir[b] - 1) * (day.dramatic ? 0 : 1)
       + (b === 0 ? D.introDb : 0)).toFixed(2)),
     reverbLift: day.phases.map((ph) => (ph === "release" ? R.reverbLift : 0)),
+    melodyDb: H.map((h) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)).toFixed(2)),
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
     eqHigh: H.map((h) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0),
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
-    reverbWet: +Math.min(0.85, RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1)
-      + (A.greyRain ? M.GREY_RAIN.reverbLift : 0)).toFixed(3),
+    reverbWet: +(RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1)).toFixed(3),
   };
 
   const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
@@ -617,7 +615,8 @@ export function compose(f, { units = "metric" } = {}) {
     trend: A.trend, progressionDegrees: progression,
     progression: progression.map((d) => chordLabel(arc.chapters[0].mode, d)),
     chords, brightness: +A.brightness.toFixed(3), storm: A.storm, snow,
-    stats, voices: A.voices, swing, greyRain: A.greyRain, bassVoice: A.greyRain ? "sub" : "synth",
+    stats, voices: A.voices, swing,
+    bassSub: +clamp((stats.cloud - M.BASS_TONE.cloudFrom) / (M.BASS_TONE.cloudFull - M.BASS_TONE.cloudFrom), 0, 1).toFixed(3),
     bassFeel,
     barModes: barChords.map((x) => x.mode),
     chordDegrees: barChords.map((x) => x.deg),
@@ -628,7 +627,7 @@ export function compose(f, { units = "metric" } = {}) {
   meta.arc = day;
   meta.stir = stir;
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
-  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, garage, atmosphere, fx, automation }, units);
+  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, garage, crackle, atmosphere, fx, automation }, units);
   meta.notes = notesAsText(meta.liner);
   return { meta, melody, bass, pad, drums, garage, crackle, rain, bells, atmosphere, fx, automation };
 }
@@ -784,12 +783,10 @@ function linerNotes(f, A, meta, layers, units) {
   add("voices", `Average ${formatTemp(s.tMean, units)}`, `${cap(v.melody.label)} on the melody`);
   add("voices", padWhy, `${cap(v.pad.label)} on the pad`);
   if (layers.drums?.length) add("voices", "A storm on the way", "Low storm drums that gather into a roll");
-  if (meta.greyRain) {
-    add("voices", "Cool, grey drizzle all day", "A deep sub bass, vinyl crackle and a shuffled beat");
-    const beatBars = [...new Set(layers.garage.map((n) => n.bar))];
-    const kickBars = [...new Set(layers.garage.filter((n) => n.kind === "kick").map((n) => n.bar))];
-    if (beatBars.length) add("voices", "Wet hours", `A skippy 2-step beat at ${barRanges(beatBars)}${kickBars.length ? `; the kick joins in the heavier rain at ${barRanges(kickBars)}` : ""}`);
-  }
+  const beatBars = [...new Set(layers.garage.map((n) => n.bar))];
+  const kickBars = [...new Set(layers.garage.filter((n) => n.kind === "kick").map((n) => n.bar))];
+  if (beatBars.length) add("voices", "Rain falling", `A skippy, shuffled beat at ${barRanges(beatBars)}${kickBars.length ? `; the kick joins in the heavier rain at ${barRanges(kickBars)}` : ""}`);
+  if (meta.bassSub >= 0.5) add("voices", `${pct(s.cloud)}% cloud`, meta.bassSub >= 0.9 ? "A deep, round sub bass" : "A rounder, softer bass");
 
   // ---- Dynamics ----
   split("dynamics", dynamicsNote(f, A, units));
@@ -818,6 +815,8 @@ function linerNotes(f, A, meta, layers, units) {
   else if (f.hours.every((h) => !h.isDay)) add("texture", "Polar night, no sunrise", "Night-time tone all the way through");
   else add("texture", "Midnight sun, no sunset", "No sunrise or sunset swell");
   add("texture", `Humidity ${Math.round(s.rh)}%`, `${pct(layers.automation.reverbWet)}% reverb`);
+  const crackleBars = [...new Set(layers.crackle.map((n) => n.bar))];
+  if (crackleBars.length) add("texture", "Damp air under cloud", `Vinyl crackle at ${barRanges(crackleBars)}`);
 
   return { story, groups: groups.filter((g) => g.items.length) };
 }

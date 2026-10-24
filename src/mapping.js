@@ -61,9 +61,10 @@ export const MELODY = {
   low: 48, high: 91,   // MIDI range clamp (C3–G6)
   velLow: 0.6, velHigh: 0.9, accent: 0.05,
   // Under a grey sky the melody steps back into the mix: from overcastFrom %
-  // cloud, each hour's notes play quieter, by overcastDuck (×) at 100% cloud
-  // (0.35 ≈ −4 dB), while the pad, bass and atmosphere stay as they are.
-  overcastFrom: 50, overcastDuck: 0.35,
+  // cloud, each hour turns the melody down, reaching overcastDb at 100% cloud,
+  // while the pad, bass and atmosphere stay as they are. (This is a level
+  // change after the melody's compressor, so the compressor can't undo it.)
+  overcastFrom: 50, overcastDb: -6,
 };
 
 // Notes per hour from wind gusts (km/h): first row whose maxGust exceeds the gust.
@@ -247,26 +248,31 @@ export const CALM_DETAIL = {
   margin: 0.04,
 };
 
-// ---- Grey rain: a cool, overcast, drizzly day -----------------------------
-// The day qualifies when it isn't a storm or snow day, the mean cloud cover is
-// at least minCloud, at least minWetHours hours have rain or drizzle, and the
-// mean temperature sits between minTemp and maxTemp (a warm monsoon doesn't count).
-// On such a day:
-//   2-step drums   a skippy UK-garage beat in the wet hours (cloud ≥ hourCloud and
-//                  rain falling or pop ≥ hourPop). Drizzle plays the rim and hats;
-//                  kickMm of rain in the hour brings in the kick.
-//                  Steps are sixteenths across a 2-hour chord (0–15).
-//   crackle        vinyl crackle all day, crackleRh: more pops the damper the air
-//   ghost pad      the pad becomes wordless, ghostly voices (PAD_VOICES "ghost")
-//   sub bass       the bass turns into a round sine sub
-//   swing          at least `swing`, even on a cool day; reverb opens by reverbLift
-export const GREY_RAIN = {
-  minCloud: 0.75, minWetHours: 6, minTemp: 0, maxTemp: 20,
+// ---- Weather traits: each sound follows one measurement, on any day ---------
+// No place or "type of day" is coded in. A day's character comes from how
+// these combine: humid grey air crackles, cloud rounds off the bass, rain
+// brings in a beat.
+
+// Vinyl crackle: humid air under cloud. Per hour,
+//   amount = (rh between rhFrom and rhFull) × (cloud between cloudFrom and cloudFull)
+// gives up to perHour faint pops, louder ones rarer (vel from vel[0] to vel[1]).
+export const CRACKLE = { rhFrom: 70, rhFull: 95, cloudFrom: 50, cloudFull: 90, perHour: 12, vel: [0.08, 0.35] };
+
+// Bass tone: the day's mean cloud cover rounds the bass off. At cloudFrom or
+// below it's the plain saw bass; by cloudFull it's a deep sub (a sine with a
+// touch of second harmonic, so small speakers still carry it).
+export const BASS_TONE = { cloudFrom: 0.5, cloudFull: 0.9 };
+
+// Rain beat: a skippy, shuffled 2-step pattern in hours when rain is falling
+// (or pop ≥ hourPop) under cloud ≥ hourCloud. Light rain plays the rim and hats;
+// kickMm of rain in the hour brings in the kick. Hits get louder with the chance
+// of rain. Snow hours ring bells instead, and the build and peak of a storm
+// leave the floor to the storm drums.
+// Steps are sixteenths across a 2-hour chord (0–15).
+export const RAIN_BEAT = {
   hourCloud: 60, hourPop: 40, kickMm: 1,
   kick: [0, 10], snare: [4, 12], hats: [2, 6, 10, 14], ghosts: [3, 7, 11, 15],
   vel: { kick: 0.75, snare: 0.5, hat: 0.3, ghost: 0.14 }, humanize: 0.06,
-  cracklePerHour: 12, crackleRh: [60, 100], crackleVel: [0.08, 0.35],
-  swing: 0.4, reverbLift: 0.12,
 };
 
 // ---- Groove and articulation ------------------------------------------------
@@ -345,6 +351,8 @@ export const MELODY_VOICES = [
 //   minCloud      mean cloud cover (0–1) at least this
 //   maxTemp       mean temperature (°C) below this
 //   minRh         mean humidity (%) at least this
+//   minWetHours   at least this many hours with rain or drizzle
+//   maxRainRate   ...and on average no more than this many mm in each wet hour (drizzle, not downpour)
 export const PAD_VOICES = [
   {
     id: "storm", label: "dark, detuned saws", when: { storm: true }, gain: 0, tone: 700, tremolo: [0, 0],
@@ -356,7 +364,7 @@ export const PAD_VOICES = [
   },
   {
     // Wordless "ooh" voices: soft detuned saws through a low formant-like filter, with a slow tape wobble.
-    id: "ghost", label: "ghostly, wordless voices", when: { greyRain: true }, gain: 3, tone: 900, tremolo: [0.35, 0.3],
+    id: "ghost", label: "ghostly, wordless voices", when: { minCloud: 0.75, maxTemp: 20, minWetHours: 6, maxRainRate: 1.2 }, gain: 3, tone: 900, tremolo: [0.35, 0.3],
     options: { oscillator: { type: "fatsawtooth", count: 4, spread: 28 }, envelope: { attack: 1.8, decay: 0.5, sustain: 0.85, release: 3.5 } },
   },
   {
