@@ -121,7 +121,7 @@ function render() {
   $("place-name").textContent = m.name;
   const date = new Date(`${m.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
   $("summary").textContent = `${date} → ${m.rootName} ${m.modeLabel} · ${m.bpm} BPM · ${m.progression.join("–")}`;
-  $("notes").replaceChildren(...m.notes.map((t) => Object.assign(document.createElement("li"), { textContent: t })));
+  renderNotes(m);
   $("units").textContent = units === "us" ? "Show °C" : "Show °F";
 
   // Forecast heading: high, low and the wettest hour.
@@ -152,6 +152,36 @@ function render() {
     return col;
   }));
   renderArc();
+}
+
+// ---- Liner notes: credits, the story, then cause → effect cards by group ----
+
+const GROUP_ICONS = {
+  harmony: '<path d="M9 18V6l10-2v12" /><circle cx="6.5" cy="18" r="2.5" /><circle cx="16.5" cy="16" r="2.5" />',
+  melody: '<path d="M3 15c2-6 4-6 6 0s4 6 6 0 4-6 6 0" />',
+  voices: '<path d="M4 10v4h4l5 4V6L8 10H4z" /><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11" />',
+  dynamics: '<path d="M4 20V14M9 20V10M14 20V6M19 20V3" />',
+  texture: '<path d="M12 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z" />',
+};
+const cap = (t) => t[0].toUpperCase() + t.slice(1);
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+function renderNotes(m) {
+  const credits = [
+    ["Key", `${m.rootName} ${m.modeLabel}`],
+    ["Tempo", `${m.bpm} BPM`],
+    ["Chords", m.progression.join("–")],
+    ["Melody", cap(m.voices.melody.label)],
+    ["Pad", cap(m.voices.pad.label)],
+  ];
+  $("credits").innerHTML = credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("");
+  const [lead, ...rest] = m.liner.story;
+  $("story").innerHTML = `<p class="story-lead">${esc(lead)}</p>${rest.map((t) => `<p>${esc(t)}</p>`).join("")}`;
+  $("notes").innerHTML = m.liner.groups.map((g) => `
+    <section class="note-group ${g.id}">
+      <h3><svg viewBox="0 0 24 24" aria-hidden="true">${GROUP_ICONS[g.id]}</svg>${g.title}</h3>
+      <ul>${g.items.map((it) => `<li><span class="effect">${esc(it.effect)}</span><span class="cause">${esc(it.cause)}</span></li>`).join("")}</ul>
+    </section>`).join("");
 }
 
 // ---- The day's arc: a ribbon of phases under the strip, with the intensity curve ----

@@ -306,9 +306,51 @@ select, .btn {
 .mark.release { color: var(--ph-release); }
 .arc-text { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
 
-/* ---------- Notes and mix ---------- */
-.notes { margin: 0; padding-left: 1.2em; }
-.notes li { margin: 0.3em 0; }
+/* ---------- Liner notes ---------- */
+.liner-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
+.liner-head h2 { margin: 0; }
+.liner-sub { margin: 0; color: var(--muted); font-size: 0.92rem; }
+.credits {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  margin: 0 0 18px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.credits > div { background: var(--surface-2); padding: 10px 14px; }
+.credits dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.credits dd { margin: 2px 0 0; font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; line-height: 1.3; }
+.story { border-left: 3px solid var(--accent); padding: 2px 0 2px 16px; margin: 0 0 20px; }
+.story p { margin: 0 0 0.4em; color: var(--muted); max-width: 70ch; }
+.story .story-lead { color: var(--text); font-family: var(--font-display); font-size: 1.15rem; font-weight: 600; line-height: 1.4; }
+.note-groups { columns: 280px; column-gap: 14px; }
+.note-group { --c: var(--accent); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 6px; background: var(--surface); break-inside: avoid; margin: 0 0 14px; }
+.note-group.harmony { --c: var(--accent); }
+.note-group.melody { --c: var(--ph-build); }
+.note-group.voices { --c: var(--ph-release); }
+.note-group.dynamics { --c: var(--ph-peak); }
+.note-group.texture { --c: var(--rain); }
+.note-group h3 {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 6px;
+  font-family: var(--font-display); font-size: 0.95rem; font-weight: 700;
+}
+.note-group h3 svg {
+  width: 26px; height: 26px; padding: 5px; flex: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--c) 16%, transparent);
+  fill: none; stroke: var(--c); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+.note-group ul { list-style: none; margin: 0; padding: 0; }
+.note-group li { display: flex; flex-direction: column; padding: 8px 0; border-top: 1px solid var(--border); }
+.note-group li:first-child { border-top: 0; }
+.note-group .effect { font-weight: 600; line-height: 1.4; }
+.note-group .cause { color: var(--muted); font-size: 0.85rem; line-height: 1.4; margin-top: 2px; }
+
+/* ---------- Mix ---------- */
 .layers { display: flex; flex-wrap: wrap; gap: 8px 20px; }
 .toggle { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; }
 .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }

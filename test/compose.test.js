@@ -175,7 +175,7 @@ test("units change the wording, never the music", () => {
   const f = forecasts["phoenix-heat"];
   const us = compose(f, { units: "us" });
   const metric = scores["phoenix-heat"];
-  equal({ ...us, meta: { ...us.meta, notes: null } }, { ...metric, meta: { ...metric.meta, notes: null } });
+  equal({ ...us, meta: { ...us.meta, notes: null, liner: null } }, { ...metric, meta: { ...metric.meta, notes: null, liner: null } });
   assert(us.meta.notes.some((t) => t.includes("116\u00a0°F")), "46.9 °C shows as 116 °F");
   assert(us.meta.notes.some((t) => t.includes("mph")) && !us.meta.notes.some((t) => t.includes("km/h")), "mph");
   assert(metric.meta.notes.some((t) => t.includes("46.9\u00a0°C")), "metric keeps °C");
@@ -195,7 +195,7 @@ test("climate picks the instruments", () => {
     "phoenix-heat": ["reed", "airy"],
   };
   each((n, s) => equal([s.meta.voices.melody.id, s.meta.voices.pad.id], expect[n], n));
-  assert(scores["mcmurdo-cold"].meta.notes.some((t) => t.includes("glass bells")), "liner notes name the instruments");
+  assert(scores["mcmurdo-cold"].meta.notes.some((t) => /glass bells/i.test(t)), "liner notes name the instruments");
 });
 
 test("voice tables are complete", () => {

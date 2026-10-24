@@ -587,7 +587,8 @@ export function compose(f, { units = "metric" } = {}) {
   meta.arc = day;
   meta.stir = stir;
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
-  meta.notes = linerNotes(f, A, meta, { melody, rain, bells, atmosphere, fx, automation }, units);
+  meta.liner = linerNotes(f, A, meta, { melody, rain, bells, drums, atmosphere, fx, automation }, units);
+  meta.notes = notesAsText(meta.liner);
   return { meta, melody, bass, pad, drums, rain, bells, atmosphere, fx, automation };
 }
 
@@ -680,74 +681,101 @@ export function arcSummary(arc) {
   return s[0].toUpperCase() + s.slice(1) + ".";
 }
 
+/**
+ * Liner notes as data: { story: [sentences], groups: [{ id, title, items: [{ cause, effect }] }] }.
+ * cause is the weather, effect is what it does to the music.
+ */
 function linerNotes(f, A, meta, layers, units) {
   const s = A.stats;
   const r1 = (x) => Math.round(x * 10) / 10;
   const pct = (x) => Math.round(x * 100);
   const sky = s.cloud < 0.2 ? "Clear skies" : s.cloud < 0.5 ? "Partly cloudy"
     : s.cloud < 0.8 ? "Mostly cloudy" : "Overcast";
-  const notes = [];
+  const groups = [
+    { id: "harmony", title: "Key & harmony", items: [] },
+    { id: "melody", title: "Melody & rhythm", items: [] },
+    { id: "voices", title: "Instruments", items: [] },
+    { id: "dynamics", title: "Dynamics", items: [] },
+    { id: "texture", title: "Texture & space", items: [] },
+  ];
+  const add = (id, cause, effect) => groups.find((g) => g.id === id).items.push({ cause, effect });
+  const split = (id, text) => { // "cause → effect." from the older helpers
+    const [c, e] = text.replace(/\.$/, "").split(" → ");
+    add(id, c, cap(e));
+  };
 
-  notes.push(`${sky}${A.storm ? " with storms" : ""} (${pct(s.cloud)}% cloud, ` +
-    `${pct(s.pop)}% average chance of ${A.snow ? "snow" : "rain"}) → ` +
-    `${meta.rootName} ${meta.modeLabel}${MODE_HINTS[A.mode]}.`);
-  notes.push(`Average pressure ${Math.round(s.pressure)} hPa → key of ${meta.rootName}.`);
-  notes.push(`Average wind ${formatSpeed(s.wind, units)} → ${A.bpm} BPM. ` +
-    `Gusts up to ${formatSpeed(s.gustMax, units)} set how busy the melody gets.`);
-  notes.push(`High of ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)} is the melody's peak; ` +
-    `the low of ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} is where it sits lowest.`);
-  const change = r1(s.pressureChange);
-  const v = A.voices;
-  const padWhy = { storm: "Stormy day", snow: "Snowy day", rain: "Wet day", overcast: "Grey sky",
-    icy: "Clear, freezing sky", lush: "Clear, humid sky", airy: "Clear, dry sky" }[v.pad.id];
-  notes.push(`Average ${formatTemp(s.tMean, units)} → ${v.melody.label} on the melody. ` +
-    `${padWhy} → ${v.pad.label} on the pad.`);
-  notes.push(`Pressure ${A.trend === "steady" ? "holds steady" : A.trend} over the day ` +
-    `(${change > 0 ? "+" : ""}${change} hPa) → chords ${meta.progression.join("–")}.`);
-
-  notes.push(`The day's shape: ${arcSummary(meta.arc)}${meta.arc.dramatic ? " Drums gather as the weather builds; the release plays sparser, longer notes in a bigger room." : ""}`);
-  notes.push(dynamicsNote(f, A, units));
-  if (!meta.arc.dramatic) {
+  // ---- The story, in plain sentences ----
+  const story = [arcSummary(meta.arc)];
+  const chapters = storyNote(meta);
+  if (chapters) story.push(chapters.replace(/^The day's story: /, "The mood "));
+  if (meta.arc.dramatic) story.push("Drums gather as the weather builds; the release plays sparser, longer notes in a bigger room.");
+  else {
     const lively = meta.stir.map((x, b) => (x >= M.CALM_DETAIL.busier ? b : -1)).filter((b) => b >= 0);
-    notes.push(lively.length
-      ? `A calm day, but the music follows its small changes: it leans in and plays busier at ${barRanges(lively)}, when the breeze, clouds or rain chance shift most.`
-      : "A calm day that barely changes, so the music only breathes gently with it.");
+    story.push(lively.length
+      ? `The music still follows the day's small changes, leaning in at ${barRanges(lively)} when the breeze, clouds or rain chance shift most.`
+      : "The day barely changes, so the music only breathes gently with it.");
   }
-  const story = storyNote(meta);
-  if (story) notes.push(story);
-  notes.push(grooveNote(s, meta, layers.melody));
+
+  // ---- Key & harmony ----
+  add("harmony", `${sky}${A.storm ? " with storms" : ""}, ${pct(s.cloud)}% cloud, ${pct(s.pop)}% chance of ${A.snow ? "snow" : "rain"}`,
+    `${meta.rootName} ${meta.modeLabel}${MODE_HINTS[meta.mode]}`);
+  add("harmony", `Average pressure ${Math.round(s.pressure)} hPa`, `Key of ${meta.rootName}`);
+  const change = r1(s.pressureChange);
+  add("harmony", `Pressure ${A.trend === "steady" ? "holds steady" : A.trend} (${change > 0 ? "+" : ""}${change} hPa)`,
+    `Chords ${meta.progression.join("–")}`);
+
+  // ---- Melody & rhythm ----
+  add("melody", `High ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)}, low ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)}`,
+    "The melody's highest and lowest points");
+  add("melody", `Average wind ${formatSpeed(s.wind, units)}`, `${A.bpm} BPM`);
+  add("melody", `Gusts up to ${formatSpeed(s.gustMax, units)}`, "How busy the melody gets");
+  split("melody", grooveNote(s, meta, layers.melody));
   for (const [feel, why] of [["half", s.tMean < M.BASS_FEEL.halfMeanTemp ? "Freezing air" : "Still air, fog or snow"],
     ["double", "The roughest hours"]]) {
     const bars = meta.bassFeel.map((x, b) => (x === feel ? b : -1)).filter((b) => b >= 0);
-    if (bars.length) notes.push(`${why} → ${feel}-time bass at ${barRanges(bars)}.`);
+    if (bars.length) add("melody", why, `${feel === "half" ? "Half" : "Double"}-time bass at ${barRanges(bars)}`);
   }
-  const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
-  const unstable = capeLevel(meta.capeMax) > 0;
-  if (unstable) notes.push(`Unstable air (CAPE up to ${Math.round(meta.capeMax)} J/kg, storm fuel) → the band swells and ${meta.drive >= 0.4 ? "drives hard" : "picks up grit"}.`);
-  if (gritty.length) notes.push(`Rough weather → ${meta.drive >= 0.4 ? "heavy" : "light"} distortion on the band at ${barRanges(gritty)}.`);
-  const dull = mean(layers.automation.eqHigh);
-  if (dull <= -2) notes.push(`${s.cloud >= 0.5 ? "Cloud" : "Fog"} → the treble is turned down about ${Math.round(-dull)}\u00a0dB.`);
-  if (Math.max(...layers.automation.eqLow) >= 1.5) notes.push("Wind → extra bass weight in the gustiest hours.");
 
+  // ---- Instruments ----
+  const v = A.voices;
+  const padWhy = { storm: "Stormy day", snow: "Snowy day", rain: "Wet day", overcast: "Grey sky",
+    icy: "Clear, freezing sky", lush: "Clear, humid sky", airy: "Clear, dry sky" }[v.pad.id];
+  add("voices", `Average ${formatTemp(s.tMean, units)}`, `${cap(v.melody.label)} on the melody`);
+  add("voices", padWhy, `${cap(v.pad.label)} on the pad`);
+  if (layers.drums?.length) add("voices", "A storm on the way", "Low storm drums that gather into a roll");
+
+  // ---- Dynamics ----
+  split("dynamics", dynamicsNote(f, A, units));
+  const gritty = layers.automation.driveWet.map((w, b) => (w > 0 ? b : -1)).filter((b) => b >= 0);
+  if (capeLevel(meta.capeMax) > 0) add("dynamics", `Unstable air (CAPE up to ${Math.round(meta.capeMax)} J/kg, storm fuel)`,
+    `The band swells and ${meta.drive >= 0.4 ? "drives hard" : "picks up grit"}`);
+  if (gritty.length) add("dynamics", "Rough weather", `${meta.drive >= 0.4 ? "Heavy" : "Light"} distortion at ${barRanges(gritty)}`);
+  if (Math.max(...layers.automation.eqLow) >= 1.5) add("dynamics", "Wind", "Extra bass weight in the gustiest hours");
+
+  // ---- Texture & space ----
+  const dull = mean(layers.automation.eqHigh);
+  if (dull <= -2) add("texture", s.cloud >= 0.5 ? "Cloud" : "Fog", `Treble turned down about ${Math.round(-dull)} dB`);
   const kinds = {};
   for (const a of layers.atmosphere) if (a.kind) (kinds[a.kind] ||= []).push(a.bar);
-  const kindText = { fog: "Fog → a faint hiss", drizzle: "Drizzle → light white noise",
-    rain: "Rain → pink-noise rainfall", showers: "Showers → bursts of pink noise",
-    snow: "Snow → bells and a muffled hush", storm: "Storm hours → deep brown noise and thunder" };
-  for (const [k, bars] of Object.entries(kinds)) notes.push(`${kindText[k]} at ${barRanges(bars)}.`);
+  const kindText = { fog: ["Fog", "A faint hiss"], drizzle: ["Drizzle", "Light white noise"],
+    rain: ["Rain", "Pink-noise rainfall"], showers: ["Showers", "Bursts of pink noise"],
+    snow: ["Snow", "Bells and a muffled hush"], storm: ["Storm hours", "Deep brown noise and thunder"] };
+  for (const [k, bars] of Object.entries(kinds)) add("texture", kindText[k][0], `${kindText[k][1]} at ${barRanges(bars)}`);
   const shakerBars = [...new Set(layers.rain.map((n) => n.bar))];
-  if (shakerBars.length) notes.push(`Chance of rain → shakers at ${barRanges(shakerBars)}; the likelier the rain, the more hits.`);
+  if (shakerBars.length) add("texture", "Chance of rain", `Shakers at ${barRanges(shakerBars)}; likelier rain, more hits`);
   const windy = layers.atmosphere.filter((a) => a.wind > 0).map((a) => a.bar);
-  if (windy.length) notes.push(`Strong gusts → wind noise at ${barRanges(windy)}.`);
+  if (windy.length) add("texture", "Strong gusts", `Wind noise at ${barRanges(windy)}`);
+  if (f.sunrise != null) add("texture", `Sunrise ${hourLabel(f.sunrise)}, sunset ${hourLabel(f.sunset)}`, "A cymbal swell for each");
+  else if (f.hours.every((h) => !h.isDay)) add("texture", "Polar night, no sunrise", "Night-time tone all the way through");
+  else add("texture", "Midnight sun, no sunset", "No sunrise or sunset swell");
+  add("texture", `Humidity ${Math.round(s.rh)}%`, `${pct(layers.automation.reverbWet)}% reverb`);
 
-  if (f.sunrise != null) {
-    notes.push(`Sunrise at ${hourLabel(f.sunrise)} and sunset at ` +
-      `${hourLabel(f.sunset)} each get a cymbal swell.`);
-  } else {
-    const dark = f.hours.every((h) => !h.isDay);
-    notes.push(dark ? "No sunrise today (polar night), so the whole piece keeps its night-time tone."
-      : "The sun never sets today (midnight sun), so there's no sunrise or sunset swell.");
-  }
-  notes.push(`Humidity ${Math.round(s.rh)}% → ${pct(layers.automation.reverbWet)}% reverb.`);
-  return notes;
+  return { story, groups: groups.filter((g) => g.items.length) };
+}
+
+const cap = (t) => t[0].toUpperCase() + t.slice(1);
+
+/** The notes as plain lines ("cause → effect."), for tests and the text summary. */
+export function notesAsText(liner) {
+  return [...liner.story, ...liner.groups.flatMap((g) => g.items.map((it) => `${it.cause} → ${it.effect}.`))];
 }
