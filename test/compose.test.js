@@ -227,7 +227,8 @@ test("dynamics: automation is in range and fills every bar", () => each((n, s) =
   for (const v of A.energy) assert(v >= 0 && v <= 1, `${n} energy ${v}`);
   for (const v of A.gainDb) assert(v <= M.DYNAMICS.maxBoostDb && v >= M.DYNAMICS.introDb + M.DYNAMICS.quietDb, `${n} gainDb ${v}`);
   for (const v of A.padOpen) assert(v >= 0 && v <= M.DYNAMICS.padOpenOctaves, `${n} padOpen ${v}`);
-  const dip = s.meta.arc.dramatic ? M.DYNAMICS.quietDb * (1 - A.energy[0]) : 0;
+  const dip = s.meta.arc.dramatic ? M.DYNAMICS.quietDb * (1 - A.energy[0])
+    : M.CALM_DETAIL.swellDb * (2 * s.meta.stir[0] - 1);
   assert(Math.abs(A.gainDb[0] - (M.DYNAMICS.introDb + M.DYNAMICS.maxBoostDb * A.energy[0] + dip)) < 0.01, `${n} bar 1 eases in`);
 }));
 
@@ -341,4 +342,19 @@ test("arc: calm days stay calm, storms build, peak and release", () => {
   const quiet = s.automation.gainDb[ph.indexOf("calm") > 0 ? ph.indexOf("calm") : 1];
   assert(Math.max(...s.automation.gainDb) - quiet >= 6, "the peak is clearly louder than the calm");
   assert(s.fx.some((f) => f.label === "release" || f.label === "clearing"), "the storm breaking gets a swell");
+});
+
+test("calm days follow their small changes", () => {
+  for (const n of ["phoenix-heat", "kyoto-spring", "honolulu-flat"]) {
+    const s = scores[n];
+    if (s.meta.arc.dramatic) continue;
+    for (const v of s.meta.stir) assert(v >= 0 && v <= 1, `${n} stir ${v}`);
+    const g = s.automation.gainDb.slice(1);
+    assert(Math.max(...g) - Math.min(...g) > 1, `${n} the band breathes (${Math.min(...g)}..${Math.max(...g)} dB)`);
+    const perBar = Array.from({ length: M.BARS - 1 }, (_, b) => s.melody.filter((x) => x.bar === b).length);
+    assert(new Set(perBar).size > 1, `${n} melody density varies`);
+  }
+  // A dramatic day keeps its own arc untouched.
+  const storm = scores["houston-storms"];
+  if (storm.meta.arc.dramatic) assert(storm.meta.stir.every((v) => v === 0), "storm day has no calm stir");
 });

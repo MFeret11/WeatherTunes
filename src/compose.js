@@ -129,6 +129,37 @@ export function bassFeels(H, energy, stats) {
   return out;
 }
 
+/**
+ * Calm-day detail: how stirred each hour is (0–1) relative to the day's own
+ * range of gusts, rain chance, cloud shifts and warming. See CALM_DETAIL.
+ */
+export function calmStir(H) {
+  const C = M.CALM_DETAIL;
+  const rel = (key, floor) => {
+    const xs = H.map((h) => h[key]);
+    const lo = Math.min(...xs);
+    const range = Math.max(Math.max(...xs) - lo, floor);
+    return xs.map((x) => (x - lo) / range);
+  };
+  const gust = rel("gust", C.floors.gust);
+  const pop = rel("pop", C.floors.pop);
+  const raw = H.map((h, b) => {
+    const p = H[Math.max(0, b - 1)];
+    const n = H[Math.min(H.length - 1, b + 1)];
+    const cloud = clamp(Math.abs(n.cloud - p.cloud) / 2 / C.cloudSwing, 0, 1);
+    const warm = clamp(Math.abs(n.temp - p.temp) / 2 / C.warmSwingC, 0, 1);
+    return Math.max(C.weights.gust * gust[b], C.weights.pop * pop[b], C.weights.cloud * cloud, C.weights.warm * warm);
+  });
+  return raw.map((_, b) => {
+    let sum = 0, w = 0;
+    C.smooth.forEach((k, i) => {
+      const j = b + i - 1;
+      if (j >= 0 && j < raw.length) { sum += k * raw[j]; w += k; }
+    });
+    return +(sum / w).toFixed(3);
+  });
+}
+
 /** Brightness of one hour's sky (same weights as the day's, rainfall per hour). */
 export function hourBrightness(h, stormHour) {
   const B = M.BRIGHTNESS;
@@ -145,8 +176,8 @@ const MODE_ORDER = M.MODE_THRESHOLDS.map((t) => t.mode); // brightest first
  * Starts from the day's mode and moves only when a chord's sky clearly
  * belongs to another mode. Returns { chordModes, chapters: [{ chord, mode, turn }] }.
  */
-export function storyArc(H, A) {
-  const S = M.STORY;
+export function storyArc(H, A, margin = M.STORY.margin) {
+  const S = { ...M.STORY, margin };
   const n = M.BARS / M.BARS_PER_CHORD;
   const raw = Array.from({ length: n }, (_, c) =>
     Math.min(...H.slice(c * M.BARS_PER_CHORD, (c + 1) * M.BARS_PER_CHORD).map((h) => hourBrightness(h, A.stormHour))));
@@ -283,8 +314,11 @@ export function compose(f, { units = "metric" } = {}) {
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
 
   // ---- Story: a mode and chord for every bar -------------------------------
-  const arc = storyArc(H, A);
   const day = dayArc(H, A);
+  const C = M.CALM_DETAIL;
+  // On a calm day the music follows the day's small changes (zero on dramatic days).
+  const stir = day.dramatic ? H.map(() => 0) : calmStir(H);
+  const arc = storyArc(H, A, day.dramatic ? M.STORY.margin : C.margin);
   const R = M.ARC;
   const lift = (b) => Math.round(R.liftSteps * energy[b]);
   const barChords = storyChords(arc, A, seed);
@@ -344,13 +378,17 @@ export function compose(f, { units = "metric" } = {}) {
     const last = b === M.BARS - 1;
     const row = M.DENSITY.findIndex((r) => h.gust < r.maxGust);
     // The release after a peak breathes out: one row sparser, never busier.
-    const n = last ? 1
+    let n = last ? 1
       : M.DENSITY[day.phases[b] === "release" ? Math.max(0, row - 1) : busierRow(M.DENSITY, row, b)].notes;
+    if (!last && !day.dramatic) {
+      if (stir[b] >= C.busier) n = Math.max(n, Math.min(n + 1, C.maxNotes));
+      else if (stir[b] <= C.sparser && n > 1) n -= 1;
+    }
     const rhythm = last ? [M.STEPS] : pick(M.RHYTHMS[n]);
     const anchor = anchors[b];
     const next = last ? anchor : anchors[b + 1];
     const sectionEnd = M.SECTIONS.some((s) => s.start === b + 1) || last;
-    const vel = MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b];
+    const vel = MEL.velLow + (MEL.velHigh - MEL.velLow) * tempNorm(h.temp) + D.velBoost * energy[b] + C.velBoost * stir[b];
 
     let pos = 0;
     rhythm.forEach((dur, k) => {
@@ -518,9 +556,10 @@ export function compose(f, { units = "metric" } = {}) {
     energy,
     // Dramatic days dip in their calm hours, so the storm is a real crescendo.
     gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
+      + C.swellDb * (2 * stir[b] - 1) * (day.dramatic ? 0 : 1)
       + (b === 0 ? D.introDb : 0)).toFixed(2)),
     reverbLift: day.phases.map((ph) => (ph === "release" ? R.reverbLift : 0)),
-    padOpen: energy.map((e) => +(D.padOpenOctaves * e).toFixed(3)),
+    padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
     eqHigh: H.map((h) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0),
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
@@ -546,6 +585,7 @@ export function compose(f, { units = "metric" } = {}) {
     drive: +(M.DRIVE.amount + (M.DRIVE.maxAmount - M.DRIVE.amount) * capeLevel(Math.max(...f.hours.map((h) => h.cape ?? 0)))).toFixed(3),
   };
   meta.arc = day;
+  meta.stir = stir;
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
   meta.notes = linerNotes(f, A, meta, { melody, rain, bells, atmosphere, fx, automation }, units);
   return { meta, melody, bass, pad, drums, rain, bells, atmosphere, fx, automation };
@@ -631,7 +671,7 @@ function storyNote(meta) {
 
 /** One line for the shape of the day: "Calm until 9 am → builds → peaks at 1 pm → a cool breeze from 3 pm." */
 export function arcSummary(arc) {
-  if (!arc.dramatic) return "A calm day: one steady mood from start to finish.";
+  if (!arc.dramatic) return "A calm day: no big swells, just the small shifts of the weather.";
   const words = { calm: (b) => (b === 0 ? "Calm start" : `settles from ${hourLabel(b)}`),
     build: (b) => `builds from ${hourLabel(b)}`, peak: (b) => `peaks from ${hourLabel(b)}`,
     release: (b, m) => (m.breeze ? `breaks into a cool breeze at ${hourLabel(b)}` : `eases off at ${hourLabel(b)}`) };
@@ -667,6 +707,12 @@ function linerNotes(f, A, meta, layers, units) {
 
   notes.push(`The day's shape: ${arcSummary(meta.arc)}${meta.arc.dramatic ? " Drums gather as the weather builds; the release plays sparser, longer notes in a bigger room." : ""}`);
   notes.push(dynamicsNote(f, A, units));
+  if (!meta.arc.dramatic) {
+    const lively = meta.stir.map((x, b) => (x >= M.CALM_DETAIL.busier ? b : -1)).filter((b) => b >= 0);
+    notes.push(lively.length
+      ? `A calm day, but the music follows its small changes: it leans in and plays busier at ${barRanges(lively)}, when the breeze, clouds or rain chance shift most.`
+      : "A calm day that barely changes, so the music only breathes gently with it.");
+  }
   const story = storyNote(meta);
   if (story) notes.push(story);
   notes.push(grooveNote(s, meta, layers.melody));

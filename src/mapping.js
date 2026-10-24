@@ -194,7 +194,7 @@ export const DYNAMICS = {
 //   build    a peak is coming within buildHours
 //   release  a peak passed within releaseHours (a "cool breeze" if the air cools
 //            by coolDropC or more from the peak, and the wind keeps blowing)
-//   calm     everything else (a calm day is calm all day: one steady mood)
+//   calm     everything else (a calm day has no arc; CALM_DETAIL gives it small swells instead)
 // The phases drive:
 //   lift          melody climbs up to liftSteps scale steps with the energy
 //   drums         a low drum that grows from one hit to a roll as a peak approaches
@@ -213,6 +213,34 @@ export const ARC = {
   ],
   drumVel: [0.35, 0.95],
   releaseGate: 0.15, reverbLift: 0.25, breezeLevel: 0.22,
+};
+
+// ---- Calm-day detail: small changes matter on a quiet day ------------------
+// Most days never reach the storm thresholds above, so on a day that isn't
+// dramatic (see ARC.dramaMin) each hour is also measured against the day's own
+// range. Its "stir" (0–1) is the strongest of:
+//   gust    how far this hour's gusts sit between the day's lowest and highest
+//   pop     the same for chance of rain
+//   cloud   how much the cloud cover moved since the last hour (cloudSwing % = 1)
+//   warm    how fast the air is warming or cooling (warmSwingC °C per hour = 1)
+// Each range counts at least its floor, so a day that barely moves stays even
+// (a 3 km/h gust range is not stretched into a full swing).
+// Stir is smoothed with `smooth`, then:
+//   swellDb   the band breathes ± this much around the day's middle
+//   velBoost  plays harder in stirred hours
+//   busier    at or above this, the melody plays one row busier (never past maxNotes)
+//   sparser   at or below this, the melody plays one row sparser
+//   padOpenOctaves   the pad's filter opens this far at full stir
+//   margin    a calm day changes mode on smaller sky shifts (STORY.margin elsewhere)
+export const CALM_DETAIL = {
+  weights: { gust: 1, pop: 0.8, cloud: 0.7, warm: 0.5 },
+  floors: { gust: 12, pop: 30 },
+  cloudSwing: 25, warmSwingC: 2,
+  smooth: [0.25, 0.5, 0.25],
+  swellDb: 2.5, velBoost: 0.1,
+  busier: 0.6, sparser: 0.15, maxNotes: 3,
+  padOpenOctaves: 0.5,
+  margin: 0.04,
 };
 
 // ---- Groove and articulation ------------------------------------------------
