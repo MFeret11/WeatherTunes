@@ -7,7 +7,7 @@
 </head>
 <body>
 <!-- Dev tool: renders a fixture offline (no speakers needed) and reports levels.
-     ?fixture=london-drizzle&seconds=30&solo=melody  (solo is optional) -->
+     ?fixture=london-drizzle&seconds=30&solo=melody  (solo is optional; &retro=1 renders in 32-bit mode) -->
 <pre id="out">rendering…</pre>
 <script src="../vendor/tone-15.1.22.js"></script>
 <script type="module">
@@ -30,7 +30,7 @@ for (const name of names) {
   const seconds = Number(q.get("seconds")) || full;
   const t0 = performance.now();
   const buffer = await Tone.Offline(async () => {
-    const e = new Engine();
+    const e = new Engine({ retro: q.get("retro") === "1" });
     await e.ready;
     if (solo) for (const l of LAYERS) e.setMute(l, l !== solo);
     e.load(score);
@@ -56,7 +56,7 @@ for (const name of names) {
   }
   const db = (x) => (20 * Math.log10(Math.max(x, 1e-9))).toFixed(1);
   const quiet = windowRms.filter((r) => r < 0.003).length;
-  lines.push(`${name}${solo ? " (solo " + solo + ")" : ""}: ${seconds.toFixed(0)} s rendered in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+  lines.push(`${name}${solo ? " (solo " + solo + ")" : ""}${q.get("retro") === "1" ? " [32-bit]" : ""}: ${seconds.toFixed(0)} s rendered in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   lines.push(`   peak ${db(peak)} dBFS, rms ${db(Math.sqrt(sum / n))} dBFS, clipped samples ${clipped}, soft-clipped ${(1000 * shaped / Math.max(n, 1)).toFixed(2)}‰, NaN ${nan}, near-silent seconds ${quiet}`);
   lines.push(`   loudness per second (dB): ${windowRms.map((r) => db(r)).join(" ")}`);
 }

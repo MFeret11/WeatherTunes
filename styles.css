@@ -479,6 +479,9 @@ select, .btn {
 .player.playing .play .i-stop { display: block; }
 .download { display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
 .download svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* 32-bit mode switch: a pressed button, in the accent colour when on. */
+.retro { font-family: var(--font-mono); letter-spacing: 0.02em; }
+.retro[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .nowhour { margin: 0; font-family: var(--font-mono); font-size: 0.88rem; color: var(--muted); }
 .desc { margin: 16px 0 0; max-width: 62ch; line-height: 1.55; font-size: 0.95rem; }
 .desc:empty { display: none; }

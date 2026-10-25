@@ -46,6 +46,18 @@ try {
   await wait(4000);
   check(w.Tone.getTransport().state === "started" && text(d, "play") === "Stop", "plays");
 
+  // 1b. 32-bit mode: switching while playing restarts the song on a new engine, both ways.
+  const retro = d.getElementById("retro");
+  const retroWas = retro.getAttribute("aria-pressed");
+  for (const step of ["on", "back"]) {
+    retro.click();
+    await wait(3000);
+    const pressed = retro.getAttribute("aria-pressed");
+    check((step === "on" ? pressed !== retroWas : pressed === retroWas)
+      && w.Tone.getTransport().state === "started" && text(d, "play") === "Stop",
+      `32-bit switch ${step === "on" ? "flipped" : "flipped back"} (pressed: ${pressed}), still playing`);
+  }
+
   // 2. Units toggle changes the words only.
   const bpm = w.Tone.getTransport().bpm.value;
   const before = text(d, "notes");

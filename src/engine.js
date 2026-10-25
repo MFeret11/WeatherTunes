@@ -11,7 +11,7 @@
 //   thunder, swell (one-shots)
 //   sky bells (moonrise, meteors, frost, holiday, solstice), UV sparkle, aurora chord → fx
 
-import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL } from "./mapping.js";
+import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32 } from "./mapping.js";
 
 const Tone = () => window.Tone;
 
@@ -46,9 +46,24 @@ export function songSeconds(score) {
   return ((score.meta.bars * steps + FADE.outGap + 2) * 15) / score.meta.bpm + 0.3;
 }
 
+/** A voice as 32-bit mode plays it (see RETRO32): FM → one plain wave, "fat" → plain. */
+export function retroVoice(v) {
+  if (v.synth === "FMSynth") {
+    return { ...v, synth: "Synth", gain: v.gain + (RETRO32.trim[v.id] ?? 0), options: { oscillator: { type: RETRO32.fm }, envelope: v.options.envelope } };
+  }
+  const o = v.options?.oscillator;
+  if (o?.type?.startsWith("fat")) {
+    const { count, spread, ...rest } = o;
+    return { ...v, gain: v.gain + (RETRO32.trim[v.id] ?? 0), options: { ...v.options, oscillator: { ...rest, type: o.type.slice(3) } } };
+  }
+  return v;
+}
+
 export class Engine {
-  constructor({ onBar, onEvent, onEnd } = {}) {
+  /** `retro`: build the lighter 32-bit instruments (see RETRO32). */
+  constructor({ onBar, onEvent, onEnd, retro = false } = {}) {
     const T = Tone();
+    this.retro = retro;
     this.onBar = onBar;
     this.onEvent = onEvent; // (type) for visuals: "thunder", "swell"
     this.onEnd = onEnd; // the song has played through and stopped by itself
@@ -67,7 +82,7 @@ export class Engine {
     this.eq = new T.EQ3({ low: 0, mid: 0, high: 0 });
     this.filter = new T.Filter({ type: "lowpass", frequency: 6000, Q: 0.7, rolloff: -12 });
     this.delay = new T.FeedbackDelay({ delayTime: "8n.", feedback: 0.25, wet: 0.12 });
-    this.reverb = new T.Reverb({ decay: 4, preDelay: 0.02, wet: 0.3 });
+    this.reverb = new T.Reverb(retro ? RETRO32.reverb : { decay: 4, preDelay: 0.02, wet: 0.3 });
     this.master = new T.Volume(0);
     this.fade = new T.Gain(0); // silent until the transport fades it in
     this.limiter = new T.Limiter(-1);
@@ -75,7 +90,7 @@ export class Engine {
     // is rounded off here (see SOFT_CLIP in mapping.js).
     this.clipIn = new T.Gain(1 / SOFT_CLIP.headroom);
     this.softClip = new T.WaveShaper(softClipCurve(SOFT_CLIP), 4096);
-    this.softClip.oversample = "4x";
+    this.softClip.oversample = retro ? "none" : "4x";
     this.bus.chain(this.eq, this.filter, this.delay, this.reverb, this.master, this.fade, this.limiter,
       this.clipIn, this.softClip, T.getDestination());
     this.stopToken = 0;
@@ -161,12 +176,15 @@ export class Engine {
       noise: { type: "white" },
       envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.03 },
     }).connect(this.shakerFilter);
-    this.bells = new T.PolySynth(T.FMSynth, {
-      harmonicity: 3.01, modulationIndex: 14,
-      envelope: { attack: 0.001, decay: 1.2, sustain: 0, release: 1.5 },
-      modulation: { type: "square" },
-      modulationEnvelope: { attack: 0.002, decay: 0.3, sustain: 0, release: 0.2 },
-    }).connect(new T.Volume(6).connect(this.vol.rain));
+    const bellVoice = this.asPlayed({
+      id: "bells", synth: "FMSynth", gain: 6, options: {
+        harmonicity: 3.01, modulationIndex: 14,
+        envelope: { attack: 0.001, decay: 1.2, sustain: 0, release: 1.5 },
+        modulation: { type: "square" },
+        modulationEnvelope: { attack: 0.002, decay: 0.3, sustain: 0, release: 0.2 },
+      },
+    });
+    this.bells = new T.PolySynth(T[bellVoice.synth], bellVoice.options).connect(new T.Volume(bellVoice.gain).connect(this.vol.rain));
     this.bells.maxPolyphony = 6;
 
     // Atmosphere: three noise colours, crossfaded per bar.
@@ -201,12 +219,15 @@ export class Engine {
     }).connect(this.swellLevel);
 
     // Sky bells: glassy FM bells, a little brighter and longer than the snow bells.
-    this.chimes = new T.PolySynth(T.FMSynth, {
-      harmonicity: 2.01, modulationIndex: 5,
-      oscillator: { type: "sine" }, modulation: { type: "sine" },
-      envelope: { attack: 0.002, decay: 2.2, sustain: 0, release: 2.2 },
-      modulationEnvelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
-    }).connect(new T.Volume(7).connect(this.vol.fx));
+    const chimeVoice = this.asPlayed({
+      id: "chimes", synth: "FMSynth", gain: 7, options: {
+        harmonicity: 2.01, modulationIndex: 5,
+        oscillator: { type: "sine" }, modulation: { type: "sine" },
+        envelope: { attack: 0.002, decay: 2.2, sustain: 0, release: 2.2 },
+        modulationEnvelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
+      },
+    });
+    this.chimes = new T.PolySynth(T[chimeVoice.synth], chimeVoice.options).connect(new T.Volume(chimeVoice.gain).connect(this.vol.fx));
     this.chimes.maxPolyphony = 8;
     // UV: a soft sine an octave over the melody.
     this.sparkle = new T.PolySynth(T.Synth, {
@@ -216,16 +237,25 @@ export class Engine {
     this.sparkle.maxPolyphony = 6;
     // Aurora: a slow, wavering high chord.
     this.auroraVibrato = new T.Vibrato({ frequency: 0.35, depth: 0.25 }).connect(new T.Volume(-4).connect(this.vol.fx));
-    this.aurora = new T.PolySynth(T.Synth, {
-      oscillator: { type: "fatsine", count: 3, spread: 22 },
-      envelope: { attack: 2.2, decay: 0.5, sustain: 0.9, release: 3 },
-    }).connect(this.auroraVibrato);
+    this.aurora = new T.PolySynth(T.Synth, this.asPlayed({
+      id: "aurora", gain: 0, options: {
+        oscillator: { type: "fatsine", count: 3, spread: 22 },
+        envelope: { attack: 2.2, decay: 0.5, sustain: 0.9, release: 3 },
+      },
+    }).options).connect(this.auroraVibrato);
     this.aurora.maxPolyphony = 6;
   }
 
+  /** A voice as this engine plays it: unchanged, or simplified in 32-bit mode. */
+  asPlayed(v) {
+    return this.retro ? retroVoice(v) : v;
+  }
+
   /** Build the melody and pad synths a score asks for (kept if they haven't changed). */
-  setVoices({ melody, pad }) {
+  setVoices(voices) {
     const T = Tone();
+    const melody = this.asPlayed(voices.melody);
+    const pad = this.asPlayed(voices.pad);
     const build = (v, out) => {
       const synth = new T.PolySynth({ context: this.context, voice: T[v.synth || "Synth"], options: v.options }).connect(out);
       synth.maxPolyphony = 12; // a pad chord with colour is 5 notes, and its release overlaps the next

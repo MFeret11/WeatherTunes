@@ -527,6 +527,21 @@ export const SWELL = { attack: 1.2, decay: 0.6, sustain: 0.3, hold: 1.4, release
 export const ARP_VOICE = { gain: -8, tone: 3200, width: 0.25 };
 // Storm drums (dB): they sit on the bass's note, so they're trimmed to leave it room.
 export const STORM_DRUMS_DB = -3;
+// 32-bit mode: a lighter engine for phones, in the spirit of a PS1/N64 sound chip.
+// The score is the same; only the instruments that play it get simpler:
+//   - detuned "fat" waves (pads, aurora) become one plain wave of the same shape
+//   - FM voices (glass bells, marimba, snow bells, sky chimes) become `fm` with
+//     their own envelopes
+//   - the reverb is a short console-style room, and the master soft clip skips
+//     oversampling (the drive keeps its 2x: without it, a storm's band gets ~4 dB louder)
+// `trim` (dB, by voice id) brings each simplified voice back to the loudness of
+// the one it replaces, measured with test/render.html solos (&retro=1); chimes
+// never came up in a fixture, so they borrow the glass bells' trim.
+export const RETRO32 = {
+  fm: "triangle",
+  reverb: { decay: 1.5, preDelay: 0.01, wet: 0.25 },
+  trim: { glass: -4, mallet: -2.5, bells: -8, chimes: -4 },
+};
 
 // ---- Drive and tone (distortion + 3-band EQ) --------------------------------
 // The band (melody, bass, pad) passes through a distortion whose wet mix

@@ -457,7 +457,7 @@ async function play() {
   if (!engine) Tone.setContext(new Tone.Context({ latencyHint: "playback", lookAhead: 0.2 }));
   await Tone.start();
   if (!engine) {
-    engine = new Engine({ onBar: highlight, onEvent, onEnd: () => { playing = false; setPlayState(false); } });
+    engine = new Engine({ retro, onBar: highlight, onEvent, onEnd: () => { playing = false; setPlayState(false); } });
     await engine.ready;
     for (const l of LAYERS) engine.setMute(l, !!muted[l]);
   }
@@ -479,8 +479,30 @@ function setPlayState(on) {
 
 playBtn.addEventListener("click", () => (playing ? stop() : play()));
 
+// ---- 32-bit mode: lighter instruments for phones (see RETRO32 in mapping.js).
+// On by default for touch screens, remembered once chosen. The engine builds its
+// instruments once, so switching modes throws the old one away (with its audio
+// context) and the next Play builds a new one; a playing song restarts.
+const retroBtn = $("retro");
+let retro = store.get("wt:retro") ?? matchMedia("(pointer: coarse)").matches;
+retroBtn.setAttribute("aria-pressed", String(retro));
+retroBtn.addEventListener("click", () => {
+  retro = !retro;
+  store.set("wt:retro", retro);
+  retroBtn.setAttribute("aria-pressed", String(retro));
+  if (!engine) return;
+  const wasPlaying = playing;
+  const old = engine;
+  engine = null;
+  playing = false;
+  old.halt();
+  setPlayState(false);
+  try { old.context.dispose(); } catch { /* already closed */ }
+  if (wasPlaying) play();
+});
+
 // ---- Download: render the song offline (faster than real time on most devices) and save a WAV.
-// It's the song as it sounds now, so any layers you've muted stay muted.
+// It's the song as it sounds now, so any layers you've muted stay muted, and 32-bit mode carries over.
 const dlBtn = $("download");
 let rendering = null;
 dlBtn.addEventListener("click", async () => {
@@ -492,7 +514,7 @@ dlBtn.addEventListener("click", async () => {
   label.textContent = "Preparing…";
   try {
     const buf = await Tone.Offline(async () => {
-      const e = new Engine();
+      const e = new Engine({ retro });
       await e.ready;
       for (const l of LAYERS) e.setMute(l, !!muted[l]);
       e.load(s);
