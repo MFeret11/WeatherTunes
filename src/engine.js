@@ -1,4 +1,6 @@
-// Plays a score with Tone.js (loaded globally from vendor/tone-15.1.22.js).
+// Builds a score's instruments with Tone.js (loaded globally from vendor/tone-15.1.22.js).
+// It always runs inside Tone.Offline: src/stream.js renders the song ahead of
+// playback and plays the result, and Download saves it.
 //
 // Signal flow (melody and pad instruments are chosen per song from score.meta.voices):
 //   melody → trim → vibrato → lowpass → panner → comp → echo ─┐
@@ -46,6 +48,24 @@ export function songSeconds(score) {
   return ((score.meta.bars * steps + FADE.outGap + 2) * 15) / score.meta.bpm + 0.3;
 }
 
+/**
+ * When the screen should follow the song, in seconds from its start:
+ *   bars     the start of each hour slot
+ *   barsEnd  the hour highlight clears (the last bar is over)
+ *   fx       flashes for thunder and swells, in time order
+ *   end      the fade-out is done and the song is over
+ */
+export function cueTimes(score) {
+  const steps = score.meta.steps ?? 16;
+  const s16 = (n) => (n * 15) / score.meta.bpm;
+  return {
+    bars: score.atmosphere.map((_, bar) => s16(bar * steps)),
+    barsEnd: s16(Math.ceil((score.meta.bars * steps) / 16) * 16),
+    fx: score.fx.map((f) => ({ t: s16(f.bar * steps + f.pos), type: f.type })).sort((a, b) => a.t - b.t),
+    end: s16(score.meta.bars * steps + FADE.outGap + 2),
+  };
+}
+
 /** A voice as 32-bit mode plays it (see RETRO32): FM → one plain wave, "fat" → plain. */
 export function retroVoice(v) {
   if (v.synth === "FMSynth") {
@@ -60,20 +80,14 @@ export function retroVoice(v) {
 }
 
 export class Engine {
-  /** `retro`: build the lighter 32-bit instruments (see RETRO32). */
-  constructor({ onBar, onEvent, onEnd, retro = false } = {}) {
+  /**
+   * `retro`: build the lighter 32-bit instruments (see RETRO32).
+   * `output`: where the finished mix goes (default: the context's speakers).
+   */
+  constructor({ retro = false, output } = {}) {
     const T = Tone();
     this.retro = retro;
-    this.onBar = onBar;
-    this.onEvent = onEvent; // (type) for visuals: "thunder", "swell"
-    this.onEnd = onEnd; // the song has played through and stopped by itself
-    // Screen updates (hour highlight, flashes) that run late on a busy device show up late
-    // instead of being dropped (Tone's default drops anything over 0.25 s late).
-    // Keep this engine's own context: a download renders offline, and Tone swaps
-    // its global context while it does, which must not touch the live player.
     this.context = T.getContext();
-    this.draw = T.getDraw();
-    this.draw.expiration = 1;
     this.transport = T.getTransport();
     this.score = null;
 
@@ -92,8 +106,7 @@ export class Engine {
     this.softClip = new T.WaveShaper(softClipCurve(SOFT_CLIP), 4096);
     this.softClip.oversample = retro ? "none" : "4x";
     this.bus.chain(this.eq, this.filter, this.delay, this.reverb, this.master, this.fade, this.limiter,
-      this.clipIn, this.softClip, T.getDestination());
-    this.stopToken = 0;
+      this.clipIn, this.softClip, output ?? T.getDestination());
     this.ready = this.reverb.ready;
 
     // ---- Layer volumes (one fader + mute per layer) ----
@@ -372,39 +385,12 @@ export class Engine {
       tr.schedule((t) => synth.triggerAttackRelease(x.notes, this.s16(x.dur) * (x.kind === "aurora" ? 0.9 : 0.8), t, x.vel), at(x.bar, x.pos));
     }
     for (const f of score.fx) {
-      const note = (t) => { if (this.onEvent) this.draw.schedule(() => this.onEvent(f.type), t); };
-      if (f.type === "thunder") tr.schedule((t) => { this.thunder.triggerAttackRelease(3, t, 0.9); note(t); }, at(f.bar, f.pos));
-      if (f.type === "swell") tr.schedule((t) => { this.swell.triggerAttackRelease(SWELL.attack + SWELL.decay + SWELL.hold, t, SWELL.vel); note(t); }, at(f.bar, f.pos));
+      if (f.type === "thunder") tr.schedule((t) => this.thunder.triggerAttackRelease(3, t, 0.9), at(f.bar, f.pos));
+      if (f.type === "swell") tr.schedule((t) => this.swell.triggerAttackRelease(SWELL.attack + SWELL.decay + SWELL.hold, t, SWELL.vel), at(f.bar, f.pos));
     }
 
-    // Per-hour automation and the playhead.
-    const A = score.automation;
-    score.atmosphere.forEach((a, bar) => {
-      tr.schedule((t) => {
-        const ramp = this.s16(2); // an hour is 8 sixteenths
-        this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
-        if (bar === 0) this.band.volume.setValueAtTime(A.gainDb[0], t);
-        else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
-        const mDb = (A.melodyDb?.[bar] ?? 0) + (A.melodyDayDb?.[bar] ?? 0);
-        if (bar === 0) this.melodyLevel.volume.setValueAtTime(mDb, t);
-        else this.melodyLevel.volume.rampTo(mDb, ramp * 2, t);
-        this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
-        this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
-        this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);
-        const carry = A.echoCarry?.[bar] ?? 0;
-        this.melodyEcho.wet.rampTo(ECHO.wet[0] + (ECHO.wet[1] - ECHO.wet[0]) * carry, ramp * 2, t);
-        this.melodyEcho.feedback.rampTo(ECHO.feedback[0] + (ECHO.feedback[1] - ECHO.feedback[0]) * carry, ramp * 2, t);
-        this.reverb.wet.rampTo(Math.min(0.85, A.reverbWet + (A.reverbLift?.[bar] ?? 0)), ramp * 3, t);
-        this.eq.high.rampTo(A.eqHigh[bar], ramp * 2, t);
-        this.eq.low.rampTo(A.eqLow[bar], ramp * 2, t);
-        for (const c of ["white", "pink", "brown"]) {
-          this.noiseGain[c].gain.rampTo(a.color === c ? a.level : 0, ramp * 2, t);
-        }
-        this.atmosFilter.frequency.rampTo(a.cutoff, ramp * 2, t);
-        this.windGain.gain.rampTo(a.wind, ramp * 2, t);
-        if (this.onBar) this.draw.schedule(() => this.onBar(bar), t);
-      }, at(bar, 0));
-    });
+    // Per-hour automation.
+    score.atmosphere.forEach((_, bar) => tr.schedule((t) => this.applyBar(bar, t), at(bar, 0)));
     // Fade in at the top of every pass; fade out across the last hour into the gap.
     const g = this.fade.gain;
     tr.schedule((t) => {
@@ -417,61 +403,65 @@ export class Engine {
       g.setValueAtTime(1, t);
       g.linearRampToValueAtTime(0, t + this.s16(FADE.outHours * steps + FADE.outGap));
     }, at(score.meta.bars - FADE.outHours, 0));
-    // Fade the beds out after the last bar, then stop once the fade-out is done.
+    // Fade the beds out after the last bar.
     tr.schedule((t) => {
       for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, this.s16(8), t);
       this.windGain.gain.rampTo(0, this.s16(8), t);
-      if (this.onBar) this.draw.schedule(() => this.onBar(null), t);
     }, `${realBars}:0:0`);
-    // A timer rather than Draw, so it also ends in a background tab.
-    tr.schedule((t) => {
-      const token = this.stopToken;
-      setTimeout(() => {
-        if (token !== this.stopToken) return; // Stop or Play was pressed meanwhile
-        this.halt();
-        if (this.onEnd) this.onEnd();
-      }, Math.max(0, (t - this.context.now()) * 1000));
-    }, at(score.meta.bars, FADE.outGap + 2));
   }
 
-  start(when) {
-    this.stopToken++; // cancels a fade-out stop still in progress
-    for (const n of Object.values(this.noise)) if (n.state !== "started") n.start(when);
-    if (this.windNoise.state !== "started") {
-      this.windNoise.start(when);
-      this.windFilter.start(when);
+  /** One hour slot's settings, gliding from the last hour's (or set at once when `instant`). */
+  applyBar(bar, t, instant = false) {
+    const A = this.score.automation;
+    const a = this.score.atmosphere[bar];
+    const ramp = instant ? 0.005 : this.s16(2); // an hour is 8 sixteenths
+    this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
+    if (bar === 0 || instant) this.band.volume.setValueAtTime(A.gainDb[bar], t);
+    else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
+    const mDb = (A.melodyDb?.[bar] ?? 0) + (A.melodyDayDb?.[bar] ?? 0);
+    if (bar === 0 || instant) this.melodyLevel.volume.setValueAtTime(mDb, t);
+    else this.melodyLevel.volume.rampTo(mDb, ramp * 2, t);
+    this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
+    this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
+    this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);
+    const carry = A.echoCarry?.[bar] ?? 0;
+    this.melodyEcho.wet.rampTo(ECHO.wet[0] + (ECHO.wet[1] - ECHO.wet[0]) * carry, ramp * 2, t);
+    this.melodyEcho.feedback.rampTo(ECHO.feedback[0] + (ECHO.feedback[1] - ECHO.feedback[0]) * carry, ramp * 2, t);
+    this.reverb.wet.rampTo(Math.min(0.85, A.reverbWet + (A.reverbLift?.[bar] ?? 0)), ramp * 3, t);
+    this.eq.high.rampTo(A.eqHigh[bar], ramp * 2, t);
+    this.eq.low.rampTo(A.eqLow[bar], ramp * 2, t);
+    for (const c of ["white", "pink", "brown"]) {
+      this.noiseGain[c].gain.rampTo(a.color === c ? a.level : 0, ramp * 2, t);
     }
-    this.transport.start(when, 0);
+    this.atmosFilter.frequency.rampTo(a.cutoff, ramp * 2, t);
+    this.windGain.gain.rampTo(a.wind, ramp * 2, t);
   }
 
-  /** Fade out quickly, then stop (a new start in the meantime wins). */
-  stop() {
-    const token = ++this.stopToken;
-    const now = this.context.now();
-    const g = this.fade.gain;
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(g.getValueAtTime(now), now);
-    g.linearRampToValueAtTime(0, now + FADE.stopSec);
-    if (this.onBar) this.onBar(null);
-    setTimeout(() => { if (token === this.stopToken) this.halt(); }, FADE.stopSec * 1000 + 30);
-  }
-
-  halt() {
-    this.transport.stop();
-    this.melody?.releaseAll();
-    this.pad?.releaseAll();
-    this.arp.triggerRelease();
-    this.bells.releaseAll();
-    this.chimes.releaseAll();
-    this.sparkle.releaseAll();
-    this.aurora.releaseAll();
-    for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, 0.3);
-    this.windGain.gain.rampTo(0, 0.3);
-    if (this.onBar) this.onBar(null);
-  }
-
-  get playing() {
-    return this.transport.state === "started";
+  /**
+   * Start the loaded score at `when`, from `offset` seconds into the song.
+   * Starting partway (after a mute or 32-bit change mid-song) skips everything
+   * scheduled earlier, so the current hour's settings and the fade are set here.
+   * Notes still ringing from before `offset` aren't replayed.
+   */
+  start(when, offset = 0) {
+    for (const n of Object.values(this.noise)) n.start(when);
+    this.windNoise.start(when);
+    this.windFilter.start(when);
+    if (offset > 0) {
+      const steps = this.score.meta.steps ?? 16;
+      const bars = this.score.meta.bars;
+      this.applyBar(Math.min(bars - 1, Math.floor(offset / this.s16(steps))), when, true);
+      const outStart = this.s16((bars - FADE.outHours) * steps);
+      const outEnd = outStart + this.s16(FADE.outHours * steps + FADE.outGap);
+      const g = this.fade.gain;
+      g.cancelScheduledValues(when);
+      if (offset < outStart) g.setValueAtTime(1, when);
+      else {
+        g.setValueAtTime(Math.max(0, (outEnd - offset) / (outEnd - outStart)), when);
+        g.linearRampToValueAtTime(0, when + Math.max(0.01, outEnd - offset));
+      }
+    }
+    this.transport.start(when, offset);
   }
 
   setMute(layer, muted) {

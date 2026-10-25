@@ -527,7 +527,8 @@ export const SWELL = { attack: 1.2, decay: 0.6, sustain: 0.3, hold: 1.4, release
 export const ARP_VOICE = { gain: -8, tone: 3200, width: 0.25 };
 // Storm drums (dB): they sit on the bass's note, so they're trimmed to leave it room.
 export const STORM_DRUMS_DB = -3;
-// 32-bit mode: a lighter engine for phones, in the spirit of a PS1/N64 sound chip.
+// 32-bit mode: lighter instruments in the spirit of a PS1/N64 sound chip, so songs
+// render faster (on by default on phones, where Play waits for the render to get ahead).
 // The score is the same; only the instruments that play it get simpler:
 //   - detuned "fat" waves (pads, aurora) become one plain wave of the same shape
 //   - FM voices (glass bells, marimba, snow bells, sky chimes) become `fm` with

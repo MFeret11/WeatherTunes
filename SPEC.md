@@ -87,7 +87,9 @@ WeatherTunes/
     sky.js              PURE: moon, eclipses, solstices, meteor showers, magnetic latitude
     compose.js          PURE: (Forecast, seed) → Score   ← the heart; no Tone, no DOM
     mapping.js          all tunable constants (ranges, mode table, progressions)
-    engine.js           Tone.js graph: instruments, effects, schedules a Score
+    engine.js           Tone.js graph: instruments, effects, schedules a Score (always inside Tone.Offline)
+    stream.js           renders ahead and streams the audio to a buffer player (see §10)
+    tap.worklet.js      hands an offline render's audio to the page block by block
     controls.js         synth panel ↔ engine params; "back to the forecast" reset
     theory.js           modes, triads, note names, seeded RNG
     viz.js              forecast chart with a moving playhead; notes light up
@@ -103,7 +105,7 @@ WeatherTunes/
     render.html         offline render → peak, loudness, clipping (per layer with &solo=)
 ```
 
-**Data flow:** location → `weather.js` → `Forecast` → `compose.js` → `Score` → `engine.js` (audio) + `viz.js` (picture) + liner notes (text).
+**Data flow:** location → `weather.js` → `Forecast` → `compose.js` → `Score` → `stream.js` + `engine.js` (audio) + `viz.js` (picture) + liner notes (text).
 
 `compose.js` is a pure function with no browser or audio APIs, so it is easy to test. Its output is plain data:
 
@@ -295,7 +297,8 @@ Assertions:
 
 **Manual:** Chrome, Firefox, Safari (macOS), Safari iOS and Chrome Android.
 - **iOS gotcha:** Web Audio is silent when the ringer switch is off. Tell users this in a small note if no sound plays.
-- Audio can only start after a click, so the Play button calls `Tone.start()`.
+- Audio can only start after a click, so the Play button makes (or wakes) the audio context.
+- **Phones can't run the synths live.** The Tone.js graph is hundreds of nodes, and a Pixel crackled even in 32-bit mode. So nothing is synthesised in real time: `stream.js` renders the song with `Tone.Offline` as fast as the device allows, a worklet at the end of the chain posts the audio in blocks as it's made, and a plain `AudioBufferSourceNode` player plays them back to back. Play waits until enough is ready that the rest will stay ahead (well under a second on a laptop, a couple of seconds on a phone, longer on a Raspberry Pi), so a slow device waits a little instead of crackling. A mute or 32-bit change mid-song renders from a moment ahead (`Engine.start(when, offset)` sets that hour's settings and the fade) and crossfades over. Without worklets (plain-http pages), the whole song renders first. Download reuses the same render.
 
 **By ear:** listen to every fixture before release. If any fixture sounds bad, fix the constants in `mapping.js`.
 

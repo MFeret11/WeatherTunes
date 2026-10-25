@@ -32,7 +32,8 @@ Headless: `tools/headless.sh --virtual-time-budget=20000 --dump-dom http://local
 
 - `src/compose.js`: forecast → score. Pure JavaScript with no audio or DOM code, so it's easy to test.
 - `src/mapping.js`: every tunable number in the weather → music mapping.
-- `src/engine.js`: plays a score with [Tone.js](https://tonejs.github.io/) (bundled in `vendor/`, MIT).
+- `src/engine.js`: builds a score's instruments and effects with [Tone.js](https://tonejs.github.io/) (bundled in `vendor/`, MIT).
+- `src/stream.js`: plays a song by rendering it offline and streaming the audio to a plain buffer player as it's made (through `src/tap.worklet.js`), so phones never have to run the synths live. Mid-song mute and 32-bit changes render the rest again and crossfade over.
 - `src/weather.js`: fetches today's [Open-Meteo](https://open-meteo.com/) forecast and city search, plus air quality, aurora activity ([NOAA SWPC](https://www.swpc.noaa.gov/)), public holidays ([Nager.Date](https://date.nager.at/)) and recent lows. Caches it for an hour and cleans it up (fills gaps, 24 hours, dew point and feels-like).
 - `src/sky.js`: the moon's phase, rise and set, lunar eclipses, solstices and equinoxes, meteor showers and magnetic latitude, all worked out in the browser.
 - `src/describe.js`: the forecast in plain words, like a forecaster would say it.

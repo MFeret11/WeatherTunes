@@ -33,6 +33,9 @@ async function until(cond, ms = 10000) {
   return false;
 }
 const text = (d, id) => d.getElementById(id).textContent;
+// Playback: the player has started sending audio out (not just getting ready).
+const sounding = (w) => w.wtPlayer.playing && w.wtPlayer.t0 != null;
+const bpmOf = (d) => Number((d.body.textContent.match(/(\d+) BPM/) || [])[1]);
 
 try {
   localStorage.clear();
@@ -43,28 +46,38 @@ try {
   check(!d.getElementById("status").classList.contains("error"), "live forecast loaded without error");
   check(d.querySelectorAll("#hours .hour").length === 24 && d.querySelectorAll("#notes p").length >= 1, "hours and liner notes shown");
   d.getElementById("play").click();
-  await wait(4000);
-  check(w.Tone.getTransport().state === "started" && text(d, "play") === "Stop", "plays");
+  const t0 = performance.now();
+  // Slow machines can take a while to render enough of the song to start.
+  await until(() => sounding(w), 90000);
+  check(sounding(w) && text(d, "play") === "Stop", `plays (sound after ${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 
-  // 1b. 32-bit mode: switching while playing restarts the song on a new engine, both ways.
+  // 1b. Muting a part mid-song renders the rest again without it (the crossfade
+  // itself is covered by a dev check; a slow machine may reach the end of the song first).
+  const renderOf = () => (w.wtPlayer.next ?? w.wtPlayer.active)?.render;
+  d.querySelector("#layers .factor.melody").click();
+  const muted = await until(() => renderOf()?.muted.melody === true || !w.wtPlayer.playing, 5000);
+  check(muted && w.wtPlayer.playing, "muting mid-song renders the rest without it, still playing");
+
+  // 1c. The 32-bit switch does the same, both ways.
   const retro = d.getElementById("retro");
   const retroWas = retro.getAttribute("aria-pressed");
   for (const step of ["on", "back"]) {
     retro.click();
-    await wait(3000);
+    const want = retro.getAttribute("aria-pressed") === "true";
+    const asked = await until(() => renderOf()?.retro === want || !w.wtPlayer.playing, 5000);
     const pressed = retro.getAttribute("aria-pressed");
-    check((step === "on" ? pressed !== retroWas : pressed === retroWas)
-      && w.Tone.getTransport().state === "started" && text(d, "play") === "Stop",
-      `32-bit switch ${step === "on" ? "flipped" : "flipped back"} (pressed: ${pressed}), still playing`);
+    check(asked && w.wtPlayer.playing && (step === "on" ? pressed !== retroWas : pressed === retroWas),
+      `32-bit switch ${step === "on" ? "flipped" : "flipped back"} mid-song (pressed: ${pressed}), still playing`);
   }
+  d.querySelector("#layers .factor.melody").click(); // unmute again
 
   // 2. Units toggle changes the words only.
-  const bpm = w.Tone.getTransport().bpm.value;
+  const bpm = bpmOf(d);
   const before = text(d, "notes");
   d.getElementById("units").click();
   const after = text(d, "notes");
   check(before !== after && /°F/.test(before + after) && /°C/.test(before + after), "units toggle switches °C/°F");
-  check(w.Tone.getTransport().bpm.value === bpm, "music unchanged by units");
+  check(bpmOf(d) === bpm && bpm > 0, "music unchanged by units");
 
   // 3. City search with several matches, then pick one while playing.
   d.getElementById("q").value = "Paris";
@@ -78,7 +91,7 @@ try {
   const url = new URL(w.location.href);
   check(url.searchParams.get("lat") === "48.9" && url.searchParams.get("lon") === "2.3", "URL holds rounded coordinates");
   await wait(1500);
-  check(text(d, "play") === "Stop", "still playing after switching place");
+  check(/Stop|Starting/.test(text(d, "play")) && w.wtPlayer.playing, "still playing after switching place");
 
   // 4. A one-match search picks it straight away.
   d.getElementById("q").value = "Kathmandu";
@@ -87,7 +100,7 @@ try {
   check(text(d, "place-name").startsWith("Kathmandu"), `single match chosen: ${text(d, "place-name")}`);
   d.getElementById("q").value = "Qxqzzv";
   d.getElementById("search").requestSubmit();
-  await until(() => /No places found/.test(text(d, "status")));
+  await until(() => /No places found/.test(text(d, "status")), 20000); // a slow machine may be busy rendering
   check(/No places found/.test(text(d, "status")), "no-match message");
 
   // 5. Sample days still work.
@@ -96,15 +109,17 @@ try {
   sel.dispatchEvent(new Event("change"));
   await until(() => text(d, "place-name") === "Oslo, Norway");
   // Oslo's gale-force mean wind hits the tempo ceiling (TEMPO.max).
-  check(text(d, "place-kind") === "Sample day" && Math.round(w.Tone.getTransport().bpm.value) === 156, `sample day loads: ${text(d, "place-kind")} at ${w.Tone.getTransport().bpm.value} BPM`);
+  check(text(d, "place-kind") === "Sample day" && bpmOf(d) === 156, `sample day loads: ${text(d, "place-kind")} at ${bpmOf(d)} BPM`);
+  if (!w.wtPlayer.playing) d.getElementById("play").click();
+  await wait(300);
   d.getElementById("play").click();
   await wait(300);
-  check(text(d, "play") === "Play", "Stop stops");
+  check(text(d, "play") === "Play" && !w.wtPlayer.playing, "Stop stops");
   d.getElementById("play").click();
-  await until(() => w.Tone.getTransport().state === "started", 5000);
-  // ~20 s of song; slow machines render audio slower than real time, so allow plenty.
-  const ended = await until(() => text(d, "play") === "Play" && w.Tone.getTransport().state !== "started", 120000);
-  check(ended, `plays once, then stops by itself (button: ${text(d, "play")}, transport: ${w.Tone.getTransport().state})`);
+  await until(() => sounding(w), 30000);
+  // ~20 s of song; slow machines render slower than real time and wait longer first, so allow plenty.
+  const ended = await until(() => text(d, "play") === "Play" && !w.wtPlayer.playing, 120000);
+  check(ended, `plays once, then stops by itself (button: ${text(d, "play")})`);
 
   // 6. The last searched city comes back on the next visit.
   [w, d] = await open("");

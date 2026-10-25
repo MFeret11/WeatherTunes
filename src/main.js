@@ -4,7 +4,7 @@
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, randomPlace, roundCoord } from "./weather.js";
 import { compose, hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./compose.js";
 import { describe } from "./describe.js";
-import { Engine, LAYERS, songSeconds } from "./engine.js";
+import { Player } from "./stream.js";
 import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor, moonDisc } from "./icons.js";
 import { coverArt } from "./cover.js";
@@ -56,8 +56,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
 
-let engine = null;
-let playing = false; // our own flag: the transport only reports "started" ~0.1 s after Play
+let playing = false;
 let forecast = null;
 let score = null;
 let current = null; // { kind, place?, sample? }
@@ -149,10 +148,7 @@ async function choose({ kind, place, sample, reveal = false }) {
   }
   playBtn.disabled = false;
   dlBtn.disabled = !!rendering;
-  if (wasPlaying) {
-    engine.stop();
-    play();
-  }
+  if (wasPlaying) play();
 }
 
 /** Keep the URL shareable for cities and samples. Your own location never goes in the URL. */
@@ -401,7 +397,7 @@ function renderBand(m) {
       muted[ch.layer] = !muted[ch.layer];
       btn.setAttribute("aria-pressed", String(!muted[ch.layer]));
       btn.classList.toggle("muted", muted[ch.layer]);
-      if (engine) engine.setMute(ch.layer, muted[ch.layer]);
+      player.update(retro, muted);
     });
     btn.lane = lane;
     return btn;
@@ -448,41 +444,45 @@ function highlight(bar) {
 
 // ---- Playback ------------------------------------------------------------------
 
-async function play() {
+// Songs are rendered ahead and played as audio, so phones don't have to keep up
+// with the synths live (see stream.js). Play waits a moment while the start renders.
+const player = new Player({
+  onBar: highlight,
+  onEvent,
+  onWait: (waiting) => {
+    if (playing) playBtn.querySelector("span").textContent = waiting ? "Starting…" : "Stop";
+  },
+  onEnd: (error) => {
+    playing = false;
+    setPlayState(false);
+    if (error) status("Couldn't play this song. Try again, or try Download.", true);
+  },
+});
+
+window.wtPlayer = player; // lets test/smoke.html follow playback
+
+function play() {
   playing = true;
   setPlayState(true);
-  // Phones crackle with the default "interactive" buffers: they're sized for
-  // instant response, and run dry when the synths get busy. A song doesn't need
-  // instant response, so ask for the larger "playback" buffers instead.
-  if (!engine) Tone.setContext(new Tone.Context({ latencyHint: "playback", lookAhead: 0.2 }));
-  await Tone.start();
-  if (!engine) {
-    engine = new Engine({ retro, onBar: highlight, onEvent, onEnd: () => { playing = false; setPlayState(false); } });
-    await engine.ready;
-    for (const l of LAYERS) engine.setMute(l, !!muted[l]);
-  }
-  if (!playing) return; // stopped while the audio was starting up
-  engine.load(score);
-  engine.start("+0.1");
+  player.play(score, { retro, muted });
 }
 
 function stop() {
   playing = false;
-  if (engine) engine.stop();
+  player.stop();
   setPlayState(false);
 }
 
 function setPlayState(on) {
-  playBtn.querySelector("span").textContent = on ? "Stop" : "Play";
+  playBtn.querySelector("span").textContent = on ? (player.isWaiting ? "Starting…" : "Stop") : "Play";
   document.querySelector(".player").classList.toggle("playing", on);
 }
 
 playBtn.addEventListener("click", () => (playing ? stop() : play()));
 
-// ---- 32-bit mode: lighter instruments for phones (see RETRO32 in mapping.js).
-// On by default for touch screens, remembered once chosen. The engine builds its
-// instruments once, so switching modes throws the old one away (with its audio
-// context) and the next Play builds a new one; a playing song restarts.
+// ---- 32-bit mode: lighter instruments (see RETRO32 in mapping.js), so songs render faster.
+// On by default for touch screens, remembered once chosen. Switching mid-song is heard
+// a moment later, once the rest of the song has rendered the new way.
 const retroBtn = $("retro");
 let retro = store.get("wt:retro") ?? matchMedia("(pointer: coarse)").matches;
 retroBtn.setAttribute("aria-pressed", String(retro));
@@ -490,19 +490,11 @@ retroBtn.addEventListener("click", () => {
   retro = !retro;
   store.set("wt:retro", retro);
   retroBtn.setAttribute("aria-pressed", String(retro));
-  if (!engine) return;
-  const wasPlaying = playing;
-  const old = engine;
-  engine = null;
-  playing = false;
-  old.halt();
-  setPlayState(false);
-  try { old.context.dispose(); } catch { /* already closed */ }
-  if (wasPlaying) play();
+  player.update(retro, muted);
 });
 
-// ---- Download: render the song offline (faster than real time on most devices) and save a WAV.
-// It's the song as it sounds now, so any layers you've muted stay muted, and 32-bit mode carries over.
+// ---- Download: save the song as a WAV, as it sounds now (muted layers stay muted,
+// and 32-bit mode carries over). It reuses the render Play made, if nothing's changed.
 const dlBtn = $("download");
 let rendering = null;
 dlBtn.addEventListener("click", async () => {
@@ -513,15 +505,11 @@ dlBtn.addEventListener("click", async () => {
   dlBtn.disabled = true;
   label.textContent = "Preparing…";
   try {
-    const buf = await Tone.Offline(async () => {
-      const e = new Engine({ retro });
-      await e.ready;
-      for (const l of LAYERS) e.setMute(l, !!muted[l]);
-      e.load(s);
-      e.start(0);
-    }, songSeconds(s), 2, 44100);
+    const r = player.render(s, retro, muted);
+    await r.promise;
+    if (r.error) throw r.error;
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(toWav(buf.get()));
+    a.href = URL.createObjectURL(toWav(r.audio()));
     a.download = wavName(s.meta.name, s.meta.date);
     document.body.append(a);
     a.click();
