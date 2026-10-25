@@ -451,6 +451,10 @@ function highlight(bar) {
 async function play() {
   playing = true;
   setPlayState(true);
+  // Phones crackle with the default "interactive" buffers: they're sized for
+  // instant response, and run dry when the synths get busy. A song doesn't need
+  // instant response, so ask for the larger "playback" buffers instead.
+  if (!engine) Tone.setContext(new Tone.Context({ latencyHint: "playback", lookAhead: 0.2 }));
   await Tone.start();
   if (!engine) {
     engine = new Engine({ onBar: highlight, onEvent, onEnd: () => { playing = false; setPlayState(false); } });
