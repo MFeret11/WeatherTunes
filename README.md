@@ -26,7 +26,7 @@ The tests run in the browser, so there's nothing to install:
 - `test/render.html?fixture=london-drizzle`: renders a song offline and reports peak level, loudness and clipping (add `&solo=melody` to check one layer)
 - `test/smoke.html`: drives the real page against the live weather service: featured city, search, units, samples, shared links, error fallback, and a song playing once and stopping. Run it in real time (not with `--virtual-time-budget`), since it waits on the audio clock; it posts its result to `/__result` like `render.html`.
 
-Headless: `chromium --headless=new --virtual-time-budget=20000 --dump-dom http://localhost:8090/test/`
+Headless: `tools/headless.sh --virtual-time-budget=20000 --dump-dom http://localhost:8090/test/` (wraps `chromium --headless=new` and deletes its temp files afterwards, even if the run is killed)
 
 ## How it's built
 

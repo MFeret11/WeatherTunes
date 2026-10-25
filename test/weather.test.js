@@ -1,5 +1,5 @@
 import { test, assert, equal } from "./harness.js";
-import { forecastUrl, fetchForecast, fetchExtras, searchPlaces, featuredPlace, roundCoord, FEATURED, normalizeForecast, dewPoint, feelsLike } from "../src/weather.js";
+import { forecastUrl, fetchForecast, fetchExtras, searchPlaces, featuredPlace, randomPlace, RANDOM_CITIES, roundCoord, FEATURED, normalizeForecast, dewPoint, feelsLike } from "../src/weather.js";
 
 const sample = await (await fetch("../samples/kyoto-spring.json")).json();
 
@@ -90,6 +90,19 @@ test("featured city changes daily and cycles through the list", () => {
   const seen = new Set();
   for (let d = 0; d < FEATURED.length; d++) seen.add(featuredPlace(new Date(2026, 0, 1 + d)).name);
   equal(seen.size, FEATURED.length);
+});
+
+test("random city: well-formed list, never repeats the current city", () => {
+  const names = new Set(RANDOM_CITIES.map((p) => p.name));
+  equal(names.size, RANDOM_CITIES.length, "no duplicates");
+  for (const p of RANDOM_CITIES) {
+    assert(Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180 && /^[A-Z]{2}$/.test(p.cc), p.name);
+    equal(p.lat, roundCoord(p.lat), `${p.name} lat rounded`);
+  }
+  const first = RANDOM_CITIES[0].name;
+  equal(randomPlace(null, () => 0).name, first);
+  assert(randomPlace(first, () => 0).name !== first, "skips the current city");
+  assert(randomPlace(first, () => 0.9999), "top of range is in bounds");
 });
 
 test("extras: air quality, Kp, holidays and recent lows come back in one shape", async () => {

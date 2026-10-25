@@ -514,8 +514,10 @@ export const MIX = { melody: -4, bass: -20, pad: -11, drums: -6, rain: 6, atmosp
 // signal passes untouched; above it, peaks are rounded off smoothly towards
 // `ceiling`, so a storm's loudest hits get a little warm crunch instead of
 // harsh digital clipping. `headroom` is how far above full scale (×) the
-// input can go before the curve runs out.
-export const SOFT_CLIP = { knee: 0.6, ceiling: 0.97, headroom: 4 };
+// input can go before the curve runs out. A ceiling of 0.89 (−1 dBFS) leaves the
+// room streaming services leave, so Bluetooth and other lossy encoders don't
+// crackle on peaks that briefly overshoot when the phone re-encodes the audio.
+export const SOFT_CLIP = { knee: 0.6, ceiling: 0.89, headroom: 4 };
 // The swell: a breath of filtered noise at sunrise, sunset, a clearing and a storm
 // breaking. It rises over `attack` seconds, falls to `sustain` (0–1) over `decay`,
 // holds for `hold` seconds, then fades over `release`. Band-passed between

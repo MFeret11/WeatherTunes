@@ -1,7 +1,7 @@
 // The page: pick a place (your location, a searched city, today's featured
 // city or a sample day), get today's forecast, play it, explain it.
 
-import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, roundCoord } from "./weather.js";
+import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, randomPlace, roundCoord } from "./weather.js";
 import { compose, hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./compose.js";
 import { describe } from "./describe.js";
 import { Engine, LAYERS, songSeconds } from "./engine.js";
@@ -142,8 +142,8 @@ async function choose({ kind, place, sample, reveal = false }) {
   $("sample").value = kind === "sample" ? sample : "";
   render();
   rememberAndLink();
-  // On phones the finder sits below the player, so bring the new song into view.
-  if (reveal && matchMedia("(max-width: 560px)").matches) {
+  // The finder sits below the player, so bring the new song into view if it's scrolled off.
+  if (reveal && document.querySelector(".player").getBoundingClientRect().top < 0) {
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     document.querySelector(".player").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   }
@@ -595,6 +595,11 @@ $("search").addEventListener("submit", async (e) => {
     console.warn(err);
     status("City search isn't responding right now. Try again in a moment, or pick a sample day.", true);
   }
+});
+
+// A random city behaves like a searched one: shareable and remembered.
+$("random").addEventListener("click", () => {
+  pickPlace(randomPlace(current && current.place ? current.place.name : null));
 });
 
 // ---- Start-up: link → last place → your location (if already allowed) → featured city ----

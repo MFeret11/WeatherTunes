@@ -111,7 +111,14 @@ p { margin: 0 0 1em; }
 .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
 
 /* ---------- Layout ---------- */
-.top { padding: 32px 0 4px; }
+/* The player comes first so the record leads; the finder sits below it. */
+main.wrap { display: flex; flex-direction: column; }
+main.wrap > .card { margin: 10px 0; }
+.player { order: 1; scroll-margin-top: 76px; }
+.finder { order: 2; scroll-margin-top: 76px; }
+.liner { order: 4; }
+.foot { order: 5; }
+.top { padding: 28px 0 4px; }
 .top h1 { margin-bottom: 0.2em; }
 
 /* ---------- Site header (matches mferet.com) ---------- */
@@ -176,11 +183,18 @@ select, .btn {
 .btn:focus-visible, select:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
 .eyebrow { margin: 0; color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
 .finder { padding: 14px 16px; }
-.finder-title { display: none; }
-.change-place { display: none; }
+.finder-title { font-size: 1.1rem; margin: 2px 0 12px; }
+.change-place {
+  background: none; border: 0; padding: 8px 4px; min-height: 40px;
+  color: var(--accent); font: 600 0.92rem var(--font-body); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.change-place:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; border-radius: 6px; }
 .find { display: flex; flex-wrap: wrap; gap: 8px; }
 #geo { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px 10px 14px; }
 #geo svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
+#random { display: inline-flex; align-items: center; gap: 8px; }
+#random svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .search { display: flex; gap: 8px; flex: 1 1 280px; min-width: 0; }
 .search .btn { padding: 10px 18px; }
 .search input {
@@ -412,7 +426,7 @@ select, .btn {
   display: grid;
   grid-template-columns: calc(var(--cs) * 1.28) 1fr;
   gap: 20px 24px;
-  align-items: center;
+  align-items: start;
 }
 .record { position: relative; width: calc(var(--cs) * 1.28); height: var(--cs); }
 .cover {
@@ -466,19 +480,17 @@ select, .btn {
 .download { display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
 .download svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .nowhour { margin: 0; font-family: var(--font-mono); font-size: 0.88rem; color: var(--muted); }
-.desc { margin: 18px 0 0; max-width: 75ch; line-height: 1.6; }
+.desc { margin: 16px 0 0; max-width: 62ch; line-height: 1.55; font-size: 0.95rem; }
+.desc:empty { display: none; }
 /* ---------- Also today: moon, sky events, air ---------- */
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
-.chip {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 5px 12px 5px 8px;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: var(--surface-2);
-  font-size: 0.84rem; color: var(--text);
-}
-.chip svg { width: 18px; height: 18px; flex: none; color: var(--muted); }
-.chip.event { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: var(--accent-soft); }
-.chip.warn { border-color: color-mix(in srgb, var(--ph-build) 60%, var(--border)); background: color-mix(in srgb, var(--ph-build) 12%, var(--surface-2)); }
+/* Plain text with an icon, so they don't look like buttons. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 18px 0 0; padding: 0; list-style: none; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font-size: 0.86rem; color: var(--muted); }
+.chip svg { width: 18px; height: 18px; flex: none; }
+.chip.event { color: var(--text); font-weight: 600; }
+.chip.event svg { color: var(--accent); }
+.chip.warn { color: var(--text); }
+.chip.warn svg { color: var(--ph-build); }
 
 /* ---------- Section heads ---------- */
 .sec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
@@ -540,16 +552,11 @@ select, .btn {
 
 @media (max-width: 560px) {
   .brand { font-size: 1rem; }
-  /* Phones: a short title, then the player, so Play is on the first screen. The finder moves below it. */
-  main.wrap { display: flex; flex-direction: column; }
+  /* Phones: a short title, then the player, so Play is on the first screen. */
   main.wrap > .card { margin: 8px 0; }
   .top { padding: 18px 0 4px; }
   .top h1 { font-size: 2rem; margin-bottom: 0.1em; }
   .lede { font-size: 0.95rem; line-height: 1.5; }
-  .player { order: 1; scroll-margin-top: 76px; }
-  .finder { order: 2; scroll-margin-top: 76px; }
-  .liner { order: 4; }
-  .foot { order: 5; }
   .factors { display: grid; grid-template-columns: 1fr 1fr; }
   .factor { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; padding: 5px 10px 5px 8px; border-radius: 12px; text-align: left; }
   .f-icon { grid-row: span 2; }
@@ -557,14 +564,7 @@ select, .btn {
   .f-plays::before { content: none; }
   .fc-head .units { order: 1; margin-left: auto; }
   .fc-head .fc-key { order: 2; flex-basis: 100%; margin-left: 0; }
-  .finder-title { display: block; font-size: 1.1rem; margin: 2px 0 12px; }
-  .change-place {
-    display: inline-block; margin: 2px auto 0;
-    background: none; border: 0; padding: 8px 12px; min-height: 40px;
-    color: var(--accent); font: 600 0.92rem var(--font-body); cursor: pointer;
-    text-decoration: underline; text-underline-offset: 3px;
-  }
-  .change-place:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; border-radius: 6px; }
+  .change-place { margin: 2px auto 0; padding: 8px 12px; }
   .hours { --zh: 84px; --ic: 30px; }
   .hour .icon { visibility: hidden; }
   .hour.sky-narrow .icon { visibility: visible; }
@@ -578,6 +578,7 @@ select, .btn {
   .vinyl { transform: translateX(6%); }
   .player.playing .vinyl { transform: translateX(14%); }
   .now-info { width: 100%; }
+  .now-info .desc { text-align: left; font-size: 1rem; }
   .play { flex: 1 1 100%; justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -283,3 +283,72 @@ export function featuredPlace(date = new Date()) {
   const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
   return FEATURED[day % FEATURED.length];
 }
+
+// "Random city": the featured cities plus a spread of climates, from desert to
+// monsoon to polar, so a few clicks cover very different songs.
+export const RANDOM_CITIES = [
+  ...FEATURED,
+  { name: "Cairo, Egypt", lat: 30.0, lon: 31.2, cc: "EG" },
+  { name: "Marrakesh, Morocco", lat: 31.6, lon: -8.0, cc: "MA" },
+  { name: "Nairobi, Kenya", lat: -1.3, lon: 36.8, cc: "KE" },
+  { name: "Addis Ababa, Ethiopia", lat: 9.0, lon: 38.7, cc: "ET" },
+  { name: "Dakar, Senegal", lat: 14.7, lon: -17.4, cc: "SN" },
+  { name: "Zanzibar City, Tanzania", lat: -6.2, lon: 39.2, cc: "TZ" },
+  { name: "Windhoek, Namibia", lat: -22.6, lon: 17.1, cc: "NA" },
+  { name: "Antananarivo, Madagascar", lat: -18.9, lon: 47.5, cc: "MG" },
+  { name: "Dubai, United Arab Emirates", lat: 25.2, lon: 55.3, cc: "AE" },
+  { name: "Istanbul, Turkey", lat: 41.0, lon: 29.0, cc: "TR" },
+  { name: "Tbilisi, Georgia", lat: 41.7, lon: 44.8, cc: "GE" },
+  { name: "Kathmandu, Nepal", lat: 27.7, lon: 85.3, cc: "NP" },
+  { name: "Dhaka, Bangladesh", lat: 23.8, lon: 90.4, cc: "BD" },
+  { name: "Colombo, Sri Lanka", lat: 6.9, lon: 79.9, cc: "LK" },
+  { name: "Bangkok, Thailand", lat: 13.8, lon: 100.5, cc: "TH" },
+  { name: "Hanoi, Vietnam", lat: 21.0, lon: 105.8, cc: "VN" },
+  { name: "Singapore", lat: 1.3, lon: 103.8, cc: "SG" },
+  { name: "Manila, Philippines", lat: 14.6, lon: 121.0, cc: "PH" },
+  { name: "Taipei, Taiwan", lat: 25.0, lon: 121.6, cc: "TW" },
+  { name: "Ulaanbaatar, Mongolia", lat: 47.9, lon: 106.9, cc: "MN" },
+  { name: "Sapporo, Japan", lat: 43.1, lon: 141.4, cc: "JP" },
+  { name: "Almaty, Kazakhstan", lat: 43.2, lon: 76.9, cc: "KZ" },
+  { name: "Yakutsk, Russia", lat: 62.0, lon: 129.7, cc: "RU" },
+  { name: "Darwin, Australia", lat: -12.5, lon: 130.8, cc: "AU" },
+  { name: "Alice Springs, Australia", lat: -23.7, lon: 133.9, cc: "AU" },
+  { name: "Hobart, Australia", lat: -42.9, lon: 147.3, cc: "AU" },
+  { name: "Wellington, New Zealand", lat: -41.3, lon: 174.8, cc: "NZ" },
+  { name: "Suva, Fiji", lat: -18.1, lon: 178.4, cc: "FJ" },
+  { name: "Honolulu, United States", lat: 21.3, lon: -157.9, cc: "US" },
+  { name: "Edinburgh, United Kingdom", lat: 56.0, lon: -3.2, cc: "GB" },
+  { name: "Dublin, Ireland", lat: 53.3, lon: -6.3, cc: "IE" },
+  { name: "Bergen, Norway", lat: 60.4, lon: 5.3, cc: "NO" },
+  { name: "Tromsø, Norway", lat: 69.6, lon: 19.0, cc: "NO" },
+  { name: "Helsinki, Finland", lat: 60.2, lon: 24.9, cc: "FI" },
+  { name: "Prague, Czechia", lat: 50.1, lon: 14.4, cc: "CZ" },
+  { name: "Marseille, France", lat: 43.3, lon: 5.4, cc: "FR" },
+  { name: "Seville, Spain", lat: 37.4, lon: -6.0, cc: "ES" },
+  { name: "Naples, Italy", lat: 40.9, lon: 14.3, cc: "IT" },
+  { name: "Athens, Greece", lat: 38.0, lon: 23.7, cc: "GR" },
+  { name: "Nuuk, Greenland", lat: 64.2, lon: -51.7, cc: "GL" },
+  { name: "Vancouver, Canada", lat: 49.3, lon: -123.1, cc: "CA" },
+  { name: "Winnipeg, Canada", lat: 49.9, lon: -97.1, cc: "CA" },
+  { name: "Montreal, Canada", lat: 45.5, lon: -73.6, cc: "CA" },
+  { name: "Seattle, United States", lat: 47.6, lon: -122.3, cc: "US" },
+  { name: "Phoenix, United States", lat: 33.4, lon: -112.1, cc: "US" },
+  { name: "Denver, United States", lat: 39.7, lon: -105.0, cc: "US" },
+  { name: "Chicago, United States", lat: 41.9, lon: -87.6, cc: "US" },
+  { name: "Miami, United States", lat: 25.8, lon: -80.2, cc: "US" },
+  { name: "Mexico City, Mexico", lat: 19.4, lon: -99.1, cc: "MX" },
+  { name: "San José, Costa Rica", lat: 9.9, lon: -84.1, cc: "CR" },
+  { name: "Bogotá, Colombia", lat: 4.7, lon: -74.1, cc: "CO" },
+  { name: "Quito, Ecuador", lat: -0.2, lon: -78.5, cc: "EC" },
+  { name: "Lima, Peru", lat: -12.0, lon: -77.0, cc: "PE" },
+  { name: "Manaus, Brazil", lat: -3.1, lon: -60.0, cc: "BR" },
+  { name: "Rio de Janeiro, Brazil", lat: -22.9, lon: -43.2, cc: "BR" },
+  { name: "Santiago, Chile", lat: -33.4, lon: -70.7, cc: "CL" },
+  { name: "Ushuaia, Argentina", lat: -54.8, lon: -68.3, cc: "AR" },
+];
+
+/** A random city, never the one already playing. */
+export function randomPlace(currentName = null, rand = Math.random) {
+  const pool = RANDOM_CITIES.filter((p) => p.name !== currentName);
+  return pool[Math.floor(rand() * pool.length)];
+}

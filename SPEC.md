@@ -181,7 +181,7 @@ Pad chords are voice-led (each note moves as little as it can), and colour notes
 
 The **dry beat** plays in the hours the rain beat leaves alone (no rain, no snow, not a storm's build or peak): hi-hats from the wind (none when still, off-beats in a breeze, up to sixteenths), the kick from the feels-like temperature (a heartbeat once per chord in cold air, every beat 1 when mild, plus a push when hot), and a rim backbeat from clear sky, fading out by 60 % cloud.
 
-The master ends in a **soft clip** (`SOFT_CLIP`): untouched below 60 % of full scale, then a smooth shoulder that never passes −0.3 dBFS, so a storm's loudest hits get a little warm crunch instead of digital clipping. `test/render.html` reports how much of a song it rounds off.
+The master ends in a **soft clip** (`SOFT_CLIP`): untouched below 60 % of full scale, then a smooth shoulder that never passes −1 dBFS (the headroom streaming services leave, so Bluetooth and other lossy encoders don't crackle on overshoots), so a storm's loudest hits get a little warm crunch instead of digital clipping. `test/render.html` reports how much of a song it rounds off.
 
 **Game-music touches** (`ARP`, `ECHO`, `SWELL`, added 2026-10-24). The songs already leaned toward video game area themes, so two of that genre's signatures were added, quietly and driven by the weather:
 
@@ -248,7 +248,7 @@ The weather sets the defaults, and the user can change anything. A marker shows 
 
 ## 8. Page layout
 
-1. **Header:** "WeatherTunes", a location chip ("Kyoto · Use my location · Search"), and the date.
+1. **Header:** "WeatherTunes", a location chip ("Kyoto · Use my location · Search · Random city"), and the date. Random city picks from about 70 cities across every climate and never repeats the one playing; it links and remembers like a searched city.
 2. **Hero:** the big Play button and a forecast chart. The temperature line is the melody line, with rain bars below, cloud shading behind and a sun or moon strip on top. A playhead moves across the hours, and notes light up as they play.
 3. **Liner notes:** one short plain-English paragraph explaining today's choices.
 4. **Synth panel:** collapsible groups (Master, Melody, Bass, Pad, Rain).

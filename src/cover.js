@@ -1,6 +1,6 @@
 // A small "album cover" for the day, drawn from the forecast: the sky colour
 // changes across the cover from midnight (left) to 11 pm (right), the sun sits at
-// the hottest hour in the colour of that temperature, and rain, snow and
+// the hottest hour in the colour of that temperature (dimmed by the day's cloud and rain), and rain, snow and
 // lightning fall where they do in the day.
 
 import { tempColor } from "./icons.js";
@@ -41,7 +41,11 @@ export function coverArt(forecast, meta) {
     const hot = dayHours.reduce((b, i) => (H[i].temp > H[b].temp ? i : b), dayHours[0]);
     const col = tempColor(H[hot].temp);
     const cx = Math.min(80, Math.max(20, x(hot)));
-    const haze = (1 - 0.6 * (H[hot].cloud / 100)).toFixed(2); // a pale sun behind thick cloud
+    // How much sun the day really had: thick cloud and rain through the daylight hours hide it.
+    const cloudDay = dayHours.reduce((a, i) => a + H[i].cloud, 0) / dayHours.length / 100;
+    const wetDay = dayHours.filter((i) => H[i].precip >= 0.2 || H[i].pop >= 60).length / dayHours.length;
+    const seen = (1 - 0.9 * cloudDay) * (1 - 0.85 * wetDay);
+    const haze = Math.min(1, Math.max(0.1, 0.1 + 0.9 * seen)).toFixed(2);
     body = `<g opacity="${haze}"><circle cx="${cx}" cy="36" r="20" fill="${col}" opacity=".22"/><circle cx="${cx}" cy="36" r="12" fill="${col}"/></g>`;
   } else {
     body = `<circle cx="68" cy="32" r="10" fill="#e8e4f8"/><circle cx="73" cy="28" r="9" fill="${rgb(NIGHT)}"/>`;
