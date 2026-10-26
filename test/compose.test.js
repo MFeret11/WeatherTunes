@@ -1,6 +1,6 @@
 import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
-import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels, chordColour, voiceChord } from "../src/compose.js";
+import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels, chordColour, voiceChord, pickVoices } from "../src/compose.js";
 import { MODES, melodyDegrees, triadPcs, chordLabel, stepAbove } from "../src/theory.js";
 import * as M from "../src/mapping.js";
 
@@ -635,3 +635,12 @@ test("echo carries in clear, still, dry air", () => each((n, s, f) => {
     if (h.gust >= M.ECHO.windyGust) equal(c, 0, `${n} windy hour ${b}`);
   });
 }));
+
+test("cloudy days split three ways: warm horns, grey organ, drifting swells", () => {
+  const day = (o) => ({ tMean: 12, feelsMean: 12, cloud: 0.6, rh: 60, pop: 0, precipSum: 0, wetHours: 0, rainRate: 0, ...o });
+  equal(pickVoices(day({ tMean: 22, cloud: 0.6 }), false, false).pad.id, "horns", "warm and cloudy");
+  equal(pickVoices(day({ tMean: 22, cloud: 0.95 }), false, false).pad.id, "horns", "warm wins over grey");
+  equal(pickVoices(day({ tMean: 8, cloud: 0.9 }), false, false).pad.id, "overcast", "cool and grey");
+  equal(pickVoices(day({ tMean: 12, cloud: 0.6 }), false, false).pad.id, "drift", "broken cloud");
+  equal(pickVoices(day({ tMean: 12, cloud: 0.3, rh: 50 }), false, false).pad.id, "airy", "clear days unchanged");
+});

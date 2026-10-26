@@ -461,6 +461,7 @@ export const MELODY_VOICES = [
 //   minPop        mean chance of rain (0–1) at least this, or minRainMm of rain
 //   minCloud      mean cloud cover (0–1) at least this
 //   maxTemp       mean temperature (°C) below this
+//   minTemp       mean temperature (°C) at least this
 //   minRh         mean humidity (%) at least this
 //   minWetHours   at least this many hours with rain or drizzle
 //   maxRainRate   ...and on average no more than this many mm in each wet hour (drizzle, not downpour)
@@ -482,9 +483,21 @@ export const PAD_VOICES = [
     id: "rain", label: "wobbling electric piano", when: { minPop: 0.5, minRainMm: 5 }, gain: 2, tone: 1100, tremolo: [4, 0.45],
     options: { oscillator: { type: "fattriangle", count: 2, spread: 25 }, envelope: { attack: 0.4, decay: 0.5, sustain: 0.8, release: 2 } },
   },
+  // Cloudy days without much rain, split three ways (one organ used to cover all of
+  // them, 40% of ordinary days): warm and cloudy, heavy grey, and broken cloud.
   {
-    id: "overcast", label: "muffled organ", when: { minCloud: 0.5 }, gain: -2, tone: 1100, tremolo: [0, 0],
+    // Warm, close air: a mellow horn section, soft-edged saws swelling into each chord.
+    id: "horns", label: "warm, hazy horns", when: { minCloud: 0.5, minTemp: 18 }, gain: 2, tone: 1300, tremolo: [0, 0],
+    options: { oscillator: { type: "fatsawtooth", count: 2, spread: 10 }, envelope: { attack: 0.35, decay: 0.6, sustain: 0.75, release: 1.8 } },
+  },
+  {
+    id: "overcast", label: "muffled organ", when: { minCloud: 0.75 }, gain: -2, tone: 1100, tremolo: [0, 0],
     options: { oscillator: { type: "fatsquare", count: 2, spread: 15 }, envelope: { attack: 1, decay: 0.5, sustain: 0.8, release: 2.5 } },
+  },
+  {
+    // Sun and cloud taking turns: a soft pad that swells and fades slowly, like clouds passing.
+    id: "drift", label: "slow, drifting swells", when: { minCloud: 0.5 }, gain: 0.5, tone: 2200, tremolo: [0.22, 0.55],
+    options: { oscillator: { type: "fattriangle", count: 3, spread: 18 }, envelope: { attack: 1.4, decay: 0.5, sustain: 0.85, release: 3 } },
   },
   {
     id: "icy", label: "thin, icy shimmer", when: { maxTemp: 0 }, gain: 2, tone: 4000, tremolo: [6, 0.15],

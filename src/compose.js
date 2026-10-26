@@ -79,6 +79,7 @@ export function pickVoices(stats, storm, snow) {
     (w.minPop == null || stats.pop >= w.minPop || stats.precipSum >= w.minRainMm) &&
     (w.minCloud == null || stats.cloud >= w.minCloud) &&
     (w.maxTemp == null || stats.tMean < w.maxTemp) &&
+    (w.minTemp == null || stats.tMean >= w.minTemp) &&
     (w.minRh == null || stats.rh >= w.minRh);
   const pad = M.PAD_VOICES.find(holds);
   return { melody, pad };
