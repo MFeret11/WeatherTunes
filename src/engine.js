@@ -363,12 +363,17 @@ export class Engine {
     }
     // Crackle sits between the sixteenths, so it's placed in ticks.
     const ticks16 = tr.PPQ / 4;
-    // Two clicks can't share a start time on one synth, so a clash moves on a tick.
-    const used = new Set();
-    for (const n of score.crackle ?? []) {
-      let tick = Math.round((n.bar * steps + n.pos) * ticks16);
-      while (used.has(tick)) tick++;
-      used.add(tick);
+    // Two clicks can't share a start time on one synth. Clicks a tick or two apart
+    // can still collide: the transport may handle both in one audio block and give
+    // them the same time, which throws. So keep clicks at least 10 ms apart (a click
+    // is ~7 ms long, so nothing audible is lost).
+    const gap = Math.max(1, Math.ceil(0.01 * (score.meta.bpm / 60) * tr.PPQ));
+    let last = -Infinity;
+    const clicks = (score.crackle ?? []).map((n) => ({ n, tick: Math.round((n.bar * steps + n.pos) * ticks16) }))
+      .sort((a, b) => a.tick - b.tick);
+    for (const { n, tick: at16 } of clicks) {
+      const tick = Math.max(at16, last + gap);
+      last = tick;
       tr.schedule((t) => this.crackle.triggerAttackRelease(0.004, t, n.vel), `${tick}i`);
     }
     for (const n of score.rain) {
