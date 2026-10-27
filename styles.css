@@ -121,42 +121,45 @@ main.wrap > .card { margin: 10px 0; }
 .top { padding: 28px 0 4px; }
 .top h1 { margin-bottom: 0.2em; }
 
-/* ---------- Site header (matches mferet.com) ---------- */
+/* ---------- Site header (copied from mferet.com's styles.css; keep them in sync) ---------- */
 .site-header {
   position: sticky; top: 0; z-index: 5;
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
-.header-inner { display: flex; align-items: center; gap: 12px 16px; min-height: 60px; }
-.back {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 6px 14px 6px 8px; min-height: 36px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  font-weight: 600; font-size: 0.9rem; text-decoration: none;
-}
-.back svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.back:hover { border-color: var(--accent); color: var(--text); }
+.header-inner { display: flex; align-items: center; gap: 12px 20px; min-height: 60px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
 .brand {
   display: flex; align-items: center; gap: 10px;
   color: var(--text); text-decoration: none;
   font-family: var(--font-display); font-weight: 700; font-size: 1.1rem;
 }
-.brand img { height: 28px; width: auto; border-radius: 3px; }
-.brand:hover { color: var(--accent); }
-.theme {
-  margin-left: auto;
-  display: grid; place-items: center;
-  width: 40px; height: 40px; padding: 0;
-  border: 1px solid var(--border); border-radius: 50%;
-  background: var(--surface); color: var(--text); cursor: pointer;
+.brand .logo { height: 24px; width: auto; display: block; }
+.logo .m { fill: var(--text); }
+.logo .f { fill: var(--accent); }
+.site-nav { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+.site-nav a { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 0.95rem; padding: 6px 10px; border-radius: 8px; }
+.site-nav a:hover { color: var(--text); background: var(--accent-soft); }
+.site-nav a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+.lights {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: 500 0.85rem var(--font-body);
+  padding: 6px 12px 6px 8px; border-radius: 999px; cursor: pointer;
 }
-.theme:hover, .back:hover { border-color: var(--accent); }
-.theme svg { grid-area: 1 / 1; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: opacity 0.25s, transform 0.25s; }
-.theme .i-moon { opacity: 0; transform: rotate(-40deg) scale(0.6); }
-.theme[aria-pressed="true"] .i-sun { opacity: 0; transform: rotate(40deg) scale(0.6); }
-.theme[aria-pressed="true"] .i-moon { opacity: 1; transform: none; }
-.theme:focus-visible, .back:focus-visible, .brand:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+.lights-track { width: 30px; height: 18px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); position: relative; transition: background 0.3s; }
+.lights-track::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+  background: #f5b942; box-shadow: 0 0 8px #f5b942; transition: transform 0.3s, background 0.3s, box-shadow 0.3s;
+}
+.lights[aria-pressed="true"] .lights-track { background: #241c3d; }
+.lights[aria-pressed="true"] .lights-track::after { transform: translateX(12px); background: #a78bfa; box-shadow: 0 0 10px #7c4dff; }
+.lights:focus-visible, .brand:focus-visible, .site-nav a:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .site-nav { order: 3; width: 100%; margin-left: -10px; }
+  .lights { margin-left: auto; }
+  .lights-label { display: none; }
+}
 
 .lede { color: var(--muted); max-width: 60ch; font-size: 1.1rem; margin: 0; }
 .card {
@@ -559,7 +562,6 @@ select, .btn {
 .foot p { margin: 0 0 0.4em; }
 
 @media (max-width: 560px) {
-  .brand { font-size: 1rem; }
   /* Phones: a short title, then the player, so Play is on the first screen. */
   main.wrap > .card { margin: 8px 0; }
   .top { padding: 18px 0 4px; }

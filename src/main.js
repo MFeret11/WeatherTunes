@@ -66,15 +66,15 @@ const muted = {};
 const region = (navigator.language || "").split("-")[1];
 let units = store.get("wt:units") || (["US", "LR", "MM"].includes(region) ? "us" : "metric");
 
-// ---- Header: back button and light/dark switch (same saved setting as mferet.com) ----
+// ---- Header: the Movie mode switch, same as mferet.com (same saved setting) ----
 
 {
   const root = document.documentElement;
-  const btn = document.querySelector(".theme");
+  const btn = document.querySelector(".lights");
   const sync = () => {
     const dark = root.dataset.theme === "dark";
     btn.setAttribute("aria-pressed", String(dark));
-    btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
+    btn.title = dark ? "Lights up (Daily Driver)" : "Movie mode: dim the lights";
   };
   btn.addEventListener("click", () => {
     root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
@@ -82,16 +82,6 @@ let units = store.get("wt:units") || (["US", "LR", "MM"].includes(region) ? "us"
     sync();
   });
   sync();
-
-  // Came from mferet.com? Go back to that exact page (and scroll spot); otherwise the link goes home.
-  $("back").addEventListener("click", (e) => {
-    let fromSite = false;
-    try { fromSite = new URL(document.referrer).origin === location.origin; } catch { /* no referrer */ }
-    if (fromSite && history.length > 1) {
-      e.preventDefault();
-      history.back();
-    }
-  });
 }
 
 // iPhones and iPads mute web audio in silent mode; only they need the tip.

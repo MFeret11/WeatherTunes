@@ -265,6 +265,7 @@ Mobile: one column, the panel collapses, and the play-along strip becomes a row 
   - A new story on `projects.html`: the idea, the mapping table, one or two "same day, different cities" comparisons, and what was hard (making data sound musical).
   - A card on `index.html` and a mention in the About page's Music section, next to SoundCloud.
   - Reuse the portfolio's theme tokens and fonts so the two feel like one site.
+  - Use the portfolio's own header (logo, main nav, Movie mode switch), copied into `index.html` and `styles.css`. Keep it in sync when the site's header changes.
 - **Retire the prototype:** remove `main.py` and `.idea/` from `main` (git history keeps them). Rewrite the README around the web app and leave a line about the Python/pyo origin.
 - Note: `main.py` has a hardcoded NWS gridpoint. It's a coarse 2.5 km cell and has been public for years, so this is low risk, but the rewrite removes it.
 
