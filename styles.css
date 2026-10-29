@@ -18,6 +18,7 @@
   --cloud-dark: #8a8698;
   --cloud-edge: #b9b3c6;
   --snow: #ffffff;
+  --flake: #5b8fca;
   --bolt: #f2b416;
   --sky-top: rgba(2, 119, 189, 0.07);
   --storm-sky: #2a2f4a;
@@ -52,6 +53,7 @@
     --cloud-dark: #2a2638;
     --cloud-edge: #6d6788;
     --snow: #eef6ff;
+    --flake: #eef6ff;
     --bolt: #ffd23f;
     --sky-top: rgba(79, 195, 247, 0.08);
     --storm-sky: #000000;
@@ -82,6 +84,7 @@
   --cloud-dark: #2a2638;
   --cloud-edge: #6d6788;
   --snow: #eef6ff;
+  --flake: #eef6ff;
   --bolt: #ffd23f;
   --sky-top: rgba(79, 195, 247, 0.08);
   --storm-sky: #000000;
@@ -391,7 +394,7 @@ select, .btn {
 
 /* ---------- Live sky: follows the hour being played ---------- */
 .player {
-  --dim: 0; --energy: 0; --wet: 0;
+  --dim: 0; --energy: 0; --wet: 0; --flakes: 0;
   position: relative;
   background: color-mix(in srgb, var(--storm-sky) calc(var(--energy) * 22% + var(--dim) * 6%), var(--surface));
   transition: background-color 1.2s ease;
@@ -419,6 +422,50 @@ select, .btn {
   animation: rainfall 0.45s linear infinite;
 }
 @keyframes rainfall { to { transform: translateY(40px); } }
+/* Snow: two layers of scattered flakes falling slowly at different speeds (the
+   near ones bigger and faster), the whole sheet swaying in a light wind. Each
+   layer moves exactly one tile per loop, so it repeats without a jump. */
+.sky .snowfx {
+  position: absolute;
+  inset: 0 -12px;
+  opacity: calc(var(--flakes) * 1.8);
+  transition: opacity 1.4s ease;
+  animation: snowsway 3.2s ease-in-out infinite alternate;
+}
+.sky .snowfx::before,
+.sky .snowfx::after {
+  content: "";
+  position: absolute;
+  inset: -96px 0 0;
+  background-image:
+    radial-gradient(circle at 12px 18px, var(--flake) 0 2.3px, transparent 3.0px),
+    radial-gradient(circle at 61px 71px, var(--flake) 0 1.8px, transparent 2.5px),
+    radial-gradient(circle at 97px 40px, var(--flake) 0 2.6px, transparent 3.3px),
+    radial-gradient(circle at 139px 8px, var(--flake) 0 2.0px, transparent 2.7px),
+    radial-gradient(circle at 171px 58px, var(--flake) 0 2.4px, transparent 3.1px),
+    radial-gradient(circle at 213px 27px, var(--flake) 0 1.9px, transparent 2.6px),
+    radial-gradient(circle at 232px 83px, var(--flake) 0 2.2px, transparent 2.9px);
+  background-size: 240px 96px;
+  animation: snowfall 5.5s linear infinite;
+}
+.sky .snowfx::after {
+  inset: -64px 0 0;
+  background-image:
+    radial-gradient(circle at 9px 40px, var(--flake) 0 1.1px, transparent 1.8px),
+    radial-gradient(circle at 44px 12px, var(--flake) 0 1.3px, transparent 2.0px),
+    radial-gradient(circle at 77px 52px, var(--flake) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 108px 24px, var(--flake) 0 1.2px, transparent 1.9px),
+    radial-gradient(circle at 139px 58px, var(--flake) 0 1.0px, transparent 1.7px),
+    radial-gradient(circle at 163px 6px, var(--flake) 0 1.3px, transparent 2.0px),
+    radial-gradient(circle at 186px 35px, var(--flake) 0 1.1px, transparent 1.8px);
+  background-size: 200px 64px;
+  background-position: 70px 0;
+  opacity: 0.7;
+  animation: snowfall-far 7s linear infinite;
+}
+@keyframes snowfall { to { transform: translateY(96px); } }
+@keyframes snowfall-far { to { transform: translateY(64px); } }
+@keyframes snowsway { from { transform: translateX(-7px); } to { transform: translateX(7px); } }
 .sky .flash { position: absolute; inset: 0; background: #fff; opacity: 0; }
 .sky .flash.on { animation: flash 0.7s ease-out; }
 @keyframes flash { 0% { opacity: 0; } 8% { opacity: 0.9; } 20% { opacity: 0.1; } 30% { opacity: 0.7; } 100% { opacity: 0; } }
@@ -593,6 +640,6 @@ select, .btn {
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
-  .sky .rainfx { animation: none; }
+  .sky .rainfx, .sky .snowfx, .sky .snowfx::before, .sky .snowfx::after { animation: none; }
   .player.playing .vinyl::after { animation: none; }
 }

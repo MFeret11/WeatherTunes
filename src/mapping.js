@@ -556,6 +556,12 @@ export const RETRO32 = {
   reverb: { decay: 1.5, preDelay: 0.01, wet: 0.25 },
   trim: { glass: -4, mallet: -2.5, bells: -8, chimes: -4 },
 };
+// The ending: the last melody note lets go over `releaseSec` and the last pad
+// chord over `padReleaseSec`, on a linear curve instead of their usual quick
+// exponential one. The song's fade-out reaches silence `tailSec` seconds past
+// the last bar (at any tempo) on an eased curve: it barely dips during the last
+// hour, then trails off, so the final note rings out into the reverb.
+export const ENDING = { releaseSec: 2.6, padReleaseSec: 3.4, tailSec: 3 };
 
 // ---- Drive and tone (distortion + 3-band EQ) --------------------------------
 // The band (melody, bass, pad) passes through a distortion whose wet mix
@@ -588,7 +594,7 @@ export const DARK = { darkSunAlt: 6, auroraSunAlt: 12 };
 // During a visible lunar eclipse the moonlight drops to eclipseLight.
 export const MOON = {
   fullAlt: 15, cloudBlock: 0.85, nightLift: 0.5, cutoffLift: 0.5,
-  minIllum: 0.15, bellVel: [0.25, 0.5], eclipseLight: 0.1,
+  minIllum: 0.15, bellVel: [0.125, 0.25], eclipseLight: 0.1, // bellVel: thin crescent → full moon
   bellClear: 0.5, // the moonrise bell needs at least this much of the moonlight to get through the cloud
 };
 

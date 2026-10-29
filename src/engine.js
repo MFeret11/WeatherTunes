@@ -13,7 +13,7 @@
 //   thunder, swell (one-shots)
 //   sky bells (moonrise, meteors, frost, holiday, solstice), UV sparkle, aurora chord → fx
 
-import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32 } from "./mapping.js";
+import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32, ENDING } from "./mapping.js";
 
 const Tone = () => window.Tone;
 
@@ -35,17 +35,27 @@ const BAND = ["melody", "bass", "pad", "drums"];
 // The song plays once, fading in and out so it never starts or stops abruptly:
 //   inSec     fade-in from silence at the start
 //   outHours  the fade-out starts this many hour slots before the end...
-//   outGap    ...and reaches silence this far (in sixteenths) past the last bar,
+//   outGap    ...and reaches silence outGap(bpm) sixteenths past the last bar,
 //             so the last note and the reverb tail die away instead of being cut;
-//             the song then stops by itself
+//             the song then stops by itself (see ENDING in mapping.js)
 //   stopSec   pressing Stop fades out over this long first
-export const FADE = { inSec: 1.2, outHours: 1, outGap: 10, stopSec: 0.3 };
+export const FADE = { inSec: 1.2, outHours: 1, stopSec: 0.3 };
+/** The tail after the last bar, in sixteenths: ENDING.tailSec at any tempo. */
+export const outGap = (bpm) => Math.ceil((ENDING.tailSec * bpm) / 15);
+
+// The fade-out's level from its start (p = 0) to silence (p = 1): a raised cosine,
+// so it barely dips under the last hour and trails off gently at the end.
+const fadeOutShape = (p) => 0.5 * (1 + Math.cos(Math.PI * Math.min(1, Math.max(0, p))));
+/** The fade-out from `from` (0–1 of the way through) to silence, as points for setValueCurveAtTime. */
+function fadeOutCurve(from = 0, n = 64) {
+  return Array.from({ length: n }, (_, i) => fadeOutShape(from + ((1 - from) * i) / (n - 1)));
+}
 export const DEFAULT_LEVELS = MIX; // see mapping.js
 
 /** How long a score plays, in seconds, from the start to the end of its fade-out. */
 export function songSeconds(score) {
   const steps = score.meta.steps ?? 16;
-  return ((score.meta.bars * steps + FADE.outGap + 2) * 15) / score.meta.bpm + 0.3;
+  return ((score.meta.bars * steps + outGap(score.meta.bpm) + 2) * 15) / score.meta.bpm + 0.3;
 }
 
 /**
@@ -62,7 +72,7 @@ export function cueTimes(score) {
     bars: score.atmosphere.map((_, bar) => s16(bar * steps)),
     barsEnd: s16(Math.ceil((score.meta.bars * steps) / 16) * 16),
     fx: score.fx.map((f) => ({ t: s16(f.bar * steps + f.pos), type: f.type })).sort((a, b) => a.t - b.t),
-    end: s16(score.meta.bars * steps + FADE.outGap + 2),
+    end: s16(score.meta.bars * steps + outGap(score.meta.bpm) + 2),
   };
 }
 
@@ -293,6 +303,10 @@ export class Engine {
       this.padTremolo.depth.value = pad.tremolo[1];
       this.voiceIds.pad = pad.id;
     }
+    // A reused voice may still have the last song's long ending release (ENDING).
+    const own = (v) => ({ release: v.options?.envelope?.release ?? 1, releaseCurve: v.options?.envelope?.releaseCurve ?? "exponential" });
+    this.melody.set({ envelope: own(melody) });
+    this.pad.set({ envelope: own(pad) });
   }
 
   /** Seconds for n sixteenth notes at the transport's current tempo. */
@@ -334,14 +348,21 @@ export class Engine {
       return `${Math.floor(t / 16)}:${Math.floor((t % 16) / 4)}:${t % 4}`;
     };
 
+    // The last melody note and pad chord let go slowly (ENDING), so the song rings out.
+    const lastBar = score.meta.bars - 1;
+    const lastChord = score.pad.at(-1); // chords span several hours, so the last one starts before the last bar
     for (const n of score.melody) {
-      tr.schedule((t) => this.melody.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => {
+        if (n.bar === lastBar) this.melody.set({ envelope: { release: ENDING.releaseSec, releaseCurve: "linear" } });
+        this.melody.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel);
+      }, at(n.bar, n.pos));
     }
     for (const n of score.bass) {
       tr.schedule((t) => this.bass.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.85), t, n.vel), at(n.bar, n.pos));
     }
     for (const c of score.pad) {
       tr.schedule((t) => {
+        if (c === lastChord) this.pad.set({ envelope: { release: ENDING.padReleaseSec, releaseCurve: "linear" } });
         this.pad.triggerAttackRelease(c.notes, this.s16(c.dur) * 0.95, t, c.vel);
         // Colour notes (7th, 9th) each at their own, weather-set level.
         for (const x of c.colour ?? []) this.pad.triggerAttackRelease(x.note, this.s16(c.dur) * 0.95, t, x.vel);
@@ -405,8 +426,7 @@ export class Engine {
     }, "0:0:0");
     tr.schedule((t) => {
       g.cancelScheduledValues(t);
-      g.setValueAtTime(1, t);
-      g.linearRampToValueAtTime(0, t + this.s16(FADE.outHours * steps + FADE.outGap));
+      g.setValueCurveAtTime(fadeOutCurve(), t, this.s16(FADE.outHours * steps + outGap(score.meta.bpm)));
     }, at(score.meta.bars - FADE.outHours, 0));
     // Fade the beds out after the last bar.
     tr.schedule((t) => {
@@ -457,13 +477,13 @@ export class Engine {
       const bars = this.score.meta.bars;
       this.applyBar(Math.min(bars - 1, Math.floor(offset / this.s16(steps))), when, true);
       const outStart = this.s16((bars - FADE.outHours) * steps);
-      const outEnd = outStart + this.s16(FADE.outHours * steps + FADE.outGap);
+      const outEnd = outStart + this.s16(FADE.outHours * steps + outGap(this.score.meta.bpm));
       const g = this.fade.gain;
       g.cancelScheduledValues(when);
       if (offset < outStart) g.setValueAtTime(1, when);
       else {
-        g.setValueAtTime(Math.max(0, (outEnd - offset) / (outEnd - outStart)), when);
-        g.linearRampToValueAtTime(0, when + Math.max(0.01, outEnd - offset));
+        g.setValueCurveAtTime(fadeOutCurve(Math.min(1, (offset - outStart) / (outEnd - outStart))), when,
+          Math.max(0.01, outEnd - offset));
       }
     }
     this.transport.start(when, offset);
