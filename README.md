@@ -1,5 +1,7 @@
 # WeatherTunes
 
+[![CI](https://github.com/MFeret11/WeatherTunes/actions/workflows/ci.yml/badge.svg)](https://github.com/MFeret11/WeatherTunes/actions/workflows/ci.yml)
+
 Turns a day's weather forecast into a short piece of music you can play in the browser.
 
 Each hour of the day gets two beats (half a bar), so a song lasts about 20 seconds. The temperature curve shapes the melody, cloud and rain pick the scale (bright Lydian on sunny days down to dark Phrygian in storms), air pressure picks the key, wind sets the tempo, and rain, snow, fog and storms add their own sounds. The sky and the air play too: moonlight lifts the night, a moonrise rings a bell, auroras add a shimmering chord, meteor showers send shooting-star runs, hazy air crackles, strong sun shimmers, snow on the ground hushes the room, and frost, solstices and public holidays get their own bells. Music-theory rules keep it in tune: every note is in the scale, strong beats land on chord tones, and phrases resolve. The same place and day always gives the same song.
@@ -25,6 +27,8 @@ The tests run in the browser, so there's nothing to install:
 - `test/summary.html`: what every sample day turns into, for tuning by ear
 - `test/render.html?fixture=london-drizzle`: renders a song offline and reports peak level, loudness and clipping (add `&solo=melody` to check one layer)
 - `test/smoke.html`: drives the real page against the live weather service: featured city, search, units, samples, shared links, error fallback, and a song playing once and stopping. Run it in real time (not with `--virtual-time-budget`), since it waits on the audio clock; it posts its result to `/__result` like `render.html`.
+
+CI runs `test/index.html` in headless Chrome on every push, along with a [gitleaks](https://github.com/gitleaks/gitleaks) secret scan.
 
 Headless: `tools/headless.sh --virtual-time-budget=20000 --dump-dom http://localhost:8090/test/` (wraps `chromium --headless=new` and deletes its temp files afterwards, even if the run is killed)
 
