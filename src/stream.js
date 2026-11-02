@@ -182,6 +182,40 @@ export class Render {
   }
 }
 
+// iPhones mute web audio when the ring/silent switch is on silent, though
+// music and video still play. Asking for a "playback" audio session (iOS 17+)
+// makes the song play like music. Older iPhones get the same effect from a
+// silent looping <audio> element started in the tap.
+let silentLoop;
+function ignoreSilentSwitch() {
+  try {
+    if (navigator.audioSession) {
+      navigator.audioSession.type = "playback";
+      return;
+    }
+  } catch { /* not allowed here */ }
+  const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!ios) return;
+  if (!silentLoop) {
+    // 0.1 s of 8 kHz mono silence as a WAV.
+    const n = 800, v = new DataView(new ArrayBuffer(44 + n * 2));
+    const text = (at, t) => { for (let i = 0; i < t.length; i++) v.setUint8(at + i, t.charCodeAt(i)); };
+    text(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); text(8, "WAVE"); text(12, "fmt ");
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true); text(36, "data"); v.setUint32(40, n * 2, true);
+    silentLoop = new Audio(URL.createObjectURL(new Blob([v], { type: "audio/wav" })));
+    silentLoop.loop = true;
+    silentLoop.setAttribute("playsinline", "");
+  }
+  silentLoop.play().catch(() => {});
+}
+
+/** Let go of the older-iPhone workaround once nothing is playing. */
+function quietSession() {
+  silentLoop?.pause();
+}
+
 /**
  * Plays scores through renders.
  *   onBar(bar | null)  the hour now playing, for the screen
@@ -204,6 +238,7 @@ export class Player {
 
   /** The audio output, made or woken on first use. Call it from a click. */
   wake() {
+    ignoreSilentSwitch();
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       try {
@@ -260,6 +295,7 @@ export class Player {
     this.dropTails();
     if (this.next) this.drop(this.next);
     this.active = this.next = null;
+    quietSession();
     const now = this.ctx.currentTime;
     const g = st.gain.gain;
     g.cancelScheduledValues(now);
@@ -455,6 +491,7 @@ export class Player {
 
   finish(error) {
     this.playing = false;
+    quietSession();
     clearTimeout(this.debounce);
     this.dropTails();
     for (const st of [this.active, this.next]) if (st) this.drop(st);
