@@ -227,6 +227,17 @@ The page shows these as chips under the forecast, draws tonight's real moon phas
 - Seeded PRNG (`mulberry32`). The seed is a hash of `lat.toFixed(1)`, `lon.toFixed(1)` and the date. Same inputs give the same song.
 - Share URL: `?lat=35.0&lon=135.8&date=2026-10-23&name=Kyoto` plus any changed synth settings. Coordinates are **rounded to 0.1° (about 11 km)** before they go in a URL or the API call, so a shared link never shows someone's house.
 
+### 6.6 Season suite (added 2026-11-01)
+
+A place's year as four movements, for anyone who wants more than one 20-second day. Each movement is a real day, played exactly like any other.
+
+- **Which day:** `src/seasons.js` fetches 30 years of daily weather from Open-Meteo's ERA5 archive (one request, about 330 KB). For each meteorological season it takes the middle value of the daily mean temperature, daily range, cloud, rain (square root, so one downpour doesn't dominate) and wind, and picks the day closest to all five, measured in standard deviations. Only days from 2022 on can be picked, because the hourly forecast archive (with CAPE, UV and the rest) starts there.
+- **Rain chance:** past days often lack `precipitation_probability`. When the whole column is missing, an hour with ≥ 0.1 mm counts as 100% and the chart's key says "Rain or snow".
+- **Seasons:** December–February first; winter leads in both hemispheres (south: June–August). Within 23.5° of the equator, seasons are named by months ("Dec–Feb"), since summer and winter don't mean much there.
+- **Playing:** the Player takes a queue. The next movement renders once the current one has finished rendering, and starts `SUITE.overlapSec` before the current one's tail ends; the old one rings out under it. Each movement keeps its own key, tempo and ending. The page follows: chart, cover, notes and a strip of the four seasons.
+- **Kept:** the chosen days are saved in the browser for 30 days per place. Holidays are looked up for each day's year. Air quality comes from the archive when it exists; aurora (Kp) and first frost are left out.
+- **Shareable:** `&suite=1` on a place or sample link opens the suite.
+
 ## 7. The synth (what the public plays with)
 
 The weather sets the defaults, and the user can change anything. A marker shows which controls the weather set, and **"Back to the forecast"** resets them all.
@@ -299,7 +310,7 @@ Assertions:
 **Manual:** Chrome, Firefox, Safari (macOS), Safari iOS and Chrome Android.
 - **iOS gotcha:** Web Audio is silent when the ringer switch is off. Tell users this in a small note if no sound plays.
 - Audio can only start after a click, so the Play button makes (or wakes) the audio context.
-- **Phones can't run the synths live.** The Tone.js graph is hundreds of nodes, and a Pixel crackled even in 32-bit mode. So nothing is synthesised in real time: `stream.js` renders the song with `Tone.Offline` as fast as the device allows, a worklet at the end of the chain posts the audio in blocks as it's made, and a plain `AudioBufferSourceNode` player plays them back to back. Play waits until enough is ready that the rest will stay ahead (well under a second on a laptop, a couple of seconds on a phone, longer on a Raspberry Pi), so a slow device waits a little instead of crackling. A mute or 32-bit change mid-song renders from a moment ahead (`Engine.start(when, offset)` sets that hour's settings and the fade) and crossfades over. Without worklets (plain-http pages), the whole song renders first. Download reuses the same render.
+- **Phones can't run the synths live.** The Tone.js graph is hundreds of nodes, and a Pixel crackled even in 32-bit mode. So nothing is synthesised in real time: `stream.js` renders the song with `Tone.Offline` as fast as the device allows, a worklet at the end of the chain posts the audio in blocks as it's made, and a plain `AudioBufferSourceNode` player plays them back to back. Play waits until enough is ready that the rest will stay ahead (well under a second on a laptop, a couple of seconds on a phone, longer on a Raspberry Pi), so a slow device waits a little instead of crackling. A mute or 32-bit change mid-song renders from a moment ahead (`Engine.start(when, offset)` sets that hour's settings and the fade) and crossfades over. That render starts a little earlier still (`preRoll` in `stream.js`: back to the start of any note still ringing, plus time for the reverb to fill, at most 6 s) and throws the lead-in away, so held notes carry on through the switch instead of dropping out. Without worklets (plain-http pages), the whole song renders first. Download reuses the same render.
 
 **By ear:** listen to every fixture before release. If any fixture sounds bad, fix the constants in `mapping.js`.
 
@@ -312,6 +323,7 @@ Assertions:
 | **M2** ✅ | Live weather: geolocation, city search, caching, attribution, error states | Your location or any searched city plays today's song |
 | **M2b** ✅ | Sky and air (§6.3b): moon, aurora, meteors, solstices, holidays, air quality, UV, dew point, feels-like, snow cover, frost | Every sample day shows and plays its sky; tests check the sky maths against published events |
 | **M2c** ✅ | Chord colour, dry beat, soft clip (§6.3a+) | Every sample day shows its chord names in `test/summary.html`; no sample clips hard |
+| **M2d** ✅ | Season suite (§6.6) | Any place plays four typical days as one piece, and the page follows each season |
 | **M3** | Synth panel, "Back to the forecast", play-along keyboard | Every control in §7 works on desktop and phone |
 | **M4** | Forecast chart with playhead, liner notes, share links, mobile layout, accessibility pass | A shared link reproduces the song on another device |
 | **M5** | Portfolio story, homepage card and About mention | Live on mferet.com |

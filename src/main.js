@@ -1,5 +1,6 @@
 // The page: pick a place (your location, a searched city, today's featured
 // city or a sample day), get today's forecast, play it, explain it.
+// Or hear the place's year: the Season suite plays a typical day from each season.
 
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, randomPlace, roundCoord } from "./weather.js";
 import { compose, hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./compose.js";
@@ -8,7 +9,8 @@ import { Player } from "./stream.js";
 import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor, moonDisc } from "./icons.js";
 import { coverArt } from "./cover.js";
-import { SNOW_CODES } from "./mapping.js";
+import { SNOW_CODES, SUITE } from "./mapping.js";
+import { fetchSuite } from "./seasons.js";
 
 const SAMPLES = [
   ["phoenix-heat", "Phoenix · hot and clear"],
@@ -61,6 +63,9 @@ let playing = false;
 let forecast = null;
 let score = null;
 let current = null; // { kind, place?, sample? }
+// The Season suite, while it's on: { place, movements: [{ season, date, climate, forecast, score }], index }.
+// `forecast` and `score` then point at the movement on show.
+let suite = null;
 let loadToken = 0;
 const muted = {};
 // US-style units for US visitors (and the two other countries using °F), metric for everyone else.
@@ -127,6 +132,7 @@ async function choose({ kind, place, sample, reveal = false }) {
   if (token !== loadToken) return; // a newer choice won
 
   current = { kind, place, sample };
+  suite = null;
   forecast = f;
   score = compose(forecast, { units });
   $("sample").value = kind === "sample" ? sample : "";
@@ -147,6 +153,8 @@ function rememberAndLink() {
   const url = new URL(location.href);
   for (const k of ["sample", "lat", "lon", "name", "cc"]) url.searchParams.delete(k);
   const { kind, place, sample } = current;
+  url.searchParams.delete("suite");
+  if (suite && kind !== "geo") url.searchParams.set("suite", "1");
   if (kind === "sample") url.searchParams.set("sample", sample);
   if (kind === "search" || kind === "link") {
     url.searchParams.set("name", place.name);
@@ -163,7 +171,8 @@ function rememberAndLink() {
 
 function render() {
   const m = score.meta;
-  $("place-kind").textContent = KIND_LABELS[current.kind];
+  const mv = suite?.movements[suite.index];
+  $("place-kind").textContent = mv ? `Season suite · ${suite.index + 1} of ${suite.movements.length}` : KIND_LABELS[current.kind];
   $("place-name").textContent = m.name;
   const date = new Date(`${m.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
   renderNotes(m);
@@ -177,12 +186,14 @@ function render() {
   // The header line is the weather; the music theory lives in the liner notes.
   const whole = (c) => (units === "us" ? `${Math.round((c * 9) / 5 + 32)}\u00a0°F` : `${Math.round(c)}\u00a0°C`);
   const wetWord = weatherIcon(forecast.hours[wetI].code, 1).label === "Snow" ? "Snow" : "Rain";
-  $("summary").textContent = `${date} · High\u00a0${whole(forecast.hours[hiI].temp)} · Low\u00a0${whole(forecast.hours[loI].temp)} · ` +
+  $("summary").textContent = (mv ? `Typical ${seasonWord(mv.season)} day · ` : "") + `${date} · High\u00a0${whole(forecast.hours[hiI].temp)} · Low\u00a0${whole(forecast.hours[loI].temp)} · ` +
     (wet >= 10 ? `${wetWord}\u00a0${wet}%` : "Dry");
   $("cover").innerHTML = coverArt(forecast, m);
   $("cover").style.setProperty("--label", tempColor(forecast.hours[hiI].temp));
   document.querySelector(".vinyl").style.setProperty("--label", tempColor(forecast.hours[hiI].temp));
   renderBand(m);
+  renderSuite();
+  $("rain-key").textContent = forecast.observed ? "Rain or snow" : "Chance of rain or snow";
 
   renderHours();
   $("desc").textContent = describe(forecast, units);
@@ -255,11 +266,29 @@ function renderHours() {
     const shown = new Set();
     let last = null, at = -Infinity;
     icons.forEach((ic, i) => {
-      if (ic.svg !== last && i - at >= gap) { shown.add(i); last = ic.svg; at = i; }
+      const look = ic.svg.replace(/<title>[^<]*<\/title>|aria-label="[^"]*"/g, ""); // "clear" and "mostly clear" look the same
+      if (look !== last && i - at >= gap) { shown.add(i); last = look; at = i; }
     });
     return shown;
   };
   const iconWide = changes(1), iconNarrow = changes(3);
+  // A thin bar runs on from each icon to the next one, tinted by the sky it carries on.
+  const tint = (i) => {
+    const l = icons[i].label;
+    if (l === "Thunderstorm") return "var(--bolt)";
+    if (l === "Snow") return "var(--accent-2)";
+    if (/rain|drizzle/i.test(l)) return "var(--rain)";
+    if (l === "Fog" || l === "Overcast") return "var(--cloud-edge)";
+    return hours[i].isDay ? "var(--sun)" : "var(--moon)";
+  };
+  const runBar = (shown, i, kind) => {
+    const isIcon = shown.has(i);
+    if (isIcon && (i === 23 || shown.has(i + 1))) return ""; // the next hour has its own icon
+    let from = i;
+    while (!shown.has(from)) from--;
+    const ends = i === 23 || shown.has(i + 1);
+    return `<span class="run ${kind}${isIcon ? " from" : ""}${ends ? " to" : ""}" style="--run:${tint(from)}"></span>`;
+  };
 
   const cols = hours.map((h, i) => {
     const col = document.createElement("div");
@@ -273,7 +302,7 @@ function renderHours() {
     col.style.setProperty("--aur", aur.toFixed(2));
     const icon = icons[i];
     col.title = `${hourLabel(i)}: ${icon.label}, ${formatTemp(h.temp, units)}, ${h.cloud}% cloud, ${h.pop}% rain, wind ${formatSpeed(h.wind, units)}`;
-    col.innerHTML = `<span class="icon">${icon.svg}</span><span class="tv">${deg(h.temp)}</span><span class="dot"></span>` +
+    col.innerHTML = `<span class="icon">${icon.svg}</span>${runBar(iconWide, i, "w")}${runBar(iconNarrow, i, "n")}<span class="tv">${deg(h.temp)}</span><span class="dot"></span>` +
       `<span class="rain">${h.pop >= 5 ? `<i></i>` : ""}${rLabels.has(i) ? `<b>${h.pop}%</b>` : ""}</span>` +
       `<span class="lbl">${i % 3 ? "" : shortHour(i)}</span>`;
     return col;
@@ -343,8 +372,114 @@ function renderNotes(m) {
     ["Pad", cap(m.voices.pad.label)],
   ];
   $("credits").innerHTML = credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("");
-  $("notes").innerHTML = m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("");
+  $("notes").innerHTML = (suite ? suiteNotes() : "") + m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("");
+  $("notes-sub").textContent = suite ? `How a typical ${seasonWord(suite.movements[suite.index].season)} day wrote this movement` : "How today's weather wrote this song";
 }
+
+// ---- Season suite ----------------------------------------------------------------
+
+/** A season's name inside a sentence: "summer", but months stay "Dec–Feb". */
+const seasonWord = (season) => (/^[A-Z][a-z]+$/.test(season.name) ? season.name.toLowerCase() : season.name);
+
+/** How often it rains or snows in a season, in words. */
+function wetWords(share) {
+  if (share < 0.08) return "it seldom rains or snows";
+  if (share >= 0.65) return "it rains or snows most days";
+  if (share >= 0.42) return "it rains or snows about every other day";
+  return `it rains or snows about one day in ${Math.round(1 / share)}`;
+}
+
+const longDate = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+
+/** The suite's opening liner notes (HTML): what it is, then a line per season. */
+function suiteNotes() {
+  const mv = suite.movements;
+  const years = Math.min(...mv.map((x) => x.climate.years));
+  const town = suite.place.name.split(",")[0];
+  const around = (c) => (units === "us" ? `${Math.round((c * 9) / 5 + 32)}\u00a0°F` : `${Math.round(c)}\u00a0°C`);
+  const rows = mv.map((x, i) => {
+    const m = x.score.meta;
+    return `<li${i === suite.index ? ' class="on"' : ""}><b>${esc(x.season.name)}</b> <span>${esc(longDate(x.date))} · usually around ${around(x.climate.temp)}, and ${wetWords(x.climate.wetShare)} · ${esc(`${m.rootName} ${m.modeLabel}, ${m.bpm} BPM`)}</span></li>`;
+  }).join("");
+  return `<p class="suite-note">This is ${esc(town)}'s year in ${mv.length} movements. Each is a real day: the one closest to its season's usual temperature, cloud, rain and wind over the last ${years} years.</p>` +
+    `<ul class="suite-list">${rows}</ul>`;
+}
+
+/** The strip of movements under the title: one button per season, the current one marked. */
+function renderSuite() {
+  const strip = $("movements");
+  const btn = $("suite");
+  btn.setAttribute("aria-pressed", String(!!suite));
+  btn.querySelector("span").textContent = suite ? "Back to today" : "Season suite";
+  btn.title = suite ? "Back to this place's forecast for today." : "This place's year: a typical day from each season, played as one piece.";
+  strip.hidden = !suite;
+  if (!suite) { strip.replaceChildren(); return; }
+  strip.replaceChildren(...suite.movements.map((x, i) => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "movement";
+    if (i === suite.index) b.setAttribute("aria-current", "true");
+    const hi = Math.max(...x.forecast.hours.map((h) => h.temp));
+    b.style.setProperty("--label", tempColor(hi));
+    b.innerHTML = `<b>${esc(x.season.name)}</b><small>${esc(new Date(`${x.date}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" }))}</small>`;
+    b.title = `${x.season.name}: ${longDate(x.date)}`;
+    b.addEventListener("click", () => {
+      showMovement(i);
+      if (playing) play();
+    });
+    li.append(b);
+    return li;
+  }));
+}
+
+function showMovement(i) {
+  suite.index = i;
+  forecast = suite.movements[i].forecast;
+  score = suite.movements[i].score;
+  render();
+}
+
+async function startSuite() {
+  const place = current.place ?? { name: forecast.name, lat: forecast.lat, lon: forecast.lon, cc: forecast.country };
+  const token = ++loadToken;
+  const btn = $("suite");
+  const label = btn.querySelector("span");
+  btn.disabled = playBtn.disabled = true;
+  label.textContent = "Finding the seasons…";
+  status("");
+  try {
+    const movements = await fetchSuite(place);
+    if (token !== loadToken) return;
+    const wasPlaying = playing;
+    if (wasPlaying) stop();
+    suite = { place, index: 0, today: { forecast, score }, movements: movements.map((x) => ({ ...x, score: compose(x.forecast, { units }) })) };
+    showMovement(0);
+    rememberAndLink();
+    if (wasPlaying) play();
+  } catch (e) {
+    console.warn(e);
+    if (token === loadToken) {
+      renderSuite();
+      status(`Couldn't put together ${place.name}'s seasons right now. Try again in a moment.`, true);
+    }
+  } finally {
+    if (token === loadToken) btn.disabled = playBtn.disabled = false;
+  }
+}
+
+/** Back to today's song for the same place. */
+function endSuite() {
+  const wasPlaying = playing;
+  if (wasPlaying) stop();
+  ({ forecast, score } = suite.today);
+  suite = null;
+  if (score) score = compose(forecast, { units });
+  render();
+  rememberAndLink();
+}
+
+$("suite").addEventListener("click", () => (suite ? endSuite() : startSuite()));
 
 // ---- The factors: one per part of the weather, lit while it plays ----
 
@@ -453,6 +588,10 @@ const player = new Player({
     setPlayState(false);
     if (error) status("Couldn't play this song. Try again, or try Download.", true);
   },
+  // The suite moved on to its next season: show that day.
+  onTrack: (i) => {
+    if (suite && suite.movements[i]) showMovement(i);
+  },
 });
 
 window.wtPlayer = player; // lets test/smoke.html follow playback
@@ -460,7 +599,10 @@ window.wtPlayer = player; // lets test/smoke.html follow playback
 function play() {
   playing = true;
   setPlayState(true);
-  player.play(score, { retro, muted });
+  if (suite) {
+    const rest = suite.movements.slice(suite.index + 1).map((x) => x.score);
+    player.play(score, { retro, muted, queue: rest, track: suite.index });
+  } else player.play(score, { retro, muted });
 }
 
 function stop() {
@@ -501,12 +643,19 @@ dlBtn.addEventListener("click", async () => {
   dlBtn.disabled = true;
   label.textContent = "Preparing…";
   try {
-    const r = player.render(s, retro, muted);
-    await r.promise;
-    if (r.error) throw r.error;
+    // In the suite, the whole year: every movement, overlapping as they play.
+    const scores = suite ? suite.movements.map((x) => x.score) : [s];
+    const parts = [];
+    for (const sc of scores) {
+      const r = player.render(sc, retro, muted);
+      await r.promise;
+      if (r.error) throw r.error;
+      parts.push(r.audio());
+    }
+    const audio = parts.length === 1 ? parts[0] : joinAudio(parts, SUITE.overlapSec);
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(toWav(r.audio()));
-    a.download = wavName(s.meta.name, s.meta.date);
+    a.href = URL.createObjectURL(toWav(audio));
+    a.download = suite ? wavName(`${suite.place.name.split(",")[0]} season suite`, "") : wavName(s.meta.name, s.meta.date);
     document.body.append(a);
     a.click();
     a.remove();
@@ -521,6 +670,23 @@ dlBtn.addEventListener("click", async () => {
   }
 });
 
+/** Songs one after another, each starting `overlap` seconds before the last one ends. */
+function joinAudio(parts, overlap) {
+  const sr = parts[0].sampleRate;
+  const step = Math.round(overlap * sr);
+  const length = parts.reduce((n, p) => n + p.length, 0) - step * (parts.length - 1);
+  const ch = [new Float32Array(length), new Float32Array(length)];
+  let at = 0;
+  for (const p of parts) {
+    for (let c = 0; c < 2; c++) {
+      const src = p.getChannelData(c);
+      for (let i = 0; i < src.length; i++) ch[c][at + i] += src[i];
+    }
+    at += p.length - step;
+  }
+  return { numberOfChannels: 2, sampleRate: sr, length, getChannelData: (c) => ch[c] };
+}
+
 // ---- Controls ----------------------------------------------------------------------
 
 for (const [id, label] of SAMPLES) $("sample").add(new Option(label, id));
@@ -532,7 +698,9 @@ $("units").addEventListener("click", () => {
   units = units === "us" ? "metric" : "us";
   store.set("wt:units", units);
   if (forecast) {
-    score = compose(forecast, { units }); // only the wording changes; the music is identical
+    // Only the wording changes; the music is identical.
+    if (suite) for (const x of suite.movements) x.score = compose(x.forecast, { units });
+    score = suite ? suite.movements[suite.index].score : compose(forecast, { units });
     render();
   }
 });
@@ -640,3 +808,4 @@ if (q.get("sample") && SAMPLES.some(([id]) => id === q.get("sample"))) {
 } else {
   await choose({ kind: "featured", place: featuredPlace() });
 }
+if (q.get("suite") === "1" && current) startSuite();

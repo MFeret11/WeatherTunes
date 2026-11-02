@@ -563,6 +563,10 @@ export const RETRO32 = {
 // hour, then trails off, so the final note rings out into the reverb.
 export const ENDING = { releaseSec: 2.6, padReleaseSec: 3.4, tailSec: 3 };
 
+// Season suite: each movement keeps its own ending, and the next one begins
+// overlapSec before the last has quite faded away.
+export const SUITE = { overlapSec: 1 };
+
 // ---- Drive and tone (distortion + 3-band EQ) --------------------------------
 // The band (melody, bass, pad) passes through a distortion whose wet mix
 // follows each hour's energy (see DYNAMICS, which includes CAPE): calm hours

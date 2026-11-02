@@ -9,15 +9,39 @@
 // and never with a crackle.
 //
 // Changing a mute or the 32-bit switch mid-song renders again from where the song
-// has got to, then crossfades over once the new audio is ready.
+// has got to, then crossfades over once the new audio is ready. That render starts
+// a little earlier (see preRoll), so notes still ringing carry on through the switch.
 
 import { Engine, LAYERS, FADE, songSeconds, cueTimes } from "./engine.js";
+import { SUITE } from "./mapping.js";
 
 export const SAMPLE_RATE = 44100;
 const LEAD = 0.75; // seconds of audio ready before playback starts or a new render takes over
 const MARGIN = 0.12; // how far past "now" the first block is scheduled, seconds
-const XFADE = 0.05; // crossfade when a new render takes over, seconds
 const TAP = new URL("./tap.worklet.js", import.meta.url).href;
+const XFADE = 0.1; // crossfade when a new render takes over, seconds
+// A render from partway starts early enough to replay every note still ringing:
+const PRE = {
+  tailSec: 3.5, // the longest release (the slow pads)
+  settleSec: 1.5, // at least this much, so the reverb and echoes are full
+  maxSec: 6, // and never more than this, so the switch isn't heard too late
+};
+const NOTE_LAYERS = ["melody", "pad", "bass", "arp", "drums", "bells", "chimes", "shimmer"];
+
+/** Seconds before `offset` to start rendering, so notes ringing at `offset` are played in full. */
+export function preRoll(score, offset) {
+  if (offset <= 0) return 0;
+  const steps = score.meta.steps ?? 16;
+  const s16 = (n) => (n * 15) / score.meta.bpm;
+  let from = offset - PRE.settleSec;
+  for (const l of NOTE_LAYERS) {
+    for (const n of score[l] ?? []) {
+      const t = s16(n.bar * steps + n.pos);
+      if (t < from && t + s16(n.dur) + PRE.tailSec > offset) from = t;
+    }
+  }
+  return Math.max(0, Math.min(offset, PRE.maxSec, offset - from + 0.01));
+}
 
 // Tone.Offline swaps Tone's global context while a render is set up, so set up one
 // render at a time (once started, they run side by side).
@@ -32,13 +56,17 @@ export class Render {
     this.offset = offset;
     this.sampleRate = sampleRate;
     this.frames = Math.ceil((songSeconds(score) - offset) * sampleRate);
+    // Rendered first and thrown away: the lead-in before `offset` (see preRoll).
+    this.skip = Math.round(preRoll(score, offset) * sampleRate);
+    this.skipped = 0;
     this.blocks = []; // { at, data: [left, right] }, back to back from frame 0
     this.got = 0; // frames arrived
     this.done = false;
     this.error = null;
     this.listeners = new Set();
     this.created = performance.now();
-    this.first = null; // when audio first arrived: { wall, got }
+    this.first = null; // when audio first arrived, after any lead-in: { wall, got }
+    this.began = null; // when the render first produced anything (wall clock)
     this.promise = this.run();
   }
 
@@ -48,9 +76,9 @@ export class Render {
       && !this.error && LAYERS.every((l) => !!this.muted[l] === !!muted[l]);
   }
 
-  /** Seconds from asking for the render to its first audio. */
+  /** Seconds from asking for the render to its first output (the lead-in comes after). */
   get lag() {
-    return this.first ? (this.first.wall - this.created) / 1000 : null;
+    return this.began ? (this.began - this.created) / 1000 : null;
   }
 
   /** Seconds of audio rendered per second of waiting, once there's enough to tell. */
@@ -80,11 +108,20 @@ export class Render {
   }
 
   add(left, right) {
+    if (!this.began) this.began = performance.now();
+    if (!this.first) this.first = { wall: this.began, got: 0 };
+    if (this.skipped < this.skip) {
+      const k = Math.min(left.length, this.skip - this.skipped);
+      this.skipped += k;
+      if (k === left.length) return;
+      left = left.subarray(k);
+      right = right.subarray(k);
+      this.first = { wall: performance.now(), got: this.got }; // speed() counts from here
+    }
     const n = Math.min(left.length, this.frames - this.got);
     if (n <= 0) return;
     this.blocks.push({ at: this.got, data: n === left.length ? [left, right] : [left.subarray(0, n), right.subarray(0, n)] });
     this.got += n;
-    if (!this.first) this.first = { wall: performance.now(), got: this.got };
     if (this.got >= this.frames) this.done = true;
     this.emit();
   }
@@ -108,7 +145,7 @@ export class Render {
               await ctx.addAudioWorkletModule(TAP);
               tap = ctx.createAudioWorkletNode("wt-tap", {
                 numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2],
-                channelCount: 2, channelCountMode: "explicit", processorOptions: { frames: this.frames },
+                channelCount: 2, channelCountMode: "explicit", processorOptions: { frames: this.skip + this.frames },
               });
               tap.port.onmessage = (e) => this.add(e.data[0], e.data[1]);
               tap.connect(ctx.rawContext.destination);
@@ -121,16 +158,18 @@ export class Render {
           await engine.ready;
           for (const l of LAYERS) engine.setMute(l, !!this.muted[l]);
           engine.load(this.score);
-          engine.start(0, this.offset);
+          engine.start(0, this.offset - this.skip / this.sampleRate);
         } finally {
           setTimeout(release, 0); // Tone restores its global context as soon as this returns
         }
-      }, this.frames / this.sampleRate, 2, this.sampleRate);
+      }, (this.skip + this.frames) / this.sampleRate, 2, this.sampleRate);
       // Anything the tap didn't hand over (all of it where worklets aren't available)
       // comes from the finished render.
-      if (this.got < this.frames) {
+      const had = this.skipped + this.got;
+      if (had < this.skip + this.frames) {
         const buf = out.get();
-        this.add(buf.getChannelData(0).slice(this.got, this.frames), buf.getChannelData(1).slice(this.got, this.frames));
+        const end = this.skip + this.frames;
+        this.add(buf.getChannelData(0).slice(had, end), buf.getChannelData(1).slice(had, end));
       }
     } catch (e) {
       console.warn(e);
@@ -149,10 +188,12 @@ export class Render {
  *   onEvent(type)      a thunder or swell is sounding
  *   onWait(waiting)    getting ready to play (true), or playing (false)
  *   onEnd(error?)      the song played through and stopped by itself (or couldn't play)
+ *   onTrack(i, score)  the next song in a queue (a season suite) has begun
  */
 export class Player {
-  constructor({ onBar, onEvent, onWait, onEnd } = {}) {
-    Object.assign(this, { onBar, onEvent, onWait, onEnd });
+  constructor({ onBar, onEvent, onWait, onEnd, onTrack } = {}) {
+    Object.assign(this, { onBar, onEvent, onWait, onEnd, onTrack });
+    this.tails = new Set(); // songs still ringing out after the next one has begun
     this.ctx = null;
     this.renders = []; // recent full renders, kept so Play and Download can reuse them
     this.playing = false;
@@ -186,9 +227,15 @@ export class Player {
     return r;
   }
 
-  play(score, { retro = false, muted = {} } = {}) {
+  /**
+   * Play `score`, then each score in `queue` in turn (a season suite), each
+   * starting as the one before rings out. `track` is the first one's number.
+   */
+  play(score, { retro = false, muted = {}, queue = [], track = 0 } = {}) {
     if (this.playing) this.stop();
     this.wake();
+    this.queue = [...queue];
+    this.track = track;
     this.score = score;
     this.retro = retro;
     this.muted = { ...muted };
@@ -210,6 +257,7 @@ export class Player {
     clearTimeout(this.debounce);
     clearTimeout(this.timer);
     const st = this.active;
+    this.dropTails();
     if (this.next) this.drop(this.next);
     this.active = this.next = null;
     const now = this.ctx.currentTime;
@@ -235,11 +283,14 @@ export class Player {
   rerender() {
     if (!this.playing) return;
     if (this.t0 == null) {
-      this.play(this.score, { retro: this.retro, muted: this.muted }); // not started yet: start over
+      // Not started yet: start over (keeping the rest of a suite).
+      this.play(this.score, { retro: this.retro, muted: this.muted, queue: this.queue, track: this.track });
       return;
     }
-    // Start the new render about where the song will be when its audio is ready.
-    const offset = this.position() + this.lag + LEAD / Math.max(1, this.speed);
+    // Start the new render about where the song will be when its audio is ready,
+    // allowing for the lead-in it renders first.
+    const soon = this.position() + this.lag + LEAD / Math.max(1, this.speed);
+    const offset = soon + preRoll(this.score, soon) / Math.max(0.5, this.speed);
     if (offset > this.cues.end - 1) return; // nearly over anyway
     if (this.next) this.drop(this.next);
     this.next = this.stream(this.makeRender(this.score, { retro: this.retro, muted: this.muted, offset, sampleRate: this.ctx.sampleRate }));
@@ -268,12 +319,14 @@ export class Player {
 
   /** Start a stream once it's ready, and schedule whatever audio it has. */
   pump(st) {
-    if (!this.playing || (st !== this.active && st !== this.next)) return;
+    if (!this.playing || (st !== this.active && st !== this.next && !this.tails.has(st))) return;
     const r = st.render;
     const sr = r.sampleRate;
     const offF = Math.round(r.offset * sr);
     if (r.lag != null && st === this.next) this.lag = r.lag; // a render from partway, like the next one will be
     this.speed = r.speed() ?? this.speed;
+    // Once this song is fully rendered, get the next one in the queue ready.
+    if (st === this.active && r.done && this.queue.length) this.render(this.queue[0], this.retro, this.muted);
     if (!st.live) {
       if (r.error) {
         if (st === this.next) { this.drop(st); this.next = null; return; } // keep playing as it was
@@ -295,14 +348,17 @@ export class Player {
       st.live = true;
       st.scheduled = st.from;
     }
+    // A song ringing out under the next one keeps its own start frame.
+    const tail = this.tails.has(st);
     for (; st.block < r.blocks.length; st.block++) {
       const b = r.blocks[st.block];
       const end = b.at + b.data[0].length;
       if (end <= st.scheduled) continue;
       const start = Math.max(b.at, st.scheduled);
-      let when = this.t0 + offF + start;
+      let when = (tail ? st.t0 : this.t0) + offF + start;
       const late = Math.round((this.ctx.currentTime + 0.02) * sr) - when;
       if (late > 0) {
+        if (tail) break; // too late to matter: it's fading out under the next song
         // The render fell behind: leave a short gap rather than a glitch, and carry on from there.
         this.t0 += late + Math.round(MARGIN * sr);
         when = this.t0 + offF + start;
@@ -361,7 +417,9 @@ export class Player {
       for (; this.fx < c.fx.length && c.fx[this.fx].t <= pos; this.fx++) {
         if (pos - c.fx[this.fx].t < 0.5) this.onEvent?.(c.fx[this.fx].type);
       }
-      if (pos >= c.end) {
+      if (this.queue.length && pos >= c.end - SUITE.overlapSec) {
+        this.advance();
+      } else if (pos >= c.end) {
         this.finish();
         return;
       }
@@ -369,9 +427,36 @@ export class Player {
     this.timer = setTimeout(() => this.loop(), 40);
   }
 
+  /** The next song in the queue takes over while this one rings out. */
+  advance() {
+    const old = this.active;
+    old.t0 = this.t0;
+    this.tails.add(old);
+    const left = Math.max(0, this.cues.end - this.position());
+    setTimeout(() => { this.tails.delete(old); this.drop(old); }, (left + 0.5) * 1000);
+    if (this.next) { this.drop(this.next); this.next = null; }
+    clearTimeout(this.debounce);
+    this.score = this.queue.shift();
+    this.track++;
+    this.cues = cueTimes(this.score);
+    this.t0 = null;
+    this.bar = undefined;
+    this.fx = 0;
+    this.onBar?.(null);
+    this.onTrack?.(this.track, this.score);
+    this.active = this.stream(this.render(this.score, this.retro, this.muted));
+    if (!this.active.render.ready(0)) this.waiting(true);
+  }
+
+  dropTails() {
+    for (const st of this.tails) this.drop(st);
+    this.tails.clear();
+  }
+
   finish(error) {
     this.playing = false;
     clearTimeout(this.debounce);
+    this.dropTails();
     for (const st of [this.active, this.next]) if (st) this.drop(st);
     this.active = this.next = null;
     this.waiting(false);

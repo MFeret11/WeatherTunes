@@ -8,7 +8,7 @@ Each hour of the day gets two beats (half a bar), so a song lasts about 20 secon
 
 Every song comes with liner notes explaining why it sounds the way it does.
 
-**Live at [mferet.com/WeatherTunes](https://mferet.com/WeatherTunes/).** Use your location or search for any city to hear today's forecast there, or try one of ten sample days. Next up: a full synth panel and a play-along keyboard. See [SPEC.md](SPEC.md) for the plan.
+**Live at [mferet.com/WeatherTunes](https://mferet.com/WeatherTunes/).** Use your location or search for any city to hear today's forecast there, or try one of ten sample days. Season suite plays a place's year: a typical day from each season, back to back. Next up: a full synth panel and a play-along keyboard. See [SPEC.md](SPEC.md) for the plan.
 
 ## Run it
 
@@ -37,9 +37,10 @@ Headless: `tools/headless.sh --virtual-time-budget=20000 --dump-dom http://local
 - `src/compose.js`: forecast → score. Pure JavaScript with no audio or DOM code, so it's easy to test.
 - `src/mapping.js`: every tunable number in the weather → music mapping.
 - `src/engine.js`: builds a score's instruments and effects with [Tone.js](https://tonejs.github.io/) (bundled in `vendor/`, MIT).
-- `src/stream.js`: plays a song by rendering it offline and streaming the audio to a plain buffer player as it's made (through `src/tap.worklet.js`), so phones never have to run the synths live. Mid-song mute and 32-bit changes render the rest again and crossfade over.
+- `src/stream.js`: plays a song by rendering it offline and streaming the audio to a plain buffer player as it's made (through `src/tap.worklet.js`), so phones never have to run the synths live. Mid-song mute and 32-bit changes render the rest again (starting early enough that held notes carry on) and crossfade over. It also plays a queue of songs for the Season suite.
 - `src/weather.js`: fetches today's [Open-Meteo](https://open-meteo.com/) forecast and city search, plus air quality, aurora activity ([NOAA SWPC](https://www.swpc.noaa.gov/)), public holidays ([Nager.Date](https://date.nager.at/)) and recent lows. Caches it for an hour and cleans it up (fills gaps, 24 hours, dew point and feels-like).
 - `src/sky.js`: the moon's phase, rise and set, lunar eclipses, solstices and equinoxes, meteor showers and magnetic latitude, all worked out in the browser.
+- `src/seasons.js`: the Season suite. Finds each season's most typical recent day from 30 years of daily weather ([Open-Meteo](https://open-meteo.com/)'s ERA5 archive), then fetches those days hour by hour.
 - `src/describe.js`: the forecast in plain words, like a forecaster would say it.
 - `src/main.js`: the page. Picks a place, plays the song, draws the hour-by-hour chart (with tonight's moon and any aurora), lights up each weather factor as its part plays, and shows the liner notes.
 - `src/cover.js`: draws the day's album cover from the forecast (sky colour by hour, sun at the hottest hour, rain, snow and lightning).

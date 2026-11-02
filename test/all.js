@@ -4,4 +4,5 @@ import "./compose.test.js";
 import "./weather.test.js";
 import "./sky.test.js";
 import "./engine.test.js";
+import "./seasons.test.js";
 await run();

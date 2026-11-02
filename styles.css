@@ -316,6 +316,21 @@ select, .btn {
 }
 .hour .icon svg { display: block; }
 .hour:not(.sky-wide) .icon { visibility: hidden; } /* only where the sky changes */
+/* The sky carries on: a thin bar from each icon to the next. */
+.hour .run {
+  --ic-w: 26px;
+  position: absolute;
+  top: calc(5px + var(--ic-w) / 2 - 1px);
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--run);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.hour .run.from { left: calc(50% + var(--ic-w) / 2 + 2px); border-radius: 1px 0 0 1px; }
+.hour .run.to { right: 3px; border-radius: 0 1px 1px 0; }
+.hour .run.n { display: none; }
 .hour .dot, .hour .tv { --y: calc(var(--zt) + (1 - var(--t)) * var(--zh)); position: absolute; left: 50%; z-index: 2; }
 .hour .dot {
   top: var(--y);
@@ -532,6 +547,37 @@ select, .btn {
 /* 32-bit mode switch: a pressed button, in the accent colour when on. */
 .retro { font-family: var(--font-mono); letter-spacing: 0.02em; }
 .retro[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.suite { display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
+.suite svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.suite[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.suite:disabled { opacity: 0.7; cursor: progress; }
+/* Season suite: the four movements, each tagged with its day's warmth. */
+.movements { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: -6px 0 16px; padding: 0; list-style: none; }
+.movement {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 10px 7px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--label);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.movement b { font-size: 0.9rem; font-weight: 600; }
+.movement small { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.movement:hover { border-color: var(--accent); border-top-color: var(--label); }
+.movement[aria-current="true"] { background: var(--accent-soft); border-color: var(--accent); border-top-color: var(--label); }
+.suite-note { color: var(--muted); }
+.suite-list { margin: 0 0 1.2em; padding: 0; list-style: none; display: grid; gap: 6px; }
+.suite-list li { padding: 6px 10px; border-radius: 8px; color: var(--muted); }
+.suite-list li b { color: var(--text); font-weight: 600; margin-right: 4px; }
+.suite-list li.on { background: var(--accent-soft); }
 .nowhour {
   /* Its own line, with room kept for it, so the changing hour doesn't nudge the buttons. */
   order: 9; flex-basis: 100%; min-height: 1.5em; margin: -4px 0 0;
@@ -625,6 +671,9 @@ select, .btn {
   .hours { --zh: 84px; --ic: 30px; }
   .hour .icon { visibility: hidden; }
   .hour.sky-narrow .icon { visibility: visible; }
+  .hour .run { --ic-w: 22px; }
+  .hour .run.w { display: none; }
+  .hour .run.n { display: block; }
   .hour .icon { width: 22px; }
   .hour .tv { font-size: 0.7rem; }
   .hour:not(.axis6) .lbl { display: none; }

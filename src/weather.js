@@ -18,6 +18,7 @@ const FIELDS = {
   uv: "uv_index",
   snowDepth: "snow_depth",
 };
+export const HOURLY_FIELDS = Object.values(FIELDS);
 // Used only when a whole column is missing.
 const DEFAULTS = { temp: 15, rh: 60, pressure: 1013, wind: 10, gust: 15, dir: 0, pop: 0, precip: 0, cloud: 50, code: 0, isDay: 1, cape: 0, uv: 0, snowDepth: 0 };
 // These are categories, so gaps copy the nearest value instead of averaging.
@@ -162,7 +163,7 @@ export function frostUrl(lat, lon) {
   return `${FORECAST_API}?${q}`;
 }
 
-async function getJson(url, fetchFn, ms = TIMEOUT_MS) {
+export async function getJson(url, fetchFn, ms = TIMEOUT_MS) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), ms);
   try {
@@ -229,7 +230,7 @@ export async function fetchExtras(lat, lon, cc, { fetchFn = fetch, now = Date.no
 }
 
 /** A country's public holidays for a year, kept in this browser for a week. */
-async function holidaysFor(year, cc, fetchFn, ms) {
+export async function holidaysFor(year, cc, fetchFn = fetch, ms = 4000) {
   const key = `wt:holidays:${cc}:${year}`;
   let store = null;
   try { store = window.localStorage; } catch { /* blocked */ }
