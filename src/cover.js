@@ -10,6 +10,9 @@ const NIGHT = [24, 22, 52];
 const CLEAR = [104, 170, 228];
 const GREY = [148, 154, 170];
 const STORM = [56, 60, 92];
+// Deep cold drains the colour: snow-white by day, slate by night.
+const ICE_DAY = [226, 230, 234];
+const ICE_NIGHT = [22, 25, 30];
 const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 const rgb = (c) => `rgb(${c})`;
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -30,7 +33,8 @@ export function coverArt(forecast, meta) {
   const stops = H.map((h, i) => {
     const storm = THUNDER_CODES.includes(h.code);
     const day = storm ? STORM : mix(CLEAR, GREY, h.cloud / 100);
-    const c = mix(NIGHT, day, Math.max(0.05, meta.hourBrightness[i]));
+    const c = mix(mix(NIGHT, day, Math.max(0.05, meta.hourBrightness[i])),
+      h.isDay ? ICE_DAY : ICE_NIGHT, 0.9 * (meta.deepCold?.[i] ?? 0));
     return `<stop offset="${(x(i)).toFixed(1)}%" stop-color="${rgb(c)}"/>`;
   }).join("");
 
@@ -39,7 +43,8 @@ export function coverArt(forecast, meta) {
   let body;
   if (dayHours.length) {
     const hot = dayHours.reduce((b, i) => (H[i].temp > H[b].temp ? i : b), dayHours[0]);
-    const col = tempColor(H[hot].temp);
+    const cold = dayHours.reduce((a, i) => a + (meta.deepCold?.[i] ?? 0), 0) / dayHours.length;
+    const col = cold > 0.5 ? "#f4f6f8" : tempColor(H[hot].temp); // a pale, colourless sun
     const cx = Math.min(80, Math.max(20, x(hot)));
     // How much sun the day really had: thick cloud and rain through the daylight hours hide it.
     const cloudDay = dayHours.reduce((a, i) => a + H[i].cloud, 0) / dayHours.length / 100;
@@ -48,7 +53,7 @@ export function coverArt(forecast, meta) {
     const haze = Math.min(1, Math.max(0.1, 0.1 + 0.9 * seen)).toFixed(2);
     body = `<g opacity="${haze}"><circle cx="${cx}" cy="36" r="20" fill="${col}" opacity=".22"/><circle cx="${cx}" cy="36" r="12" fill="${col}"/></g>`;
   } else {
-    body = `<circle cx="68" cy="32" r="10" fill="#e8e4f8"/><circle cx="73" cy="28" r="9" fill="${rgb(NIGHT)}"/>`;
+    body = `<circle cx="68" cy="32" r="10" fill="#e8e4f8"/><circle cx="73" cy="28" r="9" fill="${rgb(mix(NIGHT, ICE_NIGHT, 0.9 * Math.max(...H.map((_, i) => meta.deepCold?.[i] ?? 0))))}"/>`;
   }
 
   // Clouds drift across the sun on grey days.

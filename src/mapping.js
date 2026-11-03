@@ -641,7 +641,8 @@ export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
 export const FROST = { maxTemp: 0.5, maxCloud: 60, maxWind: 18, until: 10, minHistory: 30, vel: 0.18 };
 
 // Deep cold: how far each hour's feels-like temperature sits below fromFeels °C,
-// 0 there and 1 at fullFeels. Polar air sounds hollow, sparse and far away:
+// 0 there and 1 at fullFeels (deadly cold). Polar air sounds hollow, sparse and
+// far away, and every part of it means fewer notes, so it renders faster too:
 //   hollowFrom  a chord whose hours average at least this loses its third: sus2
 //               where the scale has a whole-step 2nd, else a bare fifth (the last
 //               chord is always a bare fifth, so it still sounds resolved), with
@@ -649,15 +650,23 @@ export const FROST = { maxTemp: 0.5, maxCloud: 60, maxWind: 18, until: 10, minHi
 //   beat        the dry beat's hats, rim and kick are scaled by 1 − this × deep;
 //               hits that drop below minVel go
 //   bassCut     the bass plays this much softer at full deep cold
+//   padCut      ...and the pad this much softer
 //   registerSteps  the melody climbs this many scale steps (an octave) at full
 //   rest        added to each note's chance of a rest
+//   sparseFrom  at least this, the melody strikes one note an hour, whatever the gusts
+//   melodyDb    the melody steps back by this at full, a bell far off
+//   wind        a thin, high wind: level × deep, from fromGust to fullGust km/h,
+//               through a band-pass baseHz higher than the usual wind (baseHz
+//               at full deep cold, the usual 250 Hz with none)
 //   echoCarry   added to the melody echo's carry (cold, dense air carries sound)
 //   reverbLift  added to the reverb's wet mix
 //   lowCutDb    the band's low shelf, for thin, icy air
 export const DEEP_COLD = {
-  fromFeels: -15, fullFeels: -35, hollowFrom: 0.5,
-  beat: { hat: 1, rim: 1, kick: 0.6 }, minVel: 0.04,
-  bassCut: 0.5, registerSteps: 7, rest: 0.35,
+  fromFeels: -15, fullFeels: -45, hollowFrom: 0.35,
+  beat: { hat: 1, rim: 1, kick: 1 }, minVel: 0.04,
+  bassCut: 0.75, padCut: 0.4, registerSteps: 7, rest: 0.35,
+  sparseFrom: 0.75, melodyDb: -4,
+  wind: { level: 0.3, fromGust: 8, fullGust: 40, baseHz: 900 },
   echoCarry: 0.5, reverbLift: 0.15, lowCutDb: -3,
 };
 

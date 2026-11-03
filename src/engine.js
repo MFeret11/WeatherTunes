@@ -324,6 +324,7 @@ export class Engine {
     // Tempo-synced delays, set now that the tempo is known.
     this.delay.delayTime.value = (60 / score.meta.bpm) * 0.75; // a dotted eighth
     this.melodyEcho.delayTime.value = (60 / score.meta.bpm) * ECHO.beats;
+    this.windFilter.baseFrequency = score.automation.windBaseHz ?? 250;
     tr.swing = score.meta.swing ?? 0;
     tr.swingSubdivision = "16n";
     tr.loop = false; // plays once; pressing Play again starts it over

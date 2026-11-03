@@ -536,7 +536,8 @@ export function compose(f, { units = "metric" } = {}) {
     // The release after a peak breathes out: one row sparser, never busier.
     let n = last ? 1
       : M.DENSITY[day.phases[b] === "release" ? Math.max(0, row - 1) : busierRow(M.DENSITY, row, b)].notes;
-    if (!last && !day.dramatic) {
+    if (!last && deep[b] >= DC.sparseFrom) n = 1; // one far-off bell an hour
+    else if (!last && !day.dramatic) {
       if (stir[b] >= C.busier) n = Math.max(n, Math.min(n + 1, C.maxNotes));
       else if (stir[b] <= C.sparser && n > 1) n -= 1;
     }
@@ -717,8 +718,9 @@ export function compose(f, { units = "metric" } = {}) {
     const col = colourAt(b);
     const midis = voiceChord(chordPcs(b), prevVoicing, col.open);
     prevVoicing = midis;
-    const vel = +Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
-      + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0)).toFixed(3);
+    const vel = +(Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
+      + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0))
+      * (1 - DC.padCut * mean(deep.slice(b, b + M.BARS_PER_CHORD)))).toFixed(3);
     const top = Math.max(...midis);
     const above = (pc) => top + 1 + ((((pc - top - 1) % 12) + 12) % 12); // the first pc above the chord
     const colour = [];
@@ -791,8 +793,10 @@ export function compose(f, { units = "metric" } = {}) {
     if (A.stormHour(h)) row = M.ATMOSPHERE.find((r) => r.kind === "storm");
     else if (!row && h.precip >= 0.1) row = M.ATMOSPHERE.find((r) => r.kind === "rain");
     const W = M.WIND_NOISE;
+    const DW = DC.wind;
     const wind = +Math.max(clamp((h.gust - W.from) / (W.full - W.from), 0, 1) * W.max,
-      day.breeze[b] ? R.breezeLevel : 0).toFixed(3);
+      day.breeze[b] ? R.breezeLevel : 0,
+      DW.level * deep[b] * clamp((h.gust - DW.fromGust) / (DW.fullGust - DW.fromGust), 0, 1)).toFixed(3);
     if (!row) return { bar: b, kind: null, color: null, level: 0, cutoff: 6000, wind };
     return {
       bar: b, kind: row.kind, color: row.color, cutoff: row.cutoff, wind,
@@ -905,7 +909,10 @@ export function compose(f, { units = "metric" } = {}) {
       + C.swellDb * (2 * stir[b] - 1) * (day.dramatic ? 0 : 1)
       + (b === 0 ? D.introDb : 0)).toFixed(2)),
     reverbLift: day.phases.map((ph, b) => +((ph === "release" ? R.reverbLift : 0) + DC.reverbLift * deep[b]).toFixed(3)),
-    melodyDb: H.map((h) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)).toFixed(2)),
+    melodyDb: H.map((h, b) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)
+      + DC.melodyDb * deep[b]).toFixed(2)),
+    // Deep cold thins the wind to a high whistle (one value for the song).
+    windBaseHz: Math.round(250 + (DC.wind.baseHz - 250) * mean(deep)),
     // Moonlight keeps the night from dimming the melody as far.
     melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])).toFixed(2)),
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),

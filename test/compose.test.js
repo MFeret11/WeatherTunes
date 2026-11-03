@@ -511,7 +511,8 @@ test("deep cold hollows the chords, strips the beat and lifts the melody", () =>
   const s = scores["mcmurdo-cold"];
   assert(s.meta.colours.every((c) => c.susBy === "cold" && c.seventh === 0 && c.ninth === 0), "every chord is hollow");
   equal(s.meta.colours[s.meta.colours.length - 1].sus, "5", "ends on a bare fifth");
-  assert(s.beat.every((x) => x.kind === "kick"), "only a faint kick is left");
+  assert(new Set(s.beat.map((x) => x.bar)).size <= 3, "the beat is all but gone");
+  assert(s.melody.length <= 24, "about one bell an hour");
   assert(Math.min(...s.melody.map((x) => x.midi)) >= 64, "the bells ring high");
   for (const n of ["kyoto-spring", "phoenix-heat", "london-drizzle"]) {
     assert(scores[n].meta.deepCold.every((d) => d === 0), `${n} isn't deep cold`);
