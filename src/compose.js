@@ -1154,8 +1154,17 @@ function linerNotes(f, A, meta, layers, units) {
     : s.cloud < 0.2 ? "clear" : s.cloud < 0.5 ? "partly cloudy" : s.cloud < 0.8 ? "mostly cloudy" : "overcast";
   const melodyNoun = MELODY_PHRASE[v.melody.id]?.replace(/ plays?$/, "") ?? v.melody.label;
   const padNoun = PAD_PHRASE[v.pad.id]?.replace(/ holds?$/, "") ?? v.pad.label;
-  const sets = `A ${feel}, ${sky} day puts the song in ${meta.rootName} ${meta.modeLabel}${MODE_HINTS[meta.mode]}, with ${melodyNoun} on the melody over ${padNoun}.`;
-  const drives = `The tune follows the temperature, from ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} to ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)}, and ${an(formatSpeed(s.wind, units))} average wind sets the tempo at ${A.bpm} BPM.`;
+  // A harsh day (see MOOD) says what the sky alone would have played, and that the heat or cold changed it.
+  const harm = A.dayHeat >= A.harsh ? "heat" : "cold";
+  const skyMode = A.moodFrom ? A.mode : modeFor(A.brightness + A.moodDark, s.tMean);
+  const darkened = skyMode !== A.mode;
+  const sets = `A ${feel}, ${sky} day puts the song in ${meta.rootName} ${meta.modeLabel}${darkened ? "" : MODE_HINTS[meta.mode]}, with ${melodyNoun} on the melody over ${padNoun}.`
+    + (darkened ? ` The ${sky} sky alone would make it ${MODE_LABELS[skyMode]}, but the ${harm} darkens it.` : "");
+  const T = M.TEMPO, windBpm = Math.round(clamp(T.base + T.perRootKmh * Math.sqrt(s.wind), T.min, T.max));
+  const tempo = windBpm - A.bpm >= 5
+    ? `${an(formatSpeed(s.wind, units))} average wind would set the tempo at ${windBpm} BPM, but the ${harm} slows it to ${A.bpm}.`
+    : `${an(formatSpeed(s.wind, units))} average wind sets the tempo at ${A.bpm} BPM.`;
+  const drives = `The tune follows the temperature, from ${formatTemp(s.tMin, units)} at ${hourLabel(s.tMinHour)} to ${formatTemp(s.tMax, units)} at ${hourLabel(s.tMaxHour)}, and ${tempo}`;
 
   let shape;
   if (!meta.arc.dramatic) {
@@ -1186,7 +1195,7 @@ function linerNotes(f, A, meta, layers, units) {
   const hours = (xs) => xs.map((x, b) => (x ? b : -1)).filter((b) => b >= 0);
   const outliers = [];
   const hot = hours(O.heat.map((x) => x >= 0.5));
-  if (hot.length) outliers.push(`The heat is dangerous${hot.length < 20 ? ` around ${hourLabel(hot[Math.floor(hot.length / 2)])}` : ""}, so the song slows and darkens and the melody wilts: it wavers like air over hot ground, thins out and dulls.`);
+  if (hot.length) outliers.push(`The heat is dangerous${hot.length < 20 ? ` around ${hourLabel(hot[Math.floor(hot.length / 2)])}` : ""}, so the melody wilts: it wavers like air over hot ground, thins out and dulls.`);
   if (O.ice.some(Boolean)) outliers.push("Freezing rain glazes everything, and the shakers turn into brittle, glassy ticks.");
   const eyeAt = hours(O.eye);
   if (eyeAt.length) outliers.push(`At ${hourLabel(eyeAt[0])} the eye of the storm passes over: the wind drops away and the music almost stops, before the storm slams back.`);
@@ -1196,8 +1205,8 @@ function linerNotes(f, A, meta, layers, units) {
   if (layers.rain.length && H.some((h) => M.HAIL.codes.includes(h.code))) outliers.push("Hail clatters down hard in the storm.");
   const hollow = meta.colours.filter((c) => c.susBy === "cold").length;
   const frigid = hollow < 3 ? ""
-    : white.length >= 2 ? "The deep cold slows and darkens the song and hollows the chords out to bare, open intervals."
-      : "The deep cold slows and darkens the song, hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air.";
+    : white.length >= 2 ? "The deep cold hollows the chords out to bare, open intervals."
+      : "The deep cold hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air.";
 
   return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, frigid, ...outliers, daylight])] };
 }
