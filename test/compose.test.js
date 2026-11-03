@@ -129,7 +129,7 @@ test("bass fits each chord without overlapping (half-time spans the chord)", () 
 }));
 
 test("tempo, velocities and automation are in range", () => each((n, s) => {
-  assert(s.meta.bpm >= Math.min(M.TEMPO.min, M.HEAT.minBpm) && s.meta.bpm <= M.TEMPO.max, `${n} bpm ${s.meta.bpm}`);
+  assert(s.meta.bpm >= M.MOOD.minBpm && s.meta.bpm <= M.TEMPO.max, `${n} bpm ${s.meta.bpm}`);
   for (const x of [...s.melody, ...s.bass, ...s.pad, ...s.rain, ...s.bells]) assert(x.vel > 0 && x.vel <= 1, `${n} vel ${x.vel}`);
   for (const p of s.automation.pan) assert(Math.abs(p) <= M.PAN_WIDTH, `${n} pan`);
   for (const c of s.automation.cutoff) assert(c >= 500 && c <= 20000, `${n} cutoff ${c}`);
@@ -140,7 +140,10 @@ test("weather picks sensible moods", () => {
   const b = (n) => scores[n].meta.brightness;
   equal(scores["phoenix-heat"].meta.mode, "dorian", "dangerously hot clear day isn't sunny-happy");
   assert(scores["phoenix-heat"].meta.bpm <= 108, `too hot to hurry (${scores["phoenix-heat"].meta.bpm} BPM)`);
-  equal(scores["mcmurdo-cold"].meta.mode, "ionian", "cold clear day is bright but not Lydian");
+  equal(scores["mcmurdo-cold"].meta.mode, "aeolian", "polar cold is dark even under a clear sky");
+  assert(scores["mcmurdo-cold"].meta.bpm < 95, `too cold to move (${scores["mcmurdo-cold"].meta.bpm} BPM)`);
+  const tempos = Object.values(scores).map((x) => x.meta.bpm);
+  assert(tempos.filter((t) => t >= 135).length <= 2, `only gales race (${tempos})`);
   assert(scores["houston-storms"].meta.barModes.includes("phrygian"), "the storm itself is Phrygian");
   assert(["aeolian", "phrygian"].includes(scores["mumbai-monsoon"].meta.mode), "monsoon is dark");
   assert(["dorian", "aeolian"].includes(scores["london-drizzle"].meta.mode), "drizzle is gloomy, not stormy");

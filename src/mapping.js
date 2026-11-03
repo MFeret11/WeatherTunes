@@ -54,10 +54,13 @@ export const SNOW_CODES = [71, 73, 75, 77, 85, 86];
 export const STORY = { precipHourFullMm: 3, smooth: [0.2, 0.6, 0.2], margin: 0.07, minChords: 2 };
 
 // ---- Key, tempo, register ------------------------------------------------
-// bpm = base + perKmh × mean wind (km/h). Ordinary days average 4–19 km/h, so
-// the slope is steep enough to spread them: still air ~110, a breeze ~126,
-// a windy day 150+. Gales hit the ceiling.
-export const TEMPO = { base: 100, perKmh: 2.6, min: 100, max: 156 };
+// bpm = base + perRootKmh × √(mean wind, km/h), between min and max. The square
+// root flattens the curve, so ordinary days (4–19 km/h) spread over ~106–125
+// and only a gale nears the ceiling: still air ~96, a breeze ~115, 20 km/h ~126,
+// 37 km/h ~139. Wind also makes each hour busier (DENSITY, BASS, DRY_BEAT hats,
+// ARP rate), so a windy day sounds restless without racing. A harsh day then
+// slows down from here (see MOOD).
+export const TEMPO = { base: 90, perRootKmh: 8, min: 96, max: 140 };
 export const MELODY = {
   spanSteps: 10,       // the day's temperature range covers this many scale steps
   minSpanC: 8,         // flat days are spread over at least this many °C
@@ -672,6 +675,23 @@ export const DEEP_COLD = {
   echoCarry: 0.5, reverbLift: 0.15, lowCutDb: -3,
 };
 
+// ---- Day mood: how livable the day is -------------------------------------
+// The sky sets the mode, but a clear day at 47 °C or −40 °C isn't a happy one.
+// harsh (0–1) is the day's peak heat (HEAT's feels-like range) or deep cold
+// (DEEP_COLD's), whichever is greater, so it holds all day: hot nights don't
+// cool, and polar air doesn't let up. After a cold front (FRONT) only the hours
+// from the front on count, and only they change. A harsh day is darker, slower and emptier,
+// whatever the sky; the hour-by-hour treatments (HEAT, DEEP_COLD) come on top.
+//   darken  brightness (the day's mode and each chapter's) drops by this × harsh:
+//           Phoenix at 47 °C plays Dorian, McMurdo at −38 °C Aeolian
+//   slow    tempo × (1 − slow × harsh), never under minBpm (below TEMPO.min):
+//           too hot to hurry, too cold to move
+//   thin    the pad and the dry beat lose this share × harsh
+//   arpOff  the clear-daylight arpeggio (the sunniest sound) fades out as harsh reaches this
+// Storms aren't counted: they're dangerous too, but their music is energy
+// (STORM, ARC, DYNAMICS), not stillness.
+export const MOOD = { darken: 0.55, slow: 0.3, minBpm: 80, thin: 0.35, arpOff: 0.35 };
+
 // ---- Outliers: rare, dangerous weather gets its own treatment -----------------
 // Each is measured per hour from the forecast. Like deep cold, most of them take
 // notes away rather than add them, so they don't slow the render.
@@ -684,16 +704,10 @@ export const DEEP_COLD = {
 //   slur       notes hang on this much longer (a drowsy legato)
 //   hat        the dry beat's hats lose this share
 //   echo       the echo loses this share (hot air smears sound instead of carrying it)
-//   darken     the whole day's brightness (which picks the mode) drops by this × the
-//              day's peak heat, so a scorching clear day isn't a happy sunny one: Phoenix
-//              at 47 °C plays Dorian, 50 °C Aeolian. Hot nights don't cool, so it holds all day.
-//   arpOff     the clear-daylight arpeggio fades out as the day's peak heat reaches this
-//              (it's the sunniest sound in the song), and the echo is muted by the day's
-//              peak heat as well as each hour's
-//   slow       the tempo drops by up to this share (even below TEMPO.min), never under
-//              minBpm: too hot to hurry. Phoenix at 47 °C: about 134 → 104 BPM.
+//   echo is also muted by the day's peak heat (hot nights don't cool), and the
+//   day as a whole turns darker and slower (see MOOD)
 export const HEAT = {
-  fromFeels: 38, fullFeels: 50, darken: 0.55, arpOff: 0.5, slow: 0.3, minBpm: 84,
+  fromFeels: 38, fullFeels: 50,
   wobble: { rate: 1.3, depth: 0.35 }, highCutDb: -5,
   rest: 0.25, sparseFrom: 0.5, slur: 0.2, hat: 0.7, echo: 1,
 };

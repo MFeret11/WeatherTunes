@@ -45,19 +45,24 @@ export function analyze(f) {
   const snow = H.filter((h) => M.SNOW_CODES.includes(h.code)).length >= 3;
 
   const B = M.BRIGHTNESS;
-  const HT = M.HEAT;
-  const dayHeat = Math.max(...H.map((h) => clamp(((h.feels ?? h.temp) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1)));
-  const heatDark = HT.darken * dayHeat;
+  const HT = M.HEAT, DC = M.DEEP_COLD, MD = M.MOOD;
+  // After a cold front only the hours from the front on are harsh (the warm morning before it isn't).
+  const moodFrom = frontHour(H) ?? 0;
+  const feels = H.slice(moodFrom).map((h) => h.feels ?? h.temp);
+  const dayHeat = Math.max(...feels.map((t) => clamp((t - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1)));
+  const dayCold = Math.max(...feels.map((t) => clamp((DC.fromFeels - t) / (DC.fromFeels - DC.fullFeels), 0, 1)));
+  const harsh = Math.max(dayHeat, dayCold); // see MOOD
+  const moodDark = MD.darken * harsh;
   const brightness = 1 - B.cloud * stats.cloud - B.pop * stats.pop
-    - B.precip * Math.min(1, stats.precipSum / B.precipFullMm) - (storm ? B.storm : 0) - heatDark;
+    - B.precip * Math.min(1, stats.precipSum / B.precipFullMm) - (storm ? B.storm : 0) - (moodFrom ? 0 : moodDark);
   const mode = M.MODE_THRESHOLDS.find(
     (t) => brightness >= t.min && (t.minMeanTemp == null || stats.tMean >= t.minMeanTemp),
   ).mode;
 
   const root = ((Math.round(stats.pressure) % 12) + 12) % 12;
   const T = M.TEMPO;
-  const bpm = Math.round(Math.max(Math.min(T.min, HT.minBpm),
-    clamp(T.base + T.perKmh * stats.wind, T.min, T.max) * (1 - HT.slow * dayHeat)));
+  const bpm = Math.round(Math.max(MD.minBpm,
+    clamp(T.base + T.perRootKmh * Math.sqrt(stats.wind), T.min, T.max) * (1 - MD.slow * harsh)));
   const trend = stats.pressureChange > M.PRESSURE_TREND_HPA ? "rising"
     : stats.pressureChange < -M.PRESSURE_TREND_HPA ? "falling" : "steady";
   const loops = M.PROGRESSIONS[mode][trend];
@@ -68,7 +73,7 @@ export function analyze(f) {
   );
   const voices = pickVoices(stats, storm, snow);
   const { raw: intensity, energy } = dynamicsCurve(H);
-  return { stats, storm, stormHour, snow, brightness, heatDark, dayHeat, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
+  return { stats, storm, stormHour, snow, brightness, moodDark, moodFrom, dayHeat, harsh, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
 }
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
@@ -238,7 +243,8 @@ export function storyArc(H, A, margin = M.STORY.margin) {
   const S = { ...M.STORY, margin };
   const n = M.BARS / M.BARS_PER_CHORD;
   const raw = Array.from({ length: n }, (_, c) =>
-    Math.min(...H.slice(c * M.BARS_PER_CHORD, (c + 1) * M.BARS_PER_CHORD).map((h) => hourBrightness(h, A.stormHour) - (A.heatDark ?? 0))));
+    Math.min(...H.slice(c * M.BARS_PER_CHORD, (c + 1) * M.BARS_PER_CHORD).map((h) => hourBrightness(h, A.stormHour)))
+      - (c * M.BARS_PER_CHORD >= (A.moodFrom ?? 0) ? A.moodDark ?? 0 : 0));
   const br = raw.map((_, c) => {
     let sum = 0, w = 0;
     S.smooth.forEach((k, i) => {
@@ -741,7 +747,8 @@ export function compose(f, { units = "metric" } = {}) {
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const hit = (kind, pos, v) => {
       const human = (brng() - 0.5) * 2 * DB.humanize; // drawn for every hit, so the cold only removes hits
-      const cold = v * (1 - DC.beat[kind === "snare" ? "rim" : kind] * deep[b]) * (kind === "hat" ? 1 - HT.hat * heat[b] : 1);
+      const cold = v * (1 - DC.beat[kind === "snare" ? "rim" : kind] * deep[b]) * (kind === "hat" ? 1 - HT.hat * heat[b] : 1)
+        * (b >= A.moodFrom ? 1 - M.MOOD.thin * A.harsh : 1);
       if (!deep[b] || cold >= DC.minVel) beat.push({ bar: b, pos, kind, vel: +clamp(cold + human, 0.05, 1).toFixed(3) });
     };
     const k = DB.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
@@ -779,7 +786,7 @@ export function compose(f, { units = "metric" } = {}) {
     prevVoicing = midis;
     const vel = +(Math.min(0.95, M.PAD.velMin + M.PAD.velPerCloud * cloud
       + D.velBoost * Math.max(energy[b], energy[b + 1] ?? 0))
-      * (1 - DC.padCut * mean(deep.slice(b, b + M.BARS_PER_CHORD)))).toFixed(3);
+      * (1 - DC.padCut * mean(deep.slice(b, b + M.BARS_PER_CHORD))) * (b >= A.moodFrom ? 1 - M.MOOD.thin * A.harsh : 1)).toFixed(3);
     const top = Math.max(...midis);
     const above = (pc) => top + 1 + ((((pc - top - 1) % 12) + 12) % 12); // the first pc above the chord
     const colour = [];
@@ -800,7 +807,7 @@ export function compose(f, { units = "metric" } = {}) {
   for (let b = 0; b < M.BARS - 1; b++) {
     const h = H[b];
     const amount = clamp(((1 - h.cloud / 100) * (h.isDay ? 1 : 0) - AR.from) / (AR.full - AR.from), 0, 1)
-      * clamp(1 - A.dayHeat / HT.arpOff, 0, 1);
+      * (b >= A.moodFrom ? clamp(1 - A.harsh / M.MOOD.arpOff, 0, 1) : 1);
     if (b % M.BARS_PER_CHORD === 0) step = 0; // each chord starts its run from the bottom (or top)
     if (amount <= 0 || h.precip >= 0.1 || M.SNOW_CODES.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
@@ -1189,8 +1196,8 @@ function linerNotes(f, A, meta, layers, units) {
   if (layers.rain.length && H.some((h) => M.HAIL.codes.includes(h.code))) outliers.push("Hail clatters down hard in the storm.");
   const hollow = meta.colours.filter((c) => c.susBy === "cold").length;
   const frigid = hollow < 3 ? ""
-    : white.length >= 2 ? "The deep cold hollows the chords out to bare, open intervals."
-      : "The deep cold hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air.";
+    : white.length >= 2 ? "The deep cold slows and darkens the song and hollows the chords out to bare, open intervals."
+      : "The deep cold slows and darkens the song, hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air.";
 
   return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, frigid, ...outliers, daylight])] };
 }
