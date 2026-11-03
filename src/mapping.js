@@ -640,6 +640,27 @@ export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
 // frost-free days.
 export const FROST = { maxTemp: 0.5, maxCloud: 60, maxWind: 18, until: 10, minHistory: 30, vel: 0.18 };
 
+// Deep cold: how far each hour's feels-like temperature sits below fromFeels °C,
+// 0 there and 1 at fullFeels. Polar air sounds hollow, sparse and far away:
+//   hollowFrom  a chord whose hours average at least this loses its third: sus2
+//               where the scale has a whole-step 2nd, else a bare fifth (the last
+//               chord is always a bare fifth, so it still sounds resolved), with
+//               no 7ths or 9ths and an open voicing
+//   beat        the dry beat's hats, rim and kick are scaled by 1 − this × deep;
+//               hits that drop below minVel go
+//   bassCut     the bass plays this much softer at full deep cold
+//   registerSteps  the melody climbs this many scale steps (an octave) at full
+//   rest        added to each note's chance of a rest
+//   echoCarry   added to the melody echo's carry (cold, dense air carries sound)
+//   reverbLift  added to the reverb's wet mix
+//   lowCutDb    the band's low shelf, for thin, icy air
+export const DEEP_COLD = {
+  fromFeels: -15, fullFeels: -35, hollowFrom: 0.5,
+  beat: { hat: 1, rim: 1, kick: 0.6 }, minVel: 0.04,
+  bassCut: 0.5, registerSteps: 7, rest: 0.35,
+  echoCarry: 0.5, reverbLift: 0.15, lowCutDb: -3,
+};
+
 // A public holiday signs off with a rising bell arpeggio over the last chord.
 // A solstice or equinox rings a bell at the moment it happens.
 export const CALENDAR = { holidayVel: 0.4, seasonVel: 0.35 };

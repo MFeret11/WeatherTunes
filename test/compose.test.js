@@ -496,14 +496,27 @@ test("chords are their triad, or a sus with a whole-tone 2nd or perfect 4th", ()
     const t = triadPcs(s.meta.root, m, d);
     const got = s.meta.chordPcs[b];
     const sus = s.meta.colours[Math.floor(b / M.BARS_PER_CHORD)].sus;
+    if (sus === "5") { equal(got, [t[0], t[2]], `${n} bar ${b} bare fifth`); continue; }
     equal([got[0], got[2]], [t[0], t[2]], `${n} bar ${b} root and fifth`);
     if (!sus) equal(got[1], t[1], `${n} bar ${b} third`);
     else equal((got[1] - got[0] + 12) % 12, sus === "sus2" ? 2 : 5, `${n} bar ${b} ${sus}`);
     if (sus === "sus2") equal(stepAbove(m, d, 1), 2, `${n} bar ${b} sus2 is in the mode`);
     if (sus === "sus4") equal(stepAbove(m, d, 3), 5, `${n} bar ${b} sus4 is in the mode`);
   }
-  assert(!s.meta.colours[s.meta.colours.length - 1].sus, `${n} the last chord resolves`);
+  const last = s.meta.colours[s.meta.colours.length - 1].sus;
+  assert(!last || last === "5", `${n} the last chord resolves`);
 }));
+
+test("deep cold hollows the chords, strips the beat and lifts the melody", () => {
+  const s = scores["mcmurdo-cold"];
+  assert(s.meta.colours.every((c) => c.susBy === "cold" && c.seventh === 0 && c.ninth === 0), "every chord is hollow");
+  equal(s.meta.colours[s.meta.colours.length - 1].sus, "5", "ends on a bare fifth");
+  assert(s.beat.every((x) => x.kind === "kick"), "only a faint kick is left");
+  assert(Math.min(...s.melody.map((x) => x.midi)) >= 64, "the bells ring high");
+  for (const n of ["kyoto-spring", "phoenix-heat", "london-drizzle"]) {
+    assert(scores[n].meta.deepCold.every((d) => d === 0), `${n} isn't deep cold`);
+  }
+});
 
 test("pad: chord tones in range, colour notes above them, in the mode and never a half step off", () => each((n, s) => {
   const V = M.CHORD_COLOUR.voicing;
@@ -567,6 +580,7 @@ test("dry beat: hats follow the wind, kick the warmth, rim the clear sky", () =>
   for (const b of new Set(s.beat.map((x) => x.bar))) {
     const h = f.hours[b];
     const hits = (k) => s.beat.filter((x) => x.bar === b && x.kind === k).map((x) => x.pos);
+    if (s.meta.deepCold[b] > 0) continue; // deep cold thins the beat (tested below)
     equal(hits("hat"), B.hats.find((r) => h.wind < r.maxWind).steps, `${n} hour ${b} hats`);
     const k = B.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
     equal(hits("kick"), !k.perChord || b % M.BARS_PER_CHORD === 0 ? k.steps : [], `${n} hour ${b} kick`);

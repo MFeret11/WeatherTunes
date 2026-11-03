@@ -442,6 +442,8 @@ export function compose(f, { units = "metric" } = {}) {
   const swing = +(G.swingMax * clamp((stats.dewMean - M.DEW.swingFromDew) / (M.DEW.swingFullDew - M.DEW.swingFromDew), 0, 1)).toFixed(3);
   const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
+  const DC = M.DEEP_COLD;
+  const deep = H.map((h) => +clamp((DC.fromFeels - (h.feels ?? h.temp)) / (DC.fromFeels - DC.fullFeels), 0, 1).toFixed(3));
   const SK = daySky(f);
   const seed = seedFor(f);
   const rng = mulberry32(seed);
@@ -467,13 +469,21 @@ export function compose(f, { units = "metric" } = {}) {
   // Each chord's colour (sevenths, ninths, sus, spread) from its two hours.
   const colours = Array.from({ length: M.BARS / M.BARS_PER_CHORD }, (_, c) => {
     const b = c * M.BARS_PER_CHORD;
-    return chordColour(H.slice(b, b + M.BARS_PER_CHORD), modeAt(b), chordDeg(b), b + M.BARS_PER_CHORD >= M.BARS);
+    const final = b + M.BARS_PER_CHORD >= M.BARS;
+    const col = chordColour(H.slice(b, b + M.BARS_PER_CHORD), modeAt(b), chordDeg(b), final);
+    // Deep cold hollows the chord out (see DEEP_COLD).
+    if (mean(deep.slice(b, b + M.BARS_PER_CHORD)) >= DC.hollowFrom) {
+      const second = stepAbove(modeAt(b), chordDeg(b), 1) === 2;
+      return { ...col, sus: !final && second ? "sus2" : "5", susBy: "cold", seventh: 0, ninth: 0, open: true };
+    }
+    return col;
   });
   const colourAt = (b) => colours[Math.floor(b / M.BARS_PER_CHORD)];
   // The chord's own tones: a sus chord swaps its third, and the melody's strong beats follow it.
   const chordPcs = (b) => {
     const t = triadPcs(root, modeAt(b), chordDeg(b));
     const { sus } = colourAt(b);
+    if (sus === "5") return [t[0], t[2]]; // a bare fifth
     if (sus) t[1] = (t[0] + (sus === "sus2" ? 2 : 5)) % 12;
     return t;
   };
@@ -517,7 +527,7 @@ export function compose(f, { units = "metric" } = {}) {
   const melody = [];
   let prev = null;
   let prevMidi = null;
-  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp) + lift(b), b), chordPcs(b), b));
+  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp) + lift(b) + Math.round(DC.registerSteps * deep[b]), b), chordPcs(b), b));
 
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
@@ -545,7 +555,7 @@ export function compose(f, { units = "metric" } = {}) {
           const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
           idx = snapTo(idx, pcs.length ? pcs : chordPcs(b), b);
         }
-      } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) && !(sectionEnd && k === rhythm.length - 1)) {
+      } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) + DC.rest * deep[b] && !(sectionEnd && k === rhythm.length - 1)) {
         pos += dur;
         return; // rest
       } else {
@@ -616,7 +626,7 @@ export function compose(f, { units = "metric" } = {}) {
     else if (feel === "double") pattern = M.BASS_FEEL.double;
     else pattern = M.BASS.patterns[busierRow(M.BASS.patterns, M.BASS.patterns.findIndex((p) => H[b].wind < p.maxWind), b)].hits;
     for (const [pos, dur, iv] of pattern) {
-      bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: M.BASS.vel, gate: gateFor(H[b]) });
+      bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: +(M.BASS.vel * (1 - DC.bassCut * deep[b])).toFixed(3), gate: gateFor(H[b]) });
     }
   }
 
@@ -669,7 +679,11 @@ export function compose(f, { units = "metric" } = {}) {
     const h = H[b];
     if (rainBeatBars.has(b) || h.precip >= 0.1 || h.pop >= RB.hourPop || M.SNOW_CODES.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
-    const hit = (kind, pos, v) => beat.push({ bar: b, pos, kind, vel: +clamp(v + (brng() - 0.5) * 2 * DB.humanize, 0.05, 1).toFixed(3) });
+    const hit = (kind, pos, v) => {
+      const human = (brng() - 0.5) * 2 * DB.humanize; // drawn for every hit, so the cold only removes hits
+      const cold = v * (1 - DC.beat[kind === "snare" ? "rim" : kind] * deep[b]);
+      if (!deep[b] || cold >= DC.minVel) beat.push({ bar: b, pos, kind, vel: +clamp(cold + human, 0.05, 1).toFixed(3) });
+    };
     const k = DB.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
     if (!k.perChord || b % M.BARS_PER_CHORD === 0) for (const p of k.steps) hit("kick", p, DB.kickVel);
     const clear = clamp((DB.rimMaxCloud - h.cloud) / DB.rimMaxCloud, 0, 1);
@@ -890,7 +904,7 @@ export function compose(f, { units = "metric" } = {}) {
     gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
       + C.swellDb * (2 * stir[b] - 1) * (day.dramatic ? 0 : 1)
       + (b === 0 ? D.introDb : 0)).toFixed(2)),
-    reverbLift: day.phases.map((ph) => (ph === "release" ? R.reverbLift : 0)),
+    reverbLift: day.phases.map((ph, b) => +((ph === "release" ? R.reverbLift : 0) + DC.reverbLift * deep[b]).toFixed(3)),
     melodyDb: H.map((h) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)).toFixed(2)),
     // Moonlight keeps the night from dimming the melody as far.
     melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])).toFixed(2)),
@@ -899,13 +913,14 @@ export function compose(f, { units = "metric" } = {}) {
     eqHigh: H.map((h, b) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0)
       + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover,
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
-    eqLow: H.map((h) => +clamp(M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
+    eqLow: H.map((h, b) => +clamp(DC.lowCutDb * deep[b] + M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     // The melody's echo carries in clear, still, dry air (see ECHO).
-    echoCarry: H.map((h) => {
+    echoCarry: H.map((h, b) => {
       const E = M.ECHO;
       const wet = h.precip >= 0.1 || M.SNOW_CODES.includes(h.code) || E.fogCodes.includes(h.code);
-      return wet ? 0 : +((1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)).toFixed(3);
+      return wet ? 0 : +Math.min(1, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)
+        + DC.echoCarry * deep[b]).toFixed(3);
     }),
     // Snow on the ground soaks up the echoes.
     reverbWet: +((RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1))
@@ -947,6 +962,7 @@ export function compose(f, { units = "metric" } = {}) {
   meta.arc = day;
   meta.heldNotes = held;
   meta.stir = stir;
+  meta.deepCold = deep;
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
   const { sky: _sky, ...skyMeta } = SK;
   meta.sky = { ...skyMeta, magLat: SK.sky.magLat };
@@ -1054,7 +1070,12 @@ function linerNotes(f, A, meta, layers, units) {
     ? `Clear daylight sets a soft arpeggio running over the chords${echoes ? ", and the melody echoes in the still air" : ""}.`
     : echoes ? "The melody echoes in the clear, still air." : "";
 
-  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, daylight])] };
+  const hollow = meta.colours.filter((c) => c.susBy === "cold").length;
+  const frigid = hollow >= 3
+    ? "The deep cold hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air."
+    : "";
+
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, frigid, daylight])] };
 }
 
 const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);
