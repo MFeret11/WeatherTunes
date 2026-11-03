@@ -231,6 +231,8 @@ export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 // cutoff = lowpass on the bed (low = muffled, e.g. snow).
 // Matched by WMO weather code; the first row listing the code wins.
 export const ATMOSPHERE = [
+  // Freezing rain: a thin, crisp hiss (its own row, ahead of drizzle and rain).
+  { kind: "ice",     codes: [56, 57, 66, 67],     color: "white", base: 0.14, perMm: 0.04, max: 0.26, cutoff: 9000 },
   { kind: "fog",     codes: [45, 48],             color: "white", base: 0.10, perMm: 0,    max: 0.10, cutoff: 2500 },
   { kind: "drizzle", codes: [51, 53, 55, 56, 57], color: "white", base: 0.16, perMm: 0.10, max: 0.30, cutoff: 5000 },
   { kind: "rain",    codes: [61, 63, 65, 66, 67], color: "pink",  base: 0.25, perMm: 0.06, max: 0.55, cutoff: 6000 },
@@ -669,6 +671,53 @@ export const DEEP_COLD = {
   wind: { level: 0.3, fromGust: 8, fullGust: 40, baseHz: 900 },
   echoCarry: 0.5, reverbLift: 0.15, lowCutDb: -3,
 };
+
+// ---- Outliers: rare, dangerous weather gets its own treatment -----------------
+// Each is measured per hour from the forecast. Like deep cold, most of them take
+// notes away rather than add them, so they don't slow the render.
+
+// Deadly heat: feels-like from fromFeels °C (0) to fullFeels (1). The song wilts:
+//   wobble     the melody's vibrato slows to `rate` Hz and deepens to `depth`, like heat shimmer
+//   highCutDb  the top end dulls
+//   rest       added to each note's chance of a rest; from sparseFrom the melody
+//              plays one row sparser
+//   slur       notes hang on this much longer (a drowsy legato)
+//   hat        the dry beat's hats lose this share
+//   echo       the echo loses this share (hot air smears sound instead of carrying it)
+export const HEAT = {
+  fromFeels: 38, fullFeels: 50,
+  wobble: { rate: 1.3, depth: 0.35 }, highCutDb: -5,
+  rest: 0.25, sparseFrom: 0.5, slur: 0.2, hat: 0.7, echo: 1,
+};
+
+// Ice storm: freezing drizzle or rain (these WMO codes). Its shakers become
+// glassy ticks: perHour bells (low → high with the rainfall, up to fullMm),
+// high and short, between MIDI low and high.
+export const ICE_STORM = { codes: [56, 57, 66, 67], perHour: [3, 6], fullMm: 2, low: 86, high: 100, vel: [0.1, 0.24] };
+
+// The eye of a hurricane: on a day with gusts of minGust km/h or more, an hour
+// within nearHpa of the day's lowest pressure whose wind is at most calmShare of
+// the strongest wind in the `look` hours on each side. The storm falls away:
+// no drums, thunder or shakers, the beds drop to `keep`, the band by gainDb,
+// and the melody plays a single soft note.
+export const EYE = { minGust: 118, nearHpa: 3, calmShare: 0.5, look: 3, keep: 0.1, gainDb: -20, vel: 0.5 };
+
+// Whiteout: a snow hour with gusts from fromGust (0) to fullGust (1) km/h. Everything blurs:
+// the melody sinks by melodyDb, the band's filter closes by cutoffCut, the wind
+// rises to at least `wind`, and the reverb opens by reverbLift.
+export const WHITEOUT = { fromGust: 40, fullGust: 80, melodyDb: -6, cutoffCut: 0.5, wind: 0.5, reverbLift: 0.2 };
+
+// A cold front: the temperature falls dropC or more within `hours` hours while the
+// pressure climbs riseHpa or more (from the hour before to two after; an evening's
+// cooling doesn't push the pressure up like this). From
+// the hour it hits, the song turns `darker` modes darker (no further than
+// aeolian unless it already was) and stays there, and a gust of wind (`gust`)
+// marks its arrival.
+export const FRONT = { dropC: 10, hours: 3, riseHpa: 2, darker: 2, gust: 0.4 };
+
+// Hail (thunderstorm with hail; models report it only in central Europe):
+// the hour's shakers hit `hits` times as often, velBoost harder.
+export const HAIL = { codes: [96, 99], hits: 2, velBoost: 0.25 };
 
 // A public holiday signs off with a rising bell arpeggio over the last chord.
 // A solstice or equinox rings a bell at the moment it happens.

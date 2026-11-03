@@ -180,6 +180,51 @@ const modeFor = (br, tMean) => M.MODE_THRESHOLDS.find(
   (t) => br >= t.min && (t.minMeanTemp == null || tMean >= t.minMeanTemp)).mode;
 const MODE_ORDER = M.MODE_THRESHOLDS.map((t) => t.mode); // brightest first
 
+/** Hours in the eye of a hurricane (see EYE): true or false per hour. */
+export function eyeHours(H) {
+  const E = M.EYE;
+  const none = H.map(() => false);
+  if (Math.max(...H.map((h) => h.gust)) < E.minGust) return none;
+  const lowest = Math.min(...H.map((h) => h.pressure));
+  return H.map((h, b) => {
+    if (h.pressure > lowest + E.nearHpa || b === 0 || b === H.length - 1) return false;
+    const side = (from, to) => Math.max(...H.slice(Math.max(0, from), Math.min(H.length, to)).map((x) => x.wind));
+    const before = side(b - E.look, b), after = side(b + 1, b + 1 + E.look);
+    return Math.max(...H.slice(Math.max(0, b - E.look), b + 1 + E.look).map((x) => x.gust)) >= E.minGust
+      && h.wind <= E.calmShare * before && h.wind <= E.calmShare * after;
+  });
+}
+
+/** The hour a cold front hits (see FRONT): the steepest fall of the first big drop with rising pressure, or null. */
+export function frontHour(H) {
+  const F = M.FRONT;
+  for (let b = F.hours; b < H.length; b++) {
+    if (H[b - F.hours].temp - H[b].temp < F.dropC) continue;
+    let at = b - F.hours + 1;
+    for (let k = at; k <= b; k++) if (H[k - 1].temp - H[k].temp > H[at - 1].temp - H[at].temp) at = k;
+    if (H[Math.min(H.length - 1, at + 2)].pressure - H[at - 1].pressure >= F.riseHpa) return at;
+  }
+  return null;
+}
+
+/** After a cold front the story stays `FRONT.darker` modes darker (rebuilding the chapters). */
+export function afterFront(arc, front) {
+  if (front == null) return arc;
+  const c0 = Math.floor(front / M.BARS_PER_CHORD);
+  const cap = MODE_ORDER.indexOf("aeolian");
+  const from = MODE_ORDER.indexOf(arc.chordModes[c0]);
+  const dark = MODE_ORDER[Math.max(from, Math.min(from + M.FRONT.darker, cap))];
+  const chordModes = arc.chordModes.map((m, c) =>
+    (c >= c0 && MODE_ORDER.indexOf(m) < MODE_ORDER.indexOf(dark) ? dark : m));
+  const chapters = [{ chord: 0, mode: chordModes[0], turn: null }];
+  for (let c = 1; c < chordModes.length; c++) {
+    if (chordModes[c] === chordModes[c - 1]) continue;
+    const turn = MODE_ORDER.indexOf(chordModes[c]) < MODE_ORDER.indexOf(chordModes[c - 1]) ? "brighter" : "darker";
+    chapters.push({ chord: c, mode: chordModes[c], turn, front: c === c0 || undefined });
+  }
+  return { ...arc, chordModes, chapters };
+}
+
 /**
  * The day's story: a mode per chord, grouped into chapters.
  * Starts from the day's mode and moves only when a chord's sky clearly
@@ -444,6 +489,14 @@ export function compose(f, { units = "metric" } = {}) {
   const H = f.hours;
   const DC = M.DEEP_COLD;
   const deep = H.map((h) => +clamp((DC.fromFeels - (h.feels ?? h.temp)) / (DC.fromFeels - DC.fullFeels), 0, 1).toFixed(3));
+  const HT = M.HEAT;
+  const heat = H.map((h) => +clamp(((h.feels ?? h.temp) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1).toFixed(3));
+  const WO = M.WHITEOUT;
+  const whiteout = H.map((h) => (M.SNOW_CODES.includes(h.code)
+    ? +clamp((h.gust - WO.fromGust) / (WO.fullGust - WO.fromGust), 0, 1).toFixed(3) : 0));
+  const iceHour = H.map((h) => M.ICE_STORM.codes.includes(h.code));
+  const eye = eyeHours(H);
+  const front = frontHour(H);
   const SK = daySky(f);
   const seed = seedFor(f);
   const rng = mulberry32(seed);
@@ -454,7 +507,7 @@ export function compose(f, { units = "metric" } = {}) {
   const C = M.CALM_DETAIL;
   // On a calm day the music follows the day's small changes (zero on dramatic days).
   const stir = day.dramatic ? H.map(() => 0) : calmStir(H);
-  const arc = storyArc(H, A, day.dramatic ? M.STORY.margin : C.margin);
+  const arc = afterFront(storyArc(H, A, day.dramatic ? M.STORY.margin : C.margin), front);
   const R = M.ARC;
   const lift = (b) => Math.round(R.liftSteps * energy[b]);
   const barChords = storyChords(arc, A, seed);
@@ -537,6 +590,8 @@ export function compose(f, { units = "metric" } = {}) {
     let n = last ? 1
       : M.DENSITY[day.phases[b] === "release" ? Math.max(0, row - 1) : busierRow(M.DENSITY, row, b)].notes;
     if (!last && deep[b] >= DC.sparseFrom) n = 1; // one far-off bell an hour
+    else if (!last && heat[b] >= HT.sparseFrom && n > 1) n -= 1; // too hot to move
+    else if (!last && eye[b]) n = 1;
     else if (!last && !day.dramatic) {
       if (stir[b] >= C.busier) n = Math.max(n, Math.min(n + 1, C.maxNotes));
       else if (stir[b] <= C.sparser && n > 1) n -= 1;
@@ -556,7 +611,7 @@ export function compose(f, { units = "metric" } = {}) {
           const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
           idx = snapTo(idx, pcs.length ? pcs : chordPcs(b), b);
         }
-      } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) + DC.rest * deep[b] && !(sectionEnd && k === rhythm.length - 1)) {
+      } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) + DC.rest * deep[b] + HT.rest * heat[b] && !(sectionEnd && k === rhythm.length - 1)) {
         pos += dur;
         return; // rest
       } else {
@@ -581,8 +636,8 @@ export function compose(f, { units = "metric" } = {}) {
       }
       const midi = pitchAt(b, idx);
       melody.push({
-        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : Math.min(0.98, gateFor(h) + (day.phases[b] === "release" ? R.releaseGate : 0)),
-        vel: +Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)).toFixed(3),
+        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : Math.min(0.98, gateFor(h) + (day.phases[b] === "release" ? R.releaseGate : 0) + HT.slur * heat[b]),
+        vel: +(Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)) * (eye[b] ? M.EYE.vel : 1)).toFixed(3),
       });
       prev = idx;
       prevMidi = midi;
@@ -682,7 +737,7 @@ export function compose(f, { units = "metric" } = {}) {
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const hit = (kind, pos, v) => {
       const human = (brng() - 0.5) * 2 * DB.humanize; // drawn for every hit, so the cold only removes hits
-      const cold = v * (1 - DC.beat[kind === "snare" ? "rim" : kind] * deep[b]);
+      const cold = v * (1 - DC.beat[kind === "snare" ? "rim" : kind] * deep[b]) * (kind === "hat" ? 1 - HT.hat * heat[b] : 1);
       if (!deep[b] || cold >= DC.minVel) beat.push({ bar: b, pos, kind, vel: +clamp(cold + human, 0.05, 1).toFixed(3) });
     };
     const k = DB.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
@@ -775,17 +830,37 @@ export function compose(f, { units = "metric" } = {}) {
       }
       continue;
     }
+    if (iceHour[b]) continue; // ice ticks instead (below)
+    const hail = M.HAIL.codes.includes(h.code);
     let count = Math.round((h.pop / 100) * M.RAIN.maxHits);
     if (h.precip > 0) count = Math.max(1, count);
+    if (hail) count = Math.min(8, count * M.HAIL.hits);
     // Off-beat sixteenths first, so shakers sit between the melody's strong beats.
     const off = shuffle([1, 2, 3, 5, 6, 7], rng);
     const on = shuffle([0, 4], rng);
     const slots = off.concat(on).slice(0, count).sort((x, y) => x - y);
-    const v = Math.min(M.RAIN.velMax, M.RAIN.velBase + M.RAIN.velPerMm * h.precip);
+    const v = Math.min(M.RAIN.velMax, M.RAIN.velBase + M.RAIN.velPerMm * h.precip) + (hail ? M.HAIL.velBoost : 0);
     for (const pos of slots) {
       rain.push({ bar: b, pos, dur: 1, vel: +clamp(v + (rng() - 0.5) * 0.1, 0.05, 1).toFixed(3) });
     }
   }
+  // Ice storm: glassy ticks, high and short (see ICE_STORM). Their own random
+  // stream, so the rest of the song is unchanged.
+  const IS = M.ICE_STORM;
+  const irng = mulberry32((seed ^ 0x1ce) >>> 0);
+  for (let b = 0; b < M.BARS; b++) {
+    if (!iceHour[b]) continue;
+    const k = clamp(H[b].precip / IS.fullMm, 0, 1);
+    const count = Math.round(IS.perHour[0] + (IS.perHour[1] - IS.perHour[0]) * k);
+    const pitches = tables[modeAt(b)].p.filter((p) => p >= IS.low && p <= IS.high);
+    const slots = shuffle([0, 1, 2, 3, 4, 5, 6, 7], irng).slice(0, count).sort((x, y) => x - y);
+    for (const pos of slots) {
+      const midi = pitches[Math.floor(irng() * pitches.length)];
+      bells.push({ bar: b, pos, dur: 1, midi, note: midiToNote(midi), ice: true,
+        vel: +(IS.vel[0] + (IS.vel[1] - IS.vel[0]) * (k * 0.6 + irng() * 0.4)).toFixed(3) });
+    }
+  }
+  bells.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
 
   // ---- Atmosphere (noise bed) and wind whoosh, one value per bar ----------
   const atmosphere = H.map((h, b) => {
@@ -796,7 +871,9 @@ export function compose(f, { units = "metric" } = {}) {
     const DW = DC.wind;
     const wind = +Math.max(clamp((h.gust - W.from) / (W.full - W.from), 0, 1) * W.max,
       day.breeze[b] ? R.breezeLevel : 0,
-      DW.level * deep[b] * clamp((h.gust - DW.fromGust) / (DW.fullGust - DW.fromGust), 0, 1)).toFixed(3);
+      DW.level * deep[b] * clamp((h.gust - DW.fromGust) / (DW.fullGust - DW.fromGust), 0, 1),
+      WO.wind * whiteout[b],
+      front == null ? 0 : b === front ? M.FRONT.gust : b === front + 1 ? M.FRONT.gust / 2 : 0).toFixed(3);
     if (!row) return { bar: b, kind: null, color: null, level: 0, cutoff: 6000, wind };
     return {
       bar: b, kind: row.kind, color: row.color, cutoff: row.cutoff, wind,
@@ -893,6 +970,18 @@ export function compose(f, { units = "metric" } = {}) {
     shimmer.push({ kind: "aurora", bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, notes, vel: +(M.AURORA.vel * level).toFixed(3) });
   }
 
+  // ---- The eye of a hurricane: the storm falls away (see EYE) ---------------
+  if (eye.some(Boolean)) {
+    const calm = (x) => !eye[x.bar];
+    for (const list of [drums, garage, beat, rain]) {
+      const kept = list.filter(calm);
+      list.length = 0;
+      list.push(...kept);
+    }
+    for (let i = fx.length - 1; i >= 0; i--) if (eye[fx[i].bar] && fx[i].type === "thunder") fx.splice(i, 1);
+    for (const a of atmosphere) if (eye[a.bar]) { a.level = +(a.level * M.EYE.keep).toFixed(3); a.wind = +(a.wind * M.EYE.keep).toFixed(3); }
+  }
+
   // ---- Per-bar automation ---------------------------------------------------
   const F = M.FILTER;
   const RV = M.REVERB;
@@ -902,15 +991,18 @@ export function compose(f, { units = "metric" } = {}) {
     cutoff: H.map((h, b) => Math.round(
       (F.clearHz - (F.clearHz - F.overcastHz) * (h.cloud / 100))
       * (h.isDay ? 1 : F.nightFactor + (1 - F.nightFactor) * M.MOON.cutoffLift * SK.moonlight[b])
-      * (1 - M.AIR.cutoffCut * SK.haze[b]))),
+      * (1 - M.AIR.cutoffCut * SK.haze[b]) * (1 - WO.cutoffCut * whiteout[b]))),
     energy,
     // Dramatic days dip in their calm hours, so the storm is a real crescendo.
     gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
       + C.swellDb * (2 * stir[b] - 1) * (day.dramatic ? 0 : 1)
-      + (b === 0 ? D.introDb : 0)).toFixed(2)),
-    reverbLift: day.phases.map((ph, b) => +((ph === "release" ? R.reverbLift : 0) + DC.reverbLift * deep[b]).toFixed(3)),
+      + (b === 0 ? D.introDb : 0) + (eye[b] ? M.EYE.gainDb : 0)).toFixed(2)),
+    reverbLift: day.phases.map((ph, b) => +((ph === "release" ? R.reverbLift : 0) + DC.reverbLift * deep[b]
+      + WO.reverbLift * whiteout[b]).toFixed(3)),
     melodyDb: H.map((h, b) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)
-      + DC.melodyDb * deep[b]).toFixed(2)),
+      + DC.melodyDb * deep[b] + WO.melodyDb * whiteout[b]).toFixed(2)),
+    // Heat shimmer on the melody (see HEAT); left out on days without it.
+    ...(heat.some((x) => x > 0) ? { wobble: heat } : {}),
     // Deep cold thins the wind to a high whistle (one value for the song).
     windBaseHz: Math.round(250 + (DC.wind.baseHz - 250) * mean(deep)),
     // Moonlight keeps the night from dimming the melody as far.
@@ -918,7 +1010,7 @@ export function compose(f, { units = "metric" } = {}) {
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
     eqHigh: H.map((h, b) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0)
-      + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover,
+      + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover + HT.highCutDb * heat[b],
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h, b) => +clamp(DC.lowCutDb * deep[b] + M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
@@ -926,8 +1018,8 @@ export function compose(f, { units = "metric" } = {}) {
     echoCarry: H.map((h, b) => {
       const E = M.ECHO;
       const wet = h.precip >= 0.1 || M.SNOW_CODES.includes(h.code) || E.fogCodes.includes(h.code);
-      return wet ? 0 : +Math.min(1, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)
-        + DC.echoCarry * deep[b]).toFixed(3);
+      return wet ? 0 : +(Math.min(1, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)
+        + DC.echoCarry * deep[b]) * (1 - HT.echo * heat[b])).toFixed(3);
     }),
     // Snow on the ground soaks up the echoes.
     reverbWet: +((RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1))
@@ -970,6 +1062,7 @@ export function compose(f, { units = "metric" } = {}) {
   meta.heldNotes = held;
   meta.stir = stir;
   meta.deepCold = deep;
+  meta.outliers = { heat, whiteout, ice: iceHour, eye, front };
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
   const { sky: _sky, ...skyMeta } = SK;
   meta.sky = { ...skyMeta, magLat: SK.sky.magLat };
@@ -1077,12 +1170,24 @@ function linerNotes(f, A, meta, layers, units) {
     ? `Clear daylight sets a soft arpeggio running over the chords${echoes ? ", and the melody echoes in the still air" : ""}.`
     : echoes ? "The melody echoes in the clear, still air." : "";
 
+  const O = meta.outliers;
+  const hours = (xs) => xs.map((x, b) => (x ? b : -1)).filter((b) => b >= 0);
+  const outliers = [];
+  const hot = hours(O.heat.map((x) => x >= 0.5));
+  if (hot.length) outliers.push(`The heat is dangerous${hot.length < 20 ? ` around ${hourLabel(hot[Math.floor(hot.length / 2)])}` : ""}, so the melody wilts: it wavers like air over hot ground, thins out and dulls.`);
+  if (O.ice.some(Boolean)) outliers.push("Freezing rain glazes everything, and the shakers turn into brittle, glassy ticks.");
+  const eyeAt = hours(O.eye);
+  if (eyeAt.length) outliers.push(`At ${hourLabel(eyeAt[0])} the eye of the storm passes over: the wind drops away and the music almost stops, before the storm slams back.`);
+  const white = hours(O.whiteout.map((x) => x >= 0.5));
+  if (white.length >= 2) outliers.push("Snow in a gale makes a whiteout: the melody is buried in the wind.");
+  if (O.front != null) outliers.push(`A cold front hits at ${hourLabel(O.front)}, and the song turns darker with a gust of wind as the temperature crashes.`);
+  if (layers.rain.length && H.some((h) => M.HAIL.codes.includes(h.code))) outliers.push("Hail clatters down hard in the storm.");
   const hollow = meta.colours.filter((c) => c.susBy === "cold").length;
-  const frigid = hollow >= 3
-    ? "The deep cold hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air."
-    : "";
+  const frigid = hollow < 3 ? ""
+    : white.length >= 2 ? "The deep cold hollows the chords out to bare, open intervals."
+      : "The deep cold hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air.";
 
-  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, frigid, daylight])] };
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, frigid, ...outliers, daylight])] };
 }
 
 const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);

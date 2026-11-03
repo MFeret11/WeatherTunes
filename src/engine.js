@@ -13,7 +13,7 @@
 //   thunder, swell (one-shots)
 //   sky bells (moonrise, meteors, frost, holiday, solstice), UV sparkle, aurora chord → fx
 
-import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32, ENDING } from "./mapping.js";
+import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32, ENDING, HEAT } from "./mapping.js";
 
 const Tone = () => window.Tone;
 
@@ -325,6 +325,10 @@ export class Engine {
     this.delay.delayTime.value = (60 / score.meta.bpm) * 0.75; // a dotted eighth
     this.melodyEcho.delayTime.value = (60 / score.meta.bpm) * ECHO.beats;
     this.windFilter.baseFrequency = score.automation.windBaseHz ?? 250;
+    // The melody's own vibrato, which heat shimmer (HEAT) can take over hour by hour.
+    this.baseVibrato = this.asPlayed(score.meta.voices.melody).vibrato;
+    this.melodyVibrato.frequency.value = this.baseVibrato[0];
+    this.melodyVibrato.depth.value = this.baseVibrato[1];
     tr.swing = score.meta.swing ?? 0;
     tr.swingSubdivision = "16n";
     tr.loop = false; // plays once; pressing Play again starts it over
@@ -461,6 +465,11 @@ export class Engine {
     }
     this.atmosFilter.frequency.rampTo(a.cutoff, ramp * 2, t);
     this.windGain.gain.rampTo(a.wind, ramp * 2, t);
+    if (A.wobble) {
+      const [rate, depth] = this.baseVibrato, w = A.wobble[bar];
+      this.melodyVibrato.frequency.rampTo(w > 0 ? rate + (HEAT.wobble.rate - rate) * w : rate, ramp * 2, t);
+      this.melodyVibrato.depth.rampTo(Math.max(depth, HEAT.wobble.depth * w), ramp * 2, t);
+    }
   }
 
   /**

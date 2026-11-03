@@ -13,6 +13,9 @@ const STORM = [56, 60, 92];
 // Deep cold drains the colour: snow-white by day, slate by night.
 const ICE_DAY = [226, 230, 234];
 const ICE_NIGHT = [22, 25, 30];
+const GLARE = [244, 226, 186]; // deadly heat bleaches the sky
+const WHITEOUT = [214, 218, 222];
+const GLAZE = [176, 194, 208]; // freezing rain
 const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 const rgb = (c) => `rgb(${c})`;
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -33,8 +36,15 @@ export function coverArt(forecast, meta) {
   const stops = H.map((h, i) => {
     const storm = THUNDER_CODES.includes(h.code);
     const day = storm ? STORM : mix(CLEAR, GREY, h.cloud / 100);
-    const c = mix(mix(NIGHT, day, Math.max(0.05, meta.hourBrightness[i])),
+    let c = mix(mix(NIGHT, day, Math.max(0.05, meta.hourBrightness[i])),
       h.isDay ? ICE_DAY : ICE_NIGHT, 0.9 * (meta.deepCold?.[i] ?? 0));
+    const O = meta.outliers;
+    if (O) {
+      if (h.isDay) c = mix(c, GLARE, 0.6 * O.heat[i]);
+      c = mix(c, h.isDay ? WHITEOUT : mix(WHITEOUT, ICE_NIGHT, 0.6), 0.85 * O.whiteout[i]);
+      if (O.ice[i]) c = mix(c, h.isDay ? GLAZE : mix(GLAZE, NIGHT, 0.6), 0.5);
+      if (O.eye[i]) c = mix(c, CLEAR, 0.5); // a glimpse of sky in the eye
+    }
     return `<stop offset="${(x(i)).toFixed(1)}%" stop-color="${rgb(c)}"/>`;
   }).join("");
 

@@ -507,6 +507,70 @@ test("chords are their triad, or a sus with a whole-tone 2nd or perfect 4th", ()
   assert(!last || last === "5", `${n} the last chord resolves`);
 }));
 
+// ---- Outliers --------------------------------------------------------------
+const tweak = (name, fn) => { const f = structuredClone(forecasts[name]); f.hours.forEach((h, b) => fn(h, b)); return compose(f); };
+
+test("deadly heat wobbles and thins the melody; mild days don't", () => {
+  const s = scores["phoenix-heat"];
+  assert(s.automation.wobble && Math.max(...s.automation.wobble) > 0.5, "Phoenix at 47 °C shimmers");
+  assert(!scores["kyoto-spring"].automation.wobble, "no shimmer in spring");
+  const hot = s.meta.outliers.heat.map((x, b) => (x >= M.HEAT.sparseFrom ? b : -1)).filter((b) => b >= 0);
+  assert(hot.every((b) => s.automation.echoCarry[b] <= 0.5), "hot air smears the echo");
+});
+
+test("freezing rain turns the shakers into glassy ticks", () => {
+  const ice = (b) => b >= 6 && b < 12;
+  const s = tweak("london-drizzle", (h, b) => { if (ice(b)) { h.code = 66; h.temp = -1; h.precip = 1; } });
+  assert(s.rain.every((x) => !ice(x.bar)), "no shakers in the ice");
+  const ticks = s.bells.filter((x) => x.ice);
+  assert(ticks.length >= 6 * M.ICE_STORM.perHour[0] && ticks.every((x) => ice(x.bar) && x.midi >= M.ICE_STORM.low && x.midi <= M.ICE_STORM.high), "ticks in the ice hours, up high");
+  assert(s.atmosphere.filter((a) => ice(a.bar)).every((a) => a.kind === "ice"), "a crisp hiss");
+});
+
+test("the eye of a hurricane goes almost silent", () => {
+  const s = tweak("houston-storms", (h, b) => {
+    const d = Math.abs(b - 12);
+    h.pressure = 960 + 3 * d;
+    h.wind = d === 0 ? 20 : 90;
+    h.gust = d === 0 ? 40 : 140;
+    h.precip = d === 0 ? 0.5 : 20;
+  });
+  equal(s.meta.outliers.eye.map((x, b) => (x ? b : -1)).filter((b) => b >= 0), [12], "the eye at noon");
+  for (const list of [s.drums, s.garage, s.beat, s.rain]) assert(list.every((x) => x.bar !== 12), "nothing pounds in the eye");
+  equal(s.melody.filter((x) => x.bar === 12).length, 1, "one note");
+  assert(s.automation.gainDb[12] <= s.automation.gainDb[11] + M.EYE.gainDb / 2, "the band drops away");
+  assert(!scores["houston-storms"].meta.outliers.eye.some(Boolean), "an ordinary storm has no eye");
+});
+
+test("snow in a gale is a whiteout", () => {
+  const s = tweak("oslo-snow", (h) => { h.gust = 90; });
+  assert(s.meta.outliers.whiteout.some((x) => x === 1), "full whiteout");
+  const b = s.meta.outliers.whiteout.indexOf(1);
+  assert(s.atmosphere[b].wind >= M.WHITEOUT.wind && s.automation.melodyDb[b] <= M.WHITEOUT.melodyDb, "buried in the wind");
+  assert(scores["kyoto-spring"].meta.outliers.whiteout.every((x) => x === 0), "no snow, no whiteout");
+});
+
+test("a cold front darkens the song from the hour it hits", () => {
+  const order = M.MODE_THRESHOLDS.map((t) => t.mode);
+  const s = tweak("kyoto-spring", (h, b) => {
+    if (b >= 16) { h.temp -= 14; h.pressure += 6; }
+  });
+  equal(s.meta.outliers.front, 16);
+  const before = order.indexOf(s.meta.barModes[14]);
+  assert(s.meta.barModes.slice(16).every((m) => order.indexOf(m) > before), "darker after the front");
+  assert(s.atmosphere[16].wind >= M.FRONT.gust, "a gust marks it");
+  each((n, x) => equal(x.meta.outliers.front, null, `${n} has no front`));
+});
+
+test("hail clatters harder than rain", () => {
+  const rainy = (b) => b >= 6 && b < 12;
+  const plain = tweak("london-drizzle", (h, b) => { if (rainy(b)) { h.code = 95; h.pop = 60; h.precip = 2; } });
+  const hail = tweak("london-drizzle", (h, b) => { if (rainy(b)) { h.code = 96; h.pop = 60; h.precip = 2; } });
+  const hits = (s) => s.rain.filter((x) => rainy(x.bar));
+  assert(hits(hail).length > hits(plain).length, "more hits");
+  assert(Math.min(...hits(hail).map((x) => x.vel)) > Math.min(...hits(plain).map((x) => x.vel)), "harder hits");
+});
+
 test("deep cold hollows the chords, strips the beat and lifts the melody", () => {
   const s = scores["mcmurdo-cold"];
   assert(s.meta.colours.every((c) => c.susBy === "cold" && c.seventh === 0 && c.ninth === 0), "every chord is hollow");
