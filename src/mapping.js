@@ -684,8 +684,16 @@ export const DEEP_COLD = {
 //   slur       notes hang on this much longer (a drowsy legato)
 //   hat        the dry beat's hats lose this share
 //   echo       the echo loses this share (hot air smears sound instead of carrying it)
+//   darken     the whole day's brightness (which picks the mode) drops by this × the
+//              day's peak heat, so a scorching clear day isn't a happy sunny one: Phoenix
+//              at 47 °C plays Dorian, 50 °C Aeolian. Hot nights don't cool, so it holds all day.
+//   arpOff     the clear-daylight arpeggio fades out as the day's peak heat reaches this
+//              (it's the sunniest sound in the song), and the echo is muted by the day's
+//              peak heat as well as each hour's
+//   slow       the tempo drops by up to this share (even below TEMPO.min), never under
+//              minBpm: too hot to hurry. Phoenix at 47 °C: about 134 → 104 BPM.
 export const HEAT = {
-  fromFeels: 38, fullFeels: 50,
+  fromFeels: 38, fullFeels: 50, darken: 0.55, arpOff: 0.5, slow: 0.3, minBpm: 84,
   wobble: { rate: 1.3, depth: 0.35 }, highCutDb: -5,
   rest: 0.25, sparseFrom: 0.5, slur: 0.2, hat: 0.7, echo: 1,
 };

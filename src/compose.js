@@ -45,15 +45,19 @@ export function analyze(f) {
   const snow = H.filter((h) => M.SNOW_CODES.includes(h.code)).length >= 3;
 
   const B = M.BRIGHTNESS;
+  const HT = M.HEAT;
+  const dayHeat = Math.max(...H.map((h) => clamp(((h.feels ?? h.temp) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1)));
+  const heatDark = HT.darken * dayHeat;
   const brightness = 1 - B.cloud * stats.cloud - B.pop * stats.pop
-    - B.precip * Math.min(1, stats.precipSum / B.precipFullMm) - (storm ? B.storm : 0);
+    - B.precip * Math.min(1, stats.precipSum / B.precipFullMm) - (storm ? B.storm : 0) - heatDark;
   const mode = M.MODE_THRESHOLDS.find(
     (t) => brightness >= t.min && (t.minMeanTemp == null || stats.tMean >= t.minMeanTemp),
   ).mode;
 
   const root = ((Math.round(stats.pressure) % 12) + 12) % 12;
   const T = M.TEMPO;
-  const bpm = Math.round(clamp(T.base + T.perKmh * stats.wind, T.min, T.max));
+  const bpm = Math.round(Math.max(Math.min(T.min, HT.minBpm),
+    clamp(T.base + T.perKmh * stats.wind, T.min, T.max) * (1 - HT.slow * dayHeat)));
   const trend = stats.pressureChange > M.PRESSURE_TREND_HPA ? "rising"
     : stats.pressureChange < -M.PRESSURE_TREND_HPA ? "falling" : "steady";
   const loops = M.PROGRESSIONS[mode][trend];
@@ -64,7 +68,7 @@ export function analyze(f) {
   );
   const voices = pickVoices(stats, storm, snow);
   const { raw: intensity, energy } = dynamicsCurve(H);
-  return { stats, storm, stormHour, snow, brightness, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
+  return { stats, storm, stormHour, snow, brightness, heatDark, dayHeat, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
 }
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
@@ -234,7 +238,7 @@ export function storyArc(H, A, margin = M.STORY.margin) {
   const S = { ...M.STORY, margin };
   const n = M.BARS / M.BARS_PER_CHORD;
   const raw = Array.from({ length: n }, (_, c) =>
-    Math.min(...H.slice(c * M.BARS_PER_CHORD, (c + 1) * M.BARS_PER_CHORD).map((h) => hourBrightness(h, A.stormHour))));
+    Math.min(...H.slice(c * M.BARS_PER_CHORD, (c + 1) * M.BARS_PER_CHORD).map((h) => hourBrightness(h, A.stormHour) - (A.heatDark ?? 0))));
   const br = raw.map((_, c) => {
     let sum = 0, w = 0;
     S.smooth.forEach((k, i) => {
@@ -795,7 +799,8 @@ export function compose(f, { units = "metric" } = {}) {
   let step = 0;
   for (let b = 0; b < M.BARS - 1; b++) {
     const h = H[b];
-    const amount = clamp(((1 - h.cloud / 100) * (h.isDay ? 1 : 0) - AR.from) / (AR.full - AR.from), 0, 1);
+    const amount = clamp(((1 - h.cloud / 100) * (h.isDay ? 1 : 0) - AR.from) / (AR.full - AR.from), 0, 1)
+      * clamp(1 - A.dayHeat / HT.arpOff, 0, 1);
     if (b % M.BARS_PER_CHORD === 0) step = 0; // each chord starts its run from the bottom (or top)
     if (amount <= 0 || h.precip >= 0.1 || M.SNOW_CODES.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
@@ -1019,7 +1024,7 @@ export function compose(f, { units = "metric" } = {}) {
       const E = M.ECHO;
       const wet = h.precip >= 0.1 || M.SNOW_CODES.includes(h.code) || E.fogCodes.includes(h.code);
       return wet ? 0 : +(Math.min(1, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)
-        + DC.echoCarry * deep[b]) * (1 - HT.echo * heat[b])).toFixed(3);
+        + DC.echoCarry * deep[b]) * (1 - HT.echo * Math.max(heat[b], A.dayHeat))).toFixed(3);
     }),
     // Snow on the ground soaks up the echoes.
     reverbWet: +((RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1))
@@ -1174,7 +1179,7 @@ function linerNotes(f, A, meta, layers, units) {
   const hours = (xs) => xs.map((x, b) => (x ? b : -1)).filter((b) => b >= 0);
   const outliers = [];
   const hot = hours(O.heat.map((x) => x >= 0.5));
-  if (hot.length) outliers.push(`The heat is dangerous${hot.length < 20 ? ` around ${hourLabel(hot[Math.floor(hot.length / 2)])}` : ""}, so the melody wilts: it wavers like air over hot ground, thins out and dulls.`);
+  if (hot.length) outliers.push(`The heat is dangerous${hot.length < 20 ? ` around ${hourLabel(hot[Math.floor(hot.length / 2)])}` : ""}, so the song slows and darkens and the melody wilts: it wavers like air over hot ground, thins out and dulls.`);
   if (O.ice.some(Boolean)) outliers.push("Freezing rain glazes everything, and the shakers turn into brittle, glassy ticks.");
   const eyeAt = hours(O.eye);
   if (eyeAt.length) outliers.push(`At ${hourLabel(eyeAt[0])} the eye of the storm passes over: the wind drops away and the music almost stops, before the storm slams back.`);

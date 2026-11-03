@@ -129,7 +129,7 @@ test("bass fits each chord without overlapping (half-time spans the chord)", () 
 }));
 
 test("tempo, velocities and automation are in range", () => each((n, s) => {
-  assert(s.meta.bpm >= M.TEMPO.min && s.meta.bpm <= M.TEMPO.max, `${n} bpm ${s.meta.bpm}`);
+  assert(s.meta.bpm >= Math.min(M.TEMPO.min, M.HEAT.minBpm) && s.meta.bpm <= M.TEMPO.max, `${n} bpm ${s.meta.bpm}`);
   for (const x of [...s.melody, ...s.bass, ...s.pad, ...s.rain, ...s.bells]) assert(x.vel > 0 && x.vel <= 1, `${n} vel ${x.vel}`);
   for (const p of s.automation.pan) assert(Math.abs(p) <= M.PAN_WIDTH, `${n} pan`);
   for (const c of s.automation.cutoff) assert(c >= 500 && c <= 20000, `${n} cutoff ${c}`);
@@ -138,7 +138,8 @@ test("tempo, velocities and automation are in range", () => each((n, s) => {
 
 test("weather picks sensible moods", () => {
   const b = (n) => scores[n].meta.brightness;
-  equal(scores["phoenix-heat"].meta.mode, "lydian", "hot clear day");
+  equal(scores["phoenix-heat"].meta.mode, "dorian", "dangerously hot clear day isn't sunny-happy");
+  assert(scores["phoenix-heat"].meta.bpm <= 108, `too hot to hurry (${scores["phoenix-heat"].meta.bpm} BPM)`);
   equal(scores["mcmurdo-cold"].meta.mode, "ionian", "cold clear day is bright but not Lydian");
   assert(scores["houston-storms"].meta.barModes.includes("phrygian"), "the storm itself is Phrygian");
   assert(["aeolian", "phrygian"].includes(scores["mumbai-monsoon"].meta.mode), "monsoon is dark");
@@ -696,6 +697,7 @@ test("arpeggio: chord tones, in range, only in clear dry daylight", () => each((
 test("arpeggio: faster in wind, direction follows pressure", () => {
   const clear = (wind) => normalizeForecast({ ...raw["phoenix-heat"], hourly: { ...raw["phoenix-heat"].hourly,
     cloud_cover: Array(24).fill(0), precipitation: Array(24).fill(0), precipitation_probability: Array(24).fill(0),
+    temperature_2m: raw["phoenix-heat"].hourly.temperature_2m.map((t) => t - 20), // not dangerously hot
     wind_speed_10m: Array(24).fill(wind), wind_gusts_10m: Array(24).fill(wind + 5), weather_code: Array(24).fill(0) } });
   const still = compose(clear(4)).arp, windy = compose(clear(20)).arp;
   assert(still.length && windy.length > still.length, `windy ${windy.length} vs still ${still.length}`);
@@ -704,6 +706,7 @@ test("arpeggio: faster in wind, direction follows pressure", () => {
   const run = s.arp.filter((x) => x.bar === s.arp[0].bar).map((x) => x.midi);
   if (s.meta.trend === "rising") assert(run[1] > run[0], "rising climbs");
   if (s.meta.trend === "falling") assert(run[1] < run[0], "falling descends");
+  equal(scores["phoenix-heat"].arp.length, 0, "no sunny arpeggio in dangerous heat");
 });
 
 test("echo carries in clear, still, dry air", () => each((n, s, f) => {
