@@ -1,6 +1,8 @@
 import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
-import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels, chordColour, voiceChord, pickVoices, arpRun } from "../src/compose.js";
+import { compose } from "../src/compose.js";
+import { analyze, dynamicsCurve, capeLevel, bassFeels, pickVoices } from "../src/score/analyze.js";
+import { chordDegreeAt, chordColour, voiceChord, arpRun } from "../src/score/harmony.js";
 import { MODES, melodyDegrees, triadPcs, chordLabel, stepAbove } from "../src/theory.js";
 import * as M from "../src/mapping.js";
 
