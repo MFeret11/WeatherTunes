@@ -25,6 +25,16 @@ export function mulberry32(seed) {
   };
 }
 
+/** A shuffled copy of arr (Fisher–Yates, drawing from rng). */
+export function shuffle(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // ---- Display formatting --------------------------------------------------
 
 /** "midnight", "noon", "3 pm", "7:30 am". */

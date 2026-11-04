@@ -2,112 +2,26 @@
 // Same forecast in, same score out (randomness comes from a seeded RNG).
 
 import * as M from "./mapping.js";
-import { MODES, MODE_LABELS, keyName, midiToNote, melodyDegrees, scalePitches, triadPcs, chordLabel, stepAbove } from "./theory.js";
+import { MODES, MODE_LABELS, keyName, midiToNote, chordLabel, stepAbove } from "./theory.js";
 import { clamp, mean, mulberry32 } from "./util.js";
-import { seedFor, analyze, capeLevel, bassFeels, calmStir, hourBrightness, eyeHours, frontHour } from "./score/analyze.js";
-import { MODE_ORDER, afterFront, storyArc, dayArc, storyChords } from "./score/story.js";
-import { twistChords, arpRun, pedalBars, chordColour, voiceChord, eveningOutlook, openDegree } from "./score/harmony.js";
+import { capeLevel, hourBrightness } from "./score/analyze.js";
+import { arpRun, voiceChord } from "./score/harmony.js";
 import { linerNotes, notesAsText } from "./score/liner.js";
-import { daySky } from "./score/sky.js";
+import { scoreContext } from "./score/context.js";
+import { rainAndBells, atmosphereBed, oneOffFx, eyeOfStorm } from "./score/texture.js";
 
 export function compose(f, { units = "metric" } = {}) {
-  const A = analyze(f);
-  const { stats, root, snow, energy } = A;
+  const ctx = scoreContext(f);
+  const { H, A, stats, root, snow, energy, gateFor, swing, busierRow, deep, heat, whiteout, iceHour, eye, front, SK, seed, rng, pick, day, stir, arc, lift, barChords, modeAt, mode, progression, twists, evening, chordDeg, rootAt, keyAt, colours, colourAt, chordPcs, tables, octave, pitchAt, bassFeel, pedal } = ctx;
   const D = M.DYNAMICS;
-  // One row busier in the loudest stretches.
-  const G = M.GROOVE;
-  const gateFor = (h) => {
-    const humid = clamp((h.rh - G.rhLow) / (G.rhHigh - G.rhLow), 0, 1);
-    const cold = clamp((G.clipFromC - h.temp) / (G.clipFromC - G.clipFullC), 0, 1);
-    return +Math.max(G.gateMin, G.gateDry + (G.gateHumid - G.gateDry) * humid - G.clipMax * cold).toFixed(3);
-  };
-  // Muggy air swings: the dew point measures how much water the air holds.
-  const swing = +(G.swingMax * clamp((stats.dewMean - M.DEW.swingFromDew) / (M.DEW.swingFullDew - M.DEW.swingFromDew), 0, 1)).toFixed(3);
-  const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
-  const H = f.hours;
   const DC = M.DEEP_COLD;
-  const deep = H.map((h) => +clamp((DC.fromFeels - (h.feels ?? h.temp)) / (DC.fromFeels - DC.fullFeels), 0, 1).toFixed(3));
   const HT = M.HEAT;
-  const GL = M.GLIDE, FL = M.FLUTTER;
-  const heat = H.map((h) => +clamp(((h.feels ?? h.temp) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1).toFixed(3));
+  const GL = M.GLIDE;
+  const FL = M.FLUTTER;
   const WO = M.WHITEOUT;
-  const whiteout = H.map((h) => (M.SNOW_CODES.includes(h.code)
-    ? +clamp((h.gust - WO.fromGust) / (WO.fullGust - WO.fromGust), 0, 1).toFixed(3) : 0));
-  const iceHour = H.map((h) => M.ICE_STORM.codes.includes(h.code));
-  const eye = eyeHours(H);
-  const front = frontHour(H);
-  const SK = daySky(f);
-  const seed = seedFor(f);
-  const rng = mulberry32(seed);
-  const pick = (arr) => arr[Math.floor(rng() * arr.length)];
-
-  // ---- Story: a mode and chord for every bar -------------------------------
-  const day = dayArc(H, A);
   const C = M.CALM_DETAIL;
-  // On a calm day the music follows the day's small changes (zero on dramatic days).
-  const stir = day.dramatic ? H.map(() => 0) : calmStir(H);
-  const arc = afterFront(storyArc(H, A, day.dramatic ? M.STORY.margin : C.margin), front);
   const R = M.ARC;
-  const lift = (b) => Math.round(R.liftSteps * energy[b]);
-  const barChords = storyChords(arc, A, seed);
-  const modeAt = (b) => barChords[b].mode;
-  // The song's main mode is the one heard longest; its opening loop names the progression.
-  const counts = {};
-  for (const x of barChords) counts[x.mode] = (counts[x.mode] || 0) + 1;
-  const mode = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || MODE_ORDER.indexOf(a) - MODE_ORDER.indexOf(b))[0];
-  const firstLoops = M.PROGRESSIONS[arc.chapters[0].mode][A.trend];
-  const progression = firstLoops[seed % firstLoops.length];
-  // Twists: a few chords step outside the mode where the weather surprises (see TWISTS).
-  const twists = twistChords(H, A, arc, barChords, { day, deep, front, seed });
-  // The ending follows the evening: weather moving in leaves the last chord away from home.
-  const evening = eveningOutlook(H);
-  if (evening.kind === "open") {
-    const prev = barChords[M.BARS - M.BARS_PER_CHORD - 1];
-    const d = openDegree(barChords[M.BARS - 1].mode, prev.mode === barChords[M.BARS - 1].mode && !prev.shift ? prev.deg : null);
-    for (let b = M.BARS - M.BARS_PER_CHORD; b < M.BARS; b++) barChords[b] = { ...barChords[b], deg: d };
-  }
-  const chordDeg = (b) => barChords[b].deg;
-  const rootAt = (b) => (root + (barChords[b].shift ?? 0)) % 12;
-  const keyAt = (b) => `${barChords[b].mode}@${barChords[b].shift ?? 0}`;
-  // Each chord's colour (sevenths, ninths, sus, spread) from its two hours.
-  const colours = Array.from({ length: M.BARS / M.BARS_PER_CHORD }, (_, c) => {
-    const b = c * M.BARS_PER_CHORD;
-    const final = b + M.BARS_PER_CHORD >= M.BARS;
-    const col = chordColour(H.slice(b, b + M.BARS_PER_CHORD), modeAt(b), chordDeg(b), final);
-    // Deep cold hollows the chord out (see DEEP_COLD).
-    if (mean(deep.slice(b, b + M.BARS_PER_CHORD)) >= DC.hollowFrom) {
-      const second = stepAbove(modeAt(b), chordDeg(b), 1) === 2;
-      return { ...col, sus: !final && second ? "sus2" : "5", susBy: "cold", seventh: 0, ninth: 0, open: true };
-    }
-    return col;
-  });
-  const colourAt = (b) => colours[Math.floor(b / M.BARS_PER_CHORD)];
-  // The chord's own tones: a sus chord swaps its third, and the melody's strong beats follow it.
-  const chordPcs = (b) => {
-    const t = triadPcs(rootAt(b), modeAt(b), chordDeg(b));
-    const { sus } = colourAt(b);
-    if (sus === "5") return [t[0], t[2]]; // a bare fifth
-    if (sus) t[1] = (t[0] + (sus === "sus2" ? 2 : 5)) % 12;
-    return t;
-  };
-
-  // ---- Melody ------------------------------------------------------------
-  // Melody positions are scale steps relative to the tonic, so a line carries
-  // across a change of mode: step 2 is the third in major or minor alike.
   const MEL = M.MELODY;
-  const rootMidi = 60 + root - (root >= 6 ? 12 : 0); // tonic between F#3 and F4
-  const tables = {};
-  for (let b = 0; b < M.BARS; b++) {
-    const k = keyAt(b), m = modeAt(b);
-    if (tables[k]) continue;
-    const p = scalePitches(rootAt(b), m, melodyDegrees(m, snow));
-    // A twisted chord's scale may not hold the tonic: step 0 is its nearest note (lower on a tie).
-    let base = p.indexOf(rootMidi);
-    if (base < 0) base = p.reduce((best, x, i) => (Math.abs(x - rootMidi) < Math.abs(p[best] - rootMidi) ? i : best), 0);
-    tables[k] = { p, base };
-  }
-  const octave = melodyDegrees(mode, snow).length; // steps per octave
-  const pitchAt = (b, r) => { const t = tables[keyAt(b)]; return t.p[t.base + r]; };
   const baseIdx = 0;
 
   const span = Math.max(stats.tMax - stats.tMin, MEL.minSpanC);
@@ -239,8 +153,6 @@ export function compose(f, { units = "metric" } = {}) {
 
   // ---- Bass --------------------------------------------------------------
   const bass = [];
-  const bassFeel = bassFeels(H, energy, stats);
-  const pedal = pedalBars(H, barChords);
   for (let b = 0; b < M.BARS; b++) {
     const pc = pedal[b] ? root : chordPcs(b)[0]; // a pedal holds the home note under the chord
     const m = 36 + pc; // root between C2 and B2
@@ -392,99 +304,13 @@ export function compose(f, { units = "metric" } = {}) {
     }
   }
 
-  // ---- Rain shakers (or snow bells) ---------------------------------------
-  const rain = [];
-  const bells = [];
-  const bellPitches = (b) => tables[keyAt(b)].p.filter((p) => p >= M.BELLS.low && p <= M.BELLS.high);
-  for (let b = 0; b < M.BARS; b++) {
-    const h = H[b];
-    if (h.pop < M.RAIN.minPop && h.precip === 0) continue;
-    if (M.SNOW_CODES.includes(h.code)) {
-      const count = Math.max(1, Math.round((h.pop / 100) * M.BELLS.maxHits));
-      const slots = shuffle([0, 2, 4, 6], rng).slice(0, count).sort((x, y) => x - y);
-      for (const pos of slots) {
-        const midi = pick(bellPitches(b));
-        bells.push({ bar: b, pos, dur: 4, midi, note: midiToNote(midi), vel: M.BELLS.vel });
-      }
-      continue;
-    }
-    if (iceHour[b]) continue; // ice ticks instead (below)
-    const hail = M.HAIL.codes.includes(h.code);
-    let count = Math.round((h.pop / 100) * M.RAIN.maxHits);
-    if (h.precip > 0) count = Math.max(1, count);
-    if (hail) count = Math.min(8, count * M.HAIL.hits);
-    // Off-beat sixteenths first, so shakers sit between the melody's strong beats.
-    const off = shuffle([1, 2, 3, 5, 6, 7], rng);
-    const on = shuffle([0, 4], rng);
-    const slots = off.concat(on).slice(0, count).sort((x, y) => x - y);
-    const v = Math.min(M.RAIN.velMax, M.RAIN.velBase + M.RAIN.velPerMm * h.precip) + (hail ? M.HAIL.velBoost : 0);
-    for (const pos of slots) {
-      rain.push({ bar: b, pos, dur: 1, vel: +clamp(v + (rng() - 0.5) * 0.1, 0.05, 1).toFixed(3) });
-    }
-  }
-  // Ice storm: glassy ticks, high and short (see ICE_STORM). Their own random
-  // stream, so the rest of the song is unchanged.
-  const IS = M.ICE_STORM;
-  const irng = mulberry32((seed ^ 0x1ce) >>> 0);
-  for (let b = 0; b < M.BARS; b++) {
-    if (!iceHour[b]) continue;
-    const k = clamp(H[b].precip / IS.fullMm, 0, 1);
-    const count = Math.round(IS.perHour[0] + (IS.perHour[1] - IS.perHour[0]) * k);
-    const pitches = tables[keyAt(b)].p.filter((p) => p >= IS.low && p <= IS.high);
-    const slots = shuffle([0, 1, 2, 3, 4, 5, 6, 7], irng).slice(0, count).sort((x, y) => x - y);
-    for (const pos of slots) {
-      const midi = pitches[Math.floor(irng() * pitches.length)];
-      bells.push({ bar: b, pos, dur: 1, midi, note: midiToNote(midi), ice: true,
-        vel: +(IS.vel[0] + (IS.vel[1] - IS.vel[0]) * (k * 0.6 + irng() * 0.4)).toFixed(3) });
-    }
-  }
-  bells.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
-
-  // ---- Atmosphere (noise bed) and wind whoosh, one value per bar ----------
-  const atmosphere = H.map((h, b) => {
-    let row = M.ATMOSPHERE.find((r) => r.codes.includes(h.code));
-    if (A.stormHour(h)) row = M.ATMOSPHERE.find((r) => r.kind === "storm");
-    else if (!row && h.precip >= 0.1) row = M.ATMOSPHERE.find((r) => r.kind === "rain");
-    const W = M.WIND_NOISE;
-    const DW = DC.wind;
-    const wind = +Math.max(clamp((h.gust - W.from) / (W.full - W.from), 0, 1) * W.max,
-      day.breeze[b] ? R.breezeLevel : 0,
-      DW.level * deep[b] * clamp((h.gust - DW.fromGust) / (DW.fullGust - DW.fromGust), 0, 1),
-      WO.wind * whiteout[b],
-      front == null ? 0 : b === front ? M.FRONT.gust : b === front + 1 ? M.FRONT.gust / 2 : 0).toFixed(3);
-    if (!row) return { bar: b, kind: null, color: null, level: 0, cutoff: 6000, wind };
-    return {
-      bar: b, kind: row.kind, color: row.color, cutoff: row.cutoff, wind,
-      level: +Math.min(row.max, row.base + row.perMm * h.precip).toFixed(3),
-    };
-  });
-
-  // ---- One-off effects ----------------------------------------------------
-  const fx = [];
-  H.forEach((h, b) => {
-    if (A.stormHour(h)) fx.push({ bar: b, pos: M.STEPS / 2, type: "thunder" });
-  });
-  // A clearing swells into its new tonic.
-  for (const ch of arc.chapters) {
-    if (ch.turn === "brighter") fx.push({ bar: ch.chord * M.BARS_PER_CHORD - 1, pos: 0, type: "swell", label: "clearing" });
-  }
-  // The storm breaks: a swell where the release begins (unless a clearing already swells there).
-  for (const mo of day.moments) {
-    if (mo.phase === "release" && !fx.some((x) => x.type === "swell" && Math.abs(x.bar - mo.bar) <= 1)) {
-      fx.push({ bar: mo.bar, pos: 0, type: "swell", label: "release" });
-    }
-  }
-  for (const [label, t] of [["sunrise", f.sunrise], ["sunset", f.sunset]]) {
-    if (t == null) continue;
-    const bar = Math.floor(t);
-    fx.push({ bar, pos: clamp(Math.round((t - bar) * M.STEPS), 0, M.STEPS - 1), type: "swell", label });
-  }
-
+  const { rain, bells } = rainAndBells(ctx);
+  const atmosphere = atmosphereBed(ctx);
+  const fx = oneOffFx(ctx);
   // ---- Sky bells and shimmer (see the "Sky and air" section of mapping.js) ----
   // Their own random stream, so adding them never changes the rest of the song.
   const srng = mulberry32((seed ^ 0x5eed) >>> 0);
   const chimes = [];
-  const shimmer = [];
   const chimePitches = (b, pcs) => tables[keyAt(b)].p.filter((p) => p >= M.CHIMES.low && p <= M.CHIMES.high && (!pcs || pcs.includes(p % 12)));
   const chime = (bar, pos, midi, vel, kind, dur = 4) => chimes.push({ bar, pos, dur, midi, note: midiToNote(midi), vel: +vel.toFixed(3), kind });
   const { moon } = SK;
@@ -532,6 +358,7 @@ export function compose(f, { units = "metric" } = {}) {
     arp.forEach((midi, k) => chime(bar + Math.floor((k * 3) / M.STEPS), (k * 3) % M.STEPS, midi, M.CALENDAR.holidayVel, "holiday", 6));
   }
   chimes.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+  const shimmer = [];
   // UV: sunny hours double the melody an octave up, softly.
   for (const n of melody) {
     const u = SK.uvShine[n.bar];
@@ -548,18 +375,7 @@ export function compose(f, { units = "metric" } = {}) {
     shimmer.push({ kind: "aurora", bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, notes, vel: +(M.AURORA.vel * level).toFixed(3) });
   }
 
-  // ---- The eye of a hurricane: the storm falls away (see EYE) ---------------
-  if (eye.some(Boolean)) {
-    const calm = (x) => !eye[x.bar];
-    for (const list of [drums, garage, beat, rain]) {
-      const kept = list.filter(calm);
-      list.length = 0;
-      list.push(...kept);
-    }
-    for (let i = fx.length - 1; i >= 0; i--) if (eye[fx[i].bar] && fx[i].type === "thunder") fx.splice(i, 1);
-    for (const a of atmosphere) if (eye[a.bar]) { a.level = +(a.level * M.EYE.keep).toFixed(3); a.wind = +(a.wind * M.EYE.keep).toFixed(3); }
-  }
-
+  eyeOfStorm(ctx, { drums, garage, beat, rain, fx, atmosphere });
   // ---- Per-bar automation ---------------------------------------------------
   const F = M.FILTER;
   const RV = M.REVERB;
@@ -660,17 +476,6 @@ export function compose(f, { units = "metric" } = {}) {
   meta.notes = notesAsText(meta.liner);
   return { meta, melody, bass, pad, arp, drums, garage, beat, crackle, rain, bells, atmosphere, fx, automation, chimes, shimmer };
 }
-
-function shuffle(arr, rng) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// ---- Liner notes: plain-English reasons for today's song -------------------
 
 /**
  * Melody level from daylight, in dB (0 by day, MELODY.nightDb at night), fading
