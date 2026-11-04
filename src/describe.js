@@ -1,7 +1,8 @@
 // describe(forecast, units) → a few plain sentences about the day's weather,
 // like a forecaster would say it. Weather only; no music here.
 
-import { hourLabel, formatSpeed, daySky, aqiCategory, uvCategory } from "./compose.js";
+import { hourLabel, formatSpeed, aqiCategory, uvCategory } from "./util.js";
+import { daySky } from "./score/sky.js";
 import { THUNDER_CODES, SNOW_CODES } from "./mapping.js";
 
 // Brightest first, so we can tell "clearing" from "turning".

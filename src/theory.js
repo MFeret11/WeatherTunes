@@ -1,4 +1,4 @@
-// Small music-theory helpers: modes, note names, triads, and a seeded RNG.
+// Small music-theory helpers: modes, note names and triads.
 
 export const MODES = {
   lydian:     [0, 2, 4, 6, 7, 9, 11],
@@ -66,28 +66,3 @@ export function chordLabel(mode, deg) {
   if (fifth === 6) num += "°";
   return prefix + num;
 }
-
-// ---- Seeded randomness (same seed → same song) ---------------------------
-
-export function hashString(s) {
-  let h = 0x811c9dc5; // FNV-1a
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
-export const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;

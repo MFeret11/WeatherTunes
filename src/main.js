@@ -3,7 +3,8 @@
 // Or hear the place's year: the Season suite plays a typical day from each season.
 
 import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, randomPlace, roundCoord } from "./weather.js";
-import { compose, hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./compose.js";
+import { compose } from "./compose.js";
+import { hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./util.js";
 import { describe } from "./describe.js";
 import { Player } from "./stream.js";
 import { toWav, wavName } from "./wav.js";
