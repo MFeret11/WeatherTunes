@@ -812,3 +812,26 @@ test("weather moving in toward evening leaves the ending open", () => {
   equal(clouds.meta.ending.kind, "hint", `clouds gathering hint (${JSON.stringify(clouds.meta.ending)})`);
   check("kyoto clouds", clouds);
 });
+
+test("a fast temperature change slides the melody; strong gusts flutter the pad", () => {
+  each((n, s) => {
+    for (const x of s.melody.filter((m) => m.glide)) {
+      assert(s.meta.voices.melody.glide, `${n} only gliding voices slide`);
+      assert(x.pos === 0 && x.bar > 0 && x.bar < M.BARS - 1, `${n} glide on an hour's first note`);
+      assert(Math.abs(x.midi - x.from) >= M.GLIDE.minSemis && x.glide <= x.dur, `${n} glide ${JSON.stringify(x)}`);
+      const dT = Math.abs(forecasts[n].hours[x.bar].temp - forecasts[n].hours[x.bar - 1].temp);
+      assert(dT > M.GLIDE.fromC, `${n} glide needs a fast change (${dT})`);
+    }
+    for (const f of s.automation.flutter) assert(f >= 0 && f <= 1, `${n} flutter in range`);
+  });
+  // Kyoto plays plucked strings; a sharp warm-up makes it slide.
+  const fast = tweak("kyoto-spring", (h, b) => { h.temp = h.feels = b % 4 < 2 ? 13 : 20; });
+  assert(fast.meta.voices.melody.glide, `voice ${fast.meta.voices.melody.id} glides`);
+  assert(fast.melody.some((x) => x.glide), "a fast warm-up slides");
+  equal(scores["kyoto-spring"].melody.filter((x) => x.glide).length, 0, "a gentle spring day steps");
+  const gusty = tweak("kyoto-spring", (h) => { h.wind = 25; h.gust = 70; });
+  assert(gusty.automation.flutter.every((x) => x === 1), "strong gusts flutter");
+  assert(/flutter/.test(gusty.meta.liner.paragraphs[0]), "liner mentions the flutter");
+  assert(scores["kyoto-spring"].automation.flutter.every((x) => x < 0.5), "a calm day barely flutters");
+});
+

@@ -13,7 +13,8 @@
 //   thunder, swell (one-shots)
 //   sky bells (moonrise, meteors, frost, holiday, solstice), UV sparkle, aurora chord → fx
 
-import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32, ENDING, HEAT } from "./mapping.js";
+import { SOFT_CLIP, STORM_DRUMS_DB, MIX, ECHO, ARP, ARP_VOICE, SWELL, RETRO32, ENDING, HEAT, FLUTTER } from "./mapping.js";
+import { midiToNote } from "./theory.js";
 
 const Tone = () => window.Tone;
 
@@ -327,6 +328,7 @@ export class Engine {
     this.windFilter.baseFrequency = score.automation.windBaseHz ?? 250;
     // The melody's own vibrato, which heat shimmer (HEAT) can take over hour by hour.
     this.baseVibrato = this.asPlayed(score.meta.voices.melody).vibrato;
+    this.baseTremolo = this.asPlayed(score.meta.voices.pad).tremolo;
     this.melodyVibrato.frequency.value = this.baseVibrato[0];
     this.melodyVibrato.depth.value = this.baseVibrato[1];
     tr.swing = score.meta.swing ?? 0;
@@ -359,7 +361,9 @@ export class Engine {
     for (const n of score.melody) {
       tr.schedule((t) => {
         if (n.bar === lastBar) this.melody.set({ envelope: { release: ENDING.releaseSec, releaseCurve: "linear" } });
-        this.melody.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel);
+        // A glide (GLIDE) starts on the last note and bends this voice up or down to its own.
+        this.melody.triggerAttackRelease(n.glide ? midiToNote(n.from) : n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel);
+        if (n.glide) this.melody._activeVoices.at(-1)?.voice.frequency.exponentialRampToValueAtTime(440 * 2 ** ((n.midi - 69) / 12), t + this.s16(n.glide));
       }, at(n.bar, n.pos));
     }
     for (const n of score.bass) {
@@ -465,6 +469,14 @@ export class Engine {
     }
     this.atmosFilter.frequency.rampTo(a.cutoff, ramp * 2, t);
     this.windGain.gain.rampTo(a.wind, ramp * 2, t);
+    if (A.flutter) {
+      // The pad's own tremolo, unless the gusts' flutter is stronger.
+      const lerp = ([a, b], x) => a + (b - a) * x;
+      const f = A.flutter[bar], own = this.baseTremolo;
+      const [rate, depth] = f > 0 && lerp(FLUTTER.depth, f) > own[1] ? [lerp(FLUTTER.rate, f), lerp(FLUTTER.depth, f)] : own;
+      this.padTremolo.frequency.rampTo(rate, ramp * 2, t);
+      this.padTremolo.depth.rampTo(depth, ramp * 2, t);
+    }
     if (A.wobble) {
       const [rate, depth] = this.baseVibrato, w = A.wobble[bar];
       this.melodyVibrato.frequency.rampTo(w > 0 ? rate + (HEAT.wobble.rate - rate) * w : rate, ramp * 2, t);

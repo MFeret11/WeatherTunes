@@ -442,6 +442,18 @@ export const GROOVE = {
   clipFromC: 5, clipFullC: -20, clipMax: 0.3,
   gateMin: 0.3,
 };
+// Glide (portamento): when the temperature moves fast, the melody slides into the
+// hour's first note instead of stepping to it. The change from the hour before
+// ramps from fromC to fullC (°C in an hour); the slide lasts up to maxSteps
+// sixteenths (never past the note's own sound), and only between notes at least
+// minSemis apart. Only voices marked `glide` slide: a sliding marimba or bell sounds broken.
+export const GLIDE = { fromC: 2, fullC: 4.5, minSteps: 0.5, maxSteps: 1.5, minSemis: 2 };
+// Flutter (tremolo): strong gusts well above the steady wind make the pad's chords
+// flutter like air buffeting a window. Amount = gust strength (gust km/h, gustFrom
+// → gustFull) × gustiness (gust − wind, gapFrom → gapFull); the flutter's rate and
+// depth ramp with it. Forecast gusts often run 25 km/h over the wind on an ordinary
+// day, so both are needed. A pad with its own tremolo keeps whichever is stronger.
+export const FLUTTER = { gustFrom: 40, gustFull: 65, gapFrom: 12, gapFull: 25, rate: [3.5, 7], depth: [0.15, 0.5] };
 
 // ---- Sound shaping (per-hour automation) ----------------------------------
 export const FILTER = { clearHz: 6000, overcastHz: 2000, nightFactor: 0.6 };
@@ -455,6 +467,7 @@ export const PAN_WIDTH = 0.6;
 //   gain    dB trim so every voice sits at about the same loudness
 //   tone    lowpass cutoff (Hz) on this instrument alone
 //   vibrato [rate Hz, depth 0–1]   (melody)   tremolo [rate Hz, depth 0–1] (pad)
+//   glide   true if the melody may slide between notes (see GLIDE)
 
 // Melody: the day's mean feels-like temperature. First row whose maxTemp (°C) is above it.
 // Most ordinary days feel 7–18 °C, so that range is split between keys and pluck.
@@ -469,7 +482,7 @@ export const MELODY_VOICES = [
     },
   },
   {
-    id: "flute", label: "breathy flute", maxTemp: 6, synth: "Synth", gain: 1, tone: 3500, vibrato: [5, 0.08],
+    id: "flute", label: "breathy flute", maxTemp: 6, synth: "Synth", gain: 1, tone: 3500, glide: true, vibrato: [5, 0.08],
     options: {
       oscillator: { partials: [1, 0.25, 0.08] },
       envelope: { attack: 0.08, decay: 0.2, sustain: 0.8, release: 0.5 },
@@ -484,7 +497,7 @@ export const MELODY_VOICES = [
   },
   {
     // A soft pluck: a saw whose filter snaps shut, like a nylon string or harp.
-    id: "pluck", label: "plucked strings", maxTemp: 20, synth: "MonoSynth", gain: 4, tone: 5000, vibrato: [0, 0],
+    id: "pluck", label: "plucked strings", maxTemp: 20, synth: "MonoSynth", gain: 4, tone: 5000, glide: true, vibrato: [0, 0],
     options: {
       oscillator: { type: "sawtooth" },
       filter: { type: "lowpass", Q: 1, rolloff: -24 },
@@ -502,7 +515,7 @@ export const MELODY_VOICES = [
     },
   },
   {
-    id: "reed", label: "reedy pipe", maxTemp: Infinity, synth: "Synth", gain: -7, tone: 2400, vibrato: [5.5, 0.12],
+    id: "reed", label: "reedy pipe", maxTemp: Infinity, synth: "Synth", gain: -7, tone: 2400, glide: true, vibrato: [5.5, 0.12],
     options: {
       oscillator: { type: "pulse", width: 0.3 },
       envelope: { attack: 0.05, decay: 0.3, sustain: 0.7, release: 0.4 },

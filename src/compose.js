@@ -618,6 +618,7 @@ export function compose(f, { units = "metric" } = {}) {
   const DC = M.DEEP_COLD;
   const deep = H.map((h) => +clamp((DC.fromFeels - (h.feels ?? h.temp)) / (DC.fromFeels - DC.fullFeels), 0, 1).toFixed(3));
   const HT = M.HEAT;
+  const GL = M.GLIDE, FL = M.FLUTTER;
   const heat = H.map((h) => +clamp(((h.feels ?? h.temp) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1).toFixed(3));
   const WO = M.WHITEOUT;
   const whiteout = H.map((h) => (M.SNOW_CODES.includes(h.code)
@@ -788,7 +789,11 @@ export function compose(f, { units = "metric" } = {}) {
         while (prevMidi - pitchAt(b, idx) > MEL.maxLeap) idx += octave;
       }
       const midi = pitchAt(b, idx);
+      // A fast temperature change slides into the hour's first note (see GLIDE).
+      const glide = k === 0 && !last && prevMidi != null && A.voices.melody.glide && Math.abs(midi - prevMidi) >= GL.minSemis
+        ? clamp((Math.abs(h.temp - H[b - 1].temp) - GL.fromC) / (GL.fullC - GL.fromC), 0, 1) : 0;
       melody.push({
+        ...(glide > 0 ? { from: prevMidi, glide: +Math.min(GL.minSteps + (GL.maxSteps - GL.minSteps) * glide, dur * 0.6).toFixed(2) } : {}),
         bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : Math.min(0.98, gateFor(h) + (day.phases[b] === "release" ? R.releaseGate : 0) + HT.slur * heat[b]),
         vel: +(Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)) * (eye[b] ? M.EYE.vel : 1)).toFixed(3),
       });
@@ -1164,6 +1169,9 @@ export function compose(f, { units = "metric" } = {}) {
       + WO.reverbLift * whiteout[b]).toFixed(3)),
     melodyDb: H.map((h, b) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)
       + DC.melodyDb * deep[b] + WO.melodyDb * whiteout[b]).toFixed(2)),
+    // Gusts well above the wind make the pad flutter (see FLUTTER).
+    flutter: H.map((h) => +(clamp((h.gust - FL.gustFrom) / (FL.gustFull - FL.gustFrom), 0, 1)
+      * clamp((h.gust - h.wind - FL.gapFrom) / (FL.gapFull - FL.gapFrom), 0, 1)).toFixed(3)),
     // Heat shimmer on the melody (see HEAT); left out on days without it.
     ...(heat.some((x) => x > 0) ? { wobble: heat } : {}),
     // Deep cold thins the wind to a high whistle (one value for the song).
@@ -1384,12 +1392,18 @@ function linerNotes(f, A, meta, layers, units) {
   const pedals = (meta.pedal ?? []).filter((x, b) => x && b % M.BARS_PER_CHORD === 0).length;
   const fogPedal = (meta.pedal ?? []).some((x, b) => x && M.PEDAL.fogCodes.includes(H[b].code));
   const pedalNote = pedals >= 2 ? `In the ${fogPedal ? "fog" : "still air"} the bass holds the home note while the chords drift above it.` : "";
+  // Glides and flutter (see GLIDE, FLUTTER).
+  const glides = layers.melody.filter((n) => n.glide);
+  const glideNote = glides.length >= 2
+    ? `As the temperature ${H[glides[0].bar].temp > H[glides[0].bar - 1].temp ? "climbs" : "drops"} fast around ${hourLabel(glides[0].bar)}, the melody slides between its notes.` : "";
+  const fl = layers.automation.flutter.map((x, b) => (x >= 0.5 ? b : -1)).filter((b) => b >= 0);
+  const flutterNote = fl.length >= 2 ? `Gusts${fl.length < 12 ? ` around ${hourLabel(fl[Math.floor(fl.length / 2)])}` : ""} make the chords flutter like wind against a window.` : "";
   // The ending (see EVENING).
   const EVE = { rain: "Rain moves in", pop: "The chance of rain climbs", cloud: "Clouds gather", gust: "The wind picks up", pressure: "The pressure falls" };
   const en = meta.ending;
   const endNote = en?.kind === "open" ? `${EVE[en.why]} toward evening, so the song ends on an open chord, like a question, instead of coming home.`
     : en?.kind === "hint" ? `${EVE[en.why]} toward evening, so the last note stops just short of home.` : "";
-  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, twistNote, pedalNote, frigid, ...outliers, daylight, endNote])] };
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, twistNote, pedalNote, glideNote, flutterNote, frigid, ...outliers, daylight, endNote])] };
 }
 
 const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);
