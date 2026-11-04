@@ -174,6 +174,17 @@ export const TWISTS = {
 // chords drift above it. Not under a twist, nor the last chord (it's home anyway).
 export const PEDAL = { fogCodes: [45, 48], calmGust: 6 };
 
+// The ending looks at the evening: does it settle, or is weather moving in?
+// The late evening (lateFrom to 11 pm) is compared with the afternoon (earlyFrom
+// to lateFrom): each of a rise in rain chance (%), cloud (%) or gusts (km/h), and
+// the pressure falling through the evening (hPa), scores 0 to 1 across its range,
+// and rain arriving (codes from wetFrom, in at least two late hours after a dry
+// afternoon) scores 1. The highest counts. From `hint` the last melody note stops
+// on a chord tone short of home (the chord still resolves); from `open` the last
+// chord stays away too (IV, else vi, else V; never a repeat of the chord before), so the song
+// ends like a question. Below `hint` it ends home, as before.
+export const EVENING = { earlyFrom: 12, lateFrom: 19, pop: [15, 45], cloud: [25, 60], gust: [10, 25], fallHpa: [1, 3], wetFrom: 51, hint: 0.4, open: 0.8 };
+
 // ---- Other layers --------------------------------------------------------
 export const BASS = {
   // Pattern per hour by its mean wind (km/h): [pos16, dur16, interval] where

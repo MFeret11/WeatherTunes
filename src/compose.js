@@ -480,6 +480,37 @@ export function voiceChord(pcs, prev, open) {
   return (best ?? cands.map((c) => c[0])).sort((a, b) => a - b);
 }
 
+/**
+ * The evening outlook (see EVENING): { kind: "settled" | "hint" | "open", score, why },
+ * where why is "rain", "pop", "cloud", "gust" or "pressure".
+ */
+export function eveningOutlook(H) {
+  const E = M.EVENING;
+  const early = H.slice(E.earlyFrom, E.lateFrom), late = H.slice(E.lateFrom);
+  const ramp = (x, [a, b]) => clamp((x - a) / (b - a), 0, 1);
+  const rise = (fn) => mean(late.map(fn)) - mean(early.map(fn));
+  const wet = (h) => h.code >= E.wetFrom;
+  const scores = {
+    rain: !early.some(wet) && late.filter(wet).length >= 2 ? 1 : 0,
+    pop: ramp(rise((h) => h.pop ?? 0), E.pop),
+    cloud: ramp(rise((h) => h.cloud), E.cloud),
+    gust: ramp(rise((h) => h.gust), E.gust),
+    pressure: ramp(H[E.lateFrom - 1].pressure - H[H.length - 1].pressure, E.fallHpa),
+  };
+  const [why, score] = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  const kind = score >= E.open ? "open" : score >= E.hint ? "hint" : "settled";
+  return { kind, score: +score.toFixed(3), why: kind === "settled" ? null : why };
+}
+
+/**
+ * The scale degree an open ending rests on: IV, else vi (a deceptive close), else V,
+ * skipping any chord without a perfect fifth and the chord just before (so it moves).
+ */
+function openDegree(mode, before) {
+  const iv = MODES[mode];
+  return [3, 5, 4].find((d) => d !== before && (iv[(d + 4) % 7] - iv[d] + 12) % 12 === 7);
+}
+
 function majorTriad(mode, deg) {
   const iv = MODES[mode];
   return (iv[(deg + 2) % 7] - iv[deg] + 12) % 12 === 4 && (iv[(deg + 4) % 7] - iv[deg] + 12) % 12 === 7;
@@ -617,6 +648,13 @@ export function compose(f, { units = "metric" } = {}) {
   const progression = firstLoops[seed % firstLoops.length];
   // Twists: a few chords step outside the mode where the weather surprises (see TWISTS).
   const twists = twistChords(H, A, arc, barChords, { day, deep, front, seed });
+  // The ending follows the evening: weather moving in leaves the last chord away from home.
+  const evening = eveningOutlook(H);
+  if (evening.kind === "open") {
+    const prev = barChords[M.BARS - M.BARS_PER_CHORD - 1];
+    const d = openDegree(barChords[M.BARS - 1].mode, prev.mode === barChords[M.BARS - 1].mode && !prev.shift ? prev.deg : null);
+    for (let b = M.BARS - M.BARS_PER_CHORD; b < M.BARS; b++) barChords[b] = { ...barChords[b], deg: d };
+  }
   const chordDeg = (b) => barChords[b].deg;
   const rootAt = (b) => (root + (barChords[b].shift ?? 0)) % 12;
   const keyAt = (b) => `${barChords[b].mode}@${barChords[b].shift ?? 0}`;
@@ -667,6 +705,15 @@ export function compose(f, { units = "metric" } = {}) {
   const tempIdx = (t) => baseIdx + A.registerOffset + Math.round(tempNorm(t) * MEL.spanSteps);
 
   // Nearest step whose pitch class is in `pcs` (searching 0, -1, +1, -2, +2, ...).
+  // The last note: home when the evening settles; otherwise a chord tone that isn't home
+  // (on an open ending, home if the chord holds it, so the tune rests while the chord asks).
+  const endPcs = (b) => {
+    const pcs = chordPcs(b);
+    if (evening.kind === "settled") return [root];
+    if (evening.kind === "open" && pcs.includes(root)) return [root];
+    const away = pcs.filter((pc) => pc !== root && pc !== pcs[0]);
+    return away.length ? away : pcs.filter((pc) => pc !== root);
+  };
   const snapTo = (idx, pcs, b) => {
     for (let d = 0; d < octave * 2; d++) {
       for (const s of d === 0 ? [0] : [-d, d]) {
@@ -712,7 +759,7 @@ export function compose(f, { units = "metric" } = {}) {
     rhythm.forEach((dur, k) => {
       let idx;
       if (k === 0) {
-        idx = last ? snapTo(anchor, [root], b) : anchor;
+        idx = last ? snapTo(anchor, endPcs(b), b) : anchor;
         if (!last && sectionEnd && rhythm.length === 1) { // a one-note bar that ends a section still cadences
           const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
           idx = snapTo(idx, pcs.length ? pcs : chordPcs(b), b);
@@ -1177,7 +1224,7 @@ export function compose(f, { units = "metric" } = {}) {
     bassFeel,
     barModes: barChords.map((x) => x.mode),
     barShifts: barChords.map((x) => x.shift ?? 0),
-    twists, pedal,
+    twists, pedal, ending: evening,
     chordDegrees: barChords.map((x) => x.deg),
     chapters: arc.chapters.map((c) => ({ bar: c.chord * M.BARS_PER_CHORD, mode: c.mode, label: MODE_LABELS[c.mode], turn: c.turn })),
     capeMax: Math.max(...f.hours.map((h) => h.cape ?? 0)),
@@ -1337,7 +1384,12 @@ function linerNotes(f, A, meta, layers, units) {
   const pedals = (meta.pedal ?? []).filter((x, b) => x && b % M.BARS_PER_CHORD === 0).length;
   const fogPedal = (meta.pedal ?? []).some((x, b) => x && M.PEDAL.fogCodes.includes(H[b].code));
   const pedalNote = pedals >= 2 ? `In the ${fogPedal ? "fog" : "still air"} the bass holds the home note while the chords drift above it.` : "";
-  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, twistNote, pedalNote, frigid, ...outliers, daylight])] };
+  // The ending (see EVENING).
+  const EVE = { rain: "Rain moves in", pop: "The chance of rain climbs", cloud: "Clouds gather", gust: "The wind picks up", pressure: "The pressure falls" };
+  const en = meta.ending;
+  const endNote = en?.kind === "open" ? `${EVE[en.why]} toward evening, so the song ends on an open chord, like a question, instead of coming home.`
+    : en?.kind === "hint" ? `${EVE[en.why]} toward evening, so the last note stops just short of home.` : "";
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, twistNote, pedalNote, frigid, ...outliers, daylight, endNote])] };
 }
 
 const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);

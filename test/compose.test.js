@@ -78,16 +78,19 @@ test("beats 1 and 3 are chord tones", () => each((n, s) => {
 
 test("sections end on the root or fifth (or a chord tone), the piece ends on the root", () => each((n, s) => {
   const tonic = [s.meta.root, (s.meta.root + 7) % 12];
-  for (const sec of M.SECTIONS.slice(1).map((x) => x.start - 1).concat([M.BARS - 1])) {
+  const settled = s.meta.ending.kind === "settled";
+  for (const sec of M.SECTIONS.slice(1).map((x) => x.start - 1).concat(settled ? [M.BARS - 1] : [])) {
     const lastNote = s.melody.filter((x) => x.bar <= sec).pop(); // may be held from an earlier hour
     const chord = chordAt(s, sec);
     const want = chord.some((pc) => tonic.includes(pc)) ? tonic : chord; // half cadence if the chord lacks both
     assert(want.includes(lastNote.midi % 12), `${n} section ending bar ${sec + 1}: ${lastNote.note}`);
   }
+  if (!settled) return; // see the evening test
   const final = s.melody[s.melody.length - 1];
   equal(final.midi % 12, s.meta.root, `${n} final note`);
   equal(s.meta.chords[M.BARS - 1], chordLabel(s.meta.barModes[M.BARS - 1], 0), `${n} final chord is tonic`);
 }));
+
 
 test("no melodic leap wider than a sixth", () => each((n, s) => {
   for (let i = 1; i < s.melody.length; i++) {
@@ -779,4 +782,33 @@ test("arpeggio shapes and reach", () => {
   const flat = tweak("kyoto-spring", (h) => { h.temp = 15; }), wide = scores["kyoto-spring"];
   const span = (s) => { const m = s.arp.map((x) => x.midi); return Math.max(...m) - Math.min(...m); };
   assert(span(wide) > span(flat), `a big temperature swing reaches wider (${span(wide)} vs ${span(flat)})`);
+});
+
+test("weather moving in toward evening leaves the ending open", () => {
+  const check = (n, s) => {
+    const final = s.melody[s.melody.length - 1], last = M.BARS - 1, pcs = chordAt(s, last);
+    const tonicChord = s.meta.chords[last] === chordLabel(s.meta.barModes[last], 0);
+    assert(pcs.includes(final.midi % 12), `${n} final note ${final.note} is a chord tone`);
+    if (s.meta.ending.kind === "settled") return;
+    assert(s.meta.ending.why && /toward evening/.test(s.meta.liner.paragraphs[0]), `${n} liner names the evening`);
+    if (s.meta.ending.kind === "hint") {
+      assert(tonicChord, `${n} a hint still ends on the tonic chord`);
+      assert(final.midi % 12 !== s.meta.root, `${n} a hint stops short of home`);
+    } else {
+      assert(!tonicChord, `${n} open ends away from the tonic`);
+      assert(s.meta.chords[last] !== s.meta.chords[last - M.BARS_PER_CHORD], `${n} open ending moves (${s.meta.chords.slice(-4)})`);
+      equal((pcs[pcs.length - 1] - pcs[0] + 12) % 12, 7, `${n} open chord has a perfect fifth`);
+    }
+  };
+  each(check);
+  const settled = FIXTURES.filter((n) => scores[n].meta.ending.kind === "settled").length;
+  assert(settled >= 6, `most samples end home (${settled} of ${FIXTURES.length})`);
+  equal(scores["kyoto-spring"].meta.ending.kind, "settled", "a clear spring evening comes home");
+  const rain = tweak("kyoto-spring", (h, b) => { if (b >= 20) { h.code = 61; h.pop = 80; h.cloud = 95; h.precip = 1.2; } });
+  equal(rain.meta.ending.kind, "open", "rain arriving at night leaves the ending open");
+  equal(rain.meta.ending.why, "rain");
+  check("kyoto rain", rain);
+  const clouds = tweak("kyoto-spring", (h, b) => { if (b >= 19) h.cloud = Math.min(100, h.cloud + 45); });
+  equal(clouds.meta.ending.kind, "hint", `clouds gathering hint (${JSON.stringify(clouds.meta.ending)})`);
+  check("kyoto clouds", clouds);
 });
