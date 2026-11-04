@@ -85,13 +85,28 @@ WeatherTunes/
   src/
     weather.js          fetch + normalize Open-Meteo → Forecast object; geocoding; cache; extras (air, Kp, holidays, lows)
     sky.js              PURE: moon, eclipses, solstices, meteor showers, magnetic latitude
-    compose.js          PURE: (Forecast, seed) → Score   ← the heart; no Tone, no DOM
-    mapping.js          all tunable constants (ranges, mode table, progressions)
+    compose.js          PURE: Forecast → Score   ← the heart; no Tone, no DOM. One call per layer, in order
+    score/              PURE: the composer's parts
+      context.js          what every layer shares, built once: analysis, traits, story, chords, pitch tables
+      analyze.js          day stats and the global choices (mode, key, tempo, voices); energy, calm stir
+      story.js            the mode per chord (chapters), the day's arc, the chord under every bar
+      harmony.js          twists, pedal, chord colour and voicing, the evening ending, arpeggio shapes
+      traits.js           outliers (heat, deep cold, whiteout, ice, eye, front, mood) and how each bends the music
+      sky.js              the day's sky and air as the music uses them (moonlight, aurora, haze, UV, frost)
+      melody.js           melody, held notes, glides
+      rhythm.js           bass, storm drums, rain and dry beats, crackle
+      pad.js              pad chords and the arpeggio
+      texture.js          rain shakers, snow bells, ice ticks, atmosphere, one-off effects, the eye
+      skylayers.js        moon, meteor, frost, season and holiday bells; UV and aurora shimmer
+      automation.js       per-hour mix automation and the score's meta
+      liner.js            the liner notes
+    mapping.js          all tunable constants, grouped by musical area (contents list at the top)
     engine.js           Tone.js graph: instruments, effects, schedules a Score (always inside Tone.Offline)
     stream.js           renders ahead and streams the audio to a buffer player (see §10)
     tap.worklet.js      hands an offline render's audio to the page block by block
     controls.js         synth panel ↔ engine params; "back to the forecast" reset
-    theory.js           modes, triads, note names, seeded RNG
+    theory.js           modes, triads, note names
+    util.js             clamp, mean, seeded RNG, shuffle, display formatting
     viz.js              forecast chart with a moving playhead; notes light up
     keyboard.js         play-along: computer keys / touch → notes in today's scale
     share.js            URL params ⇄ state
@@ -107,7 +122,7 @@ WeatherTunes/
 
 **Data flow:** location → `weather.js` → `Forecast` → `compose.js` → `Score` → `stream.js` + `engine.js` (audio) + `viz.js` (picture) + liner notes (text).
 
-`compose.js` is a pure function with no browser or audio APIs, so it is easy to test. Its output is plain data:
+`compose.js` and everything in `src/score/` are pure, with no browser or audio APIs, so they are easy to test. The layers share one seeded random stream, so they must run in the order `compose()` lists them. The output is plain data:
 
 ```js
 Score = {

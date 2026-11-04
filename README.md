@@ -34,8 +34,10 @@ Headless: `tools/headless.sh --virtual-time-budget=20000 --dump-dom http://local
 
 ## How it's built
 
-- `src/compose.js`: forecast → score. Pure JavaScript with no audio or DOM code, so it's easy to test.
-- `src/mapping.js`: every tunable number in the weather → music mapping.
+- `src/compose.js`: forecast → score. Pure JavaScript with no audio or DOM code, so it's easy to test. It reads like a table of contents: one call per layer, in `src/score/`.
+- `src/score/`: the composer's parts. `context.js` builds what every layer shares (the day's analysis from `analyze.js`, the story and chords from `story.js` and `harmony.js`, the outlier traits from `traits.js`, the sky from `sky.js`); `melody.js`, `rhythm.js`, `pad.js`, `texture.js` and `skylayers.js` each write their layers; `automation.js` adds the per-hour mix and the score's meta, and `liner.js` the liner notes.
+- `src/mapping.js`: every tunable number in the weather → music mapping, grouped by musical area (a contents list sits at the top).
+- `src/theory.js` and `src/util.js`: music theory (modes, triads, note names), and shared helpers (seeded random numbers, display formatting).
 - `src/engine.js`: builds a score's instruments and effects with [Tone.js](https://tonejs.github.io/) (bundled in `vendor/`, MIT).
 - `src/stream.js`: plays a song by rendering it offline and streaming the audio to a plain buffer player as it's made (through `src/tap.worklet.js`), so phones never have to run the synths live. Mid-song mute and 32-bit changes render the rest again (starting early enough that held notes carry on) and crossfade over. It also plays a queue of songs for the Season suite.
 - `src/weather.js`: fetches today's [Open-Meteo](https://open-meteo.com/) forecast and city search, plus air quality, aurora activity ([NOAA SWPC](https://www.swpc.noaa.gov/)), public holidays ([Nager.Date](https://date.nager.at/)) and recent lows. Caches it for an hour and cleans it up (fills gaps, 24 hours, dew point and feels-like).

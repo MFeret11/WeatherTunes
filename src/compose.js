@@ -1,5 +1,7 @@
 // compose(forecast) → score. Pure: no Tone.js, no DOM, no clock.
 // Same forecast in, same score out (randomness comes from a seeded RNG).
+// Each layer is built in src/score/. Keep them in this order: the melody, the rain beat,
+// the crackle and the rain shakers draw from one shared random stream, in turn.
 
 import { scoreContext } from "./score/context.js";
 import { melodyLine } from "./score/melody.js";
