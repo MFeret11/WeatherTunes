@@ -60,7 +60,7 @@ export function rainBeat(ctx) {
   for (let b = 0; b < M.BARS - 1; b++) {
     const h = H[b];
     if (h.cloud < RB.hourCloud || (h.precip < 0.1 && h.pop < RB.hourPop)) continue;
-    if (M.SNOW_CODES.includes(h.code)) continue;
+    if (M.CODES.snow.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const off = (b % 2) * M.STEPS; // where this hour sits in the 2-hour pattern
     const hit = (kind, steps, v) => {
@@ -93,7 +93,7 @@ export function dryBeat(ctx, garage) {
   const beat = [];
   for (let b = 0; b < M.BARS - 1; b++) {
     const h = H[b];
-    if (rainBeatBars.has(b) || h.precip >= 0.1 || h.pop >= RB.hourPop || M.SNOW_CODES.includes(h.code)) continue;
+    if (rainBeatBars.has(b) || h.precip >= 0.1 || h.pop >= RB.hourPop || M.CODES.snow.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const hit = (kind, pos, v) => {
       const human = (brng() - 0.5) * 2 * DB.humanize; // drawn for every hit, so the cold only removes hits

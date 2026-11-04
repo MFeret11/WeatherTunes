@@ -21,9 +21,9 @@ export function hourTraits(H, A) {
   return {
     heat: H.map((h) => +clamp((feels(h) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1).toFixed(3)),
     deep: H.map((h) => +clamp((DC.fromFeels - feels(h)) / (DC.fromFeels - DC.fullFeels), 0, 1).toFixed(3)),
-    whiteout: H.map((h) => (M.SNOW_CODES.includes(h.code)
+    whiteout: H.map((h) => (M.CODES.snow.includes(h.code)
       ? +clamp((h.gust - WO.fromGust) / (WO.fullGust - WO.fromGust), 0, 1).toFixed(3) : 0)),
-    ice: H.map((h) => M.ICE_STORM.codes.includes(h.code)),
+    ice: H.map((h) => M.CODES.ice.includes(h.code)),
     eye: eyeHours(H),
     front: frontHour(H),
     harsh: A.harsh,

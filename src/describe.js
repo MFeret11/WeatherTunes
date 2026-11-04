@@ -3,7 +3,7 @@
 
 import { hourLabel, formatSpeed, aqiCategory, uvCategory } from "./util.js";
 import { daySky } from "./score/sky.js";
-import { THUNDER_CODES, SNOW_CODES } from "./mapping.js";
+import { CODES } from "./mapping.js";
 
 // Brightest first, so we can tell "clearing" from "turning".
 const RANK = ["clear", "partly", "cloudy", "overcast", "fog", "drizzle", "showers", "rain", "snow", "thunder"];
@@ -13,12 +13,12 @@ const BARE = ["overnight", "morning", "afternoon", "evening"];
 
 function condition(h) {
   const c = h.code;
-  if (THUNDER_CODES.includes(c)) return "thunder";
-  if (SNOW_CODES.includes(c)) return "snow";
+  if (CODES.thunder.includes(c)) return "thunder";
+  if (CODES.snow.includes(c)) return "snow";
   if (c >= 80 && c <= 82) return "showers";
   if (c >= 61 && c <= 67) return "rain";
   if (c >= 51 && c <= 57) return "drizzle";
-  if (c === 45 || c === 48) return "fog";
+  if (CODES.fog.includes(c)) return "fog";
   if (c === 3 || h.cloud >= 85) return "overcast";
   if (h.cloud >= 60) return "cloudy";
   if (c === 2 || h.cloud >= 25) return "partly";
@@ -112,7 +112,7 @@ function rainSentence(H, units) {
     const pop = Math.max(...H.map((h) => h.pop));
     return pop >= 30 ? `A ${pop}% chance of a passing shower, but little or nothing expected.` : "";
   }
-  const snow = H.filter((h) => SNOW_CODES.includes(h.code)).length > H.filter((h) => h.precip > 0).length / 2;
+  const snow = H.filter((h) => CODES.snow.includes(h.code)).length > H.filter((h) => h.precip > 0).length / 2;
   const amount = units === "us" ? `${(total / 25.4).toFixed(total >= 25.4 ? 1 : 2)} in` : `${Math.round(total)} mm`;
   return snow ? `About ${amount} of melted snow in all.` : `About ${amount} of rain in all.`;
 }

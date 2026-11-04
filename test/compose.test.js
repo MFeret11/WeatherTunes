@@ -402,7 +402,7 @@ test("weather traits: crackle, round bass and the rain beat follow their measure
     for (const x of sc.garage) {
       const h = f.hours[x.bar];
       assert(x.pos >= 0 && x.pos < M.STEPS && x.vel > 0 && x.vel <= 1, `${n} beat hit ${JSON.stringify(x)}`);
-      assert(!M.SNOW_CODES.includes(h.code), `${n} no beat in snow`);
+      assert(!M.CODES.snow.includes(h.code), `${n} no beat in snow`);
       assert(x.kind !== "kick" || h.precip >= M.RAIN_BEAT.kickMm, `${n} kick only in heavier rain`);
     }
     for (const x of sc.crackle) assert(x.pos >= 0 && x.pos < M.STEPS && x.vel > 0 && x.vel <= 1, `${n} crackle`);
@@ -643,7 +643,7 @@ test("dry beat: only in dry hours the rain beat and storm leave alone", () => ea
   for (const x of s.beat) {
     const h = f.hours[x.bar];
     assert(!rainBars.has(x.bar), `${n} hour ${x.bar} has both beats`);
-    assert(h.precip < 0.1 && h.pop < M.RAIN_BEAT.hourPop && !M.SNOW_CODES.includes(h.code), `${n} hour ${x.bar} is wet`);
+    assert(h.precip < 0.1 && h.pop < M.RAIN_BEAT.hourPop && !M.CODES.snow.includes(h.code), `${n} hour ${x.bar} is wet`);
     assert(x.bar < M.BARS - 1, `${n} beat in the last hour`);
     const ph = s.meta.arc.phases[x.bar];
     assert(!(s.meta.arc.stormy && (ph === "build" || ph === "peak")), `${n} beat under storm drums`);
@@ -689,7 +689,7 @@ test("steady weather holds a repeated note instead of striking it again", () => 
 test("arpeggio: chord tones, in range, only in clear dry daylight", () => each((n, s, f) => {
   for (const x of s.arp) {
     const h = f.hours[x.bar];
-    assert(h.isDay && h.precip < 0.1 && !M.SNOW_CODES.includes(h.code), `${n} arp in hour ${x.bar}`);
+    assert(h.isDay && h.precip < 0.1 && !M.CODES.snow.includes(h.code), `${n} arp in hour ${x.bar}`);
     assert(x.bar < M.BARS - 1, `${n} arp in the last hour`);
     assert(x.midi >= M.ARP.low && x.midi <= M.ARP.high, `${n} arp ${x.note} out of range`);
     const pcs = new Set(chordAt(s, x.bar));
@@ -723,7 +723,7 @@ test("echo carries in clear, still, dry air", () => each((n, s, f) => {
   s.automation.echoCarry.forEach((c, b) => {
     const h = f.hours[b];
     assert(c >= 0 && c <= 1, `${n} carry ${c}`);
-    if (h.precip >= 0.1 || M.ECHO.fogCodes.includes(h.code) || M.SNOW_CODES.includes(h.code)) equal(c, 0, `${n} wet hour ${b}`);
+    if (h.precip >= 0.1 || M.CODES.fog.includes(h.code) || M.CODES.snow.includes(h.code)) equal(c, 0, `${n} wet hour ${b}`);
     if (h.gust >= M.ECHO.windyGust) equal(c, 0, `${n} windy hour ${b}`);
   });
 }));

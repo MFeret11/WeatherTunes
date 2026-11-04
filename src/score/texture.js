@@ -17,7 +17,7 @@ export function rainAndBells(ctx) {
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
     if (h.pop < M.RAIN.minPop && h.precip === 0) continue;
-    if (M.SNOW_CODES.includes(h.code)) {
+    if (M.CODES.snow.includes(h.code)) {
       const count = Math.max(1, Math.round((h.pop / 100) * M.BELLS.maxHits));
       const slots = shuffle([0, 2, 4, 6], rng).slice(0, count).sort((x, y) => x - y);
       for (const pos of slots) {
@@ -27,7 +27,7 @@ export function rainAndBells(ctx) {
       continue;
     }
     if (T.ice[b]) continue; // ice ticks instead (below)
-    const hail = M.HAIL.codes.includes(h.code);
+    const hail = M.CODES.hail.includes(h.code);
     let count = Math.round((h.pop / 100) * M.RAIN.maxHits);
     if (h.precip > 0) count = Math.max(1, count);
     if (hail) count = Math.min(8, count * M.HAIL.hits);

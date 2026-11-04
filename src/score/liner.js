@@ -60,8 +60,8 @@ export function linerNotes(f, A, meta, layers, units) {
     const at = A.intensity.indexOf(Math.max(...A.intensity));
     const h = H[at];
     const why = [];
-    if (M.THUNDER_CODES.includes(h.code)) why.push("thunder");
-    else if (h.precip >= 0.5) why.push(`heavy ${M.SNOW_CODES.includes(h.code) ? "snow" : "rain"}`);
+    if (M.CODES.thunder.includes(h.code)) why.push("thunder");
+    else if (h.precip >= 0.5) why.push(`heavy ${M.CODES.snow.includes(h.code) ? "snow" : "rain"}`);
     if (h.gust >= M.DYNAMICS.gustFrom) why.push("strong gusts");
     shape = `The weather peaks ${peaks.length > 1 ? `twice, at ${listOf(peaks)}` : `at ${peaks[0] ?? hourLabel(at)}`}${why.length ? ` with ${listOf(why)}` : ""}, and the music swells with it before easing off.`;
   }
@@ -88,7 +88,7 @@ export function linerNotes(f, A, meta, layers, units) {
   const white = hours(O.whiteout.map((x) => x >= 0.5));
   if (white.length >= 2) outliers.push("Snow in a gale makes a whiteout: the melody is buried in the wind.");
   if (O.front != null) outliers.push(`A cold front hits at ${hourLabel(O.front)}, and the song turns darker with a gust of wind as the temperature crashes.`);
-  if (layers.rain.length && H.some((h) => M.HAIL.codes.includes(h.code))) outliers.push("Hail clatters down hard in the storm.");
+  if (layers.rain.length && H.some((h) => M.CODES.hail.includes(h.code))) outliers.push("Hail clatters down hard in the storm.");
   const hollow = meta.colours.filter((c) => c.susBy === "cold").length;
   const frigid = hollow < 3 ? ""
     : white.length >= 2 ? "The deep cold hollows the chords out to bare, open intervals."
@@ -108,7 +108,7 @@ export function linerNotes(f, A, meta, layers, units) {
   }
   const twistNote = tw.length ? `${tw[0][0].toUpperCase()}${listOf(tw).slice(1)}.` : "";
   const pedals = (meta.pedal ?? []).filter((x, b) => x && b % M.BARS_PER_CHORD === 0).length;
-  const fogPedal = (meta.pedal ?? []).some((x, b) => x && M.PEDAL.fogCodes.includes(H[b].code));
+  const fogPedal = (meta.pedal ?? []).some((x, b) => x && M.CODES.fog.includes(H[b].code));
   const pedalNote = pedals >= 2 ? `In the ${fogPedal ? "fog" : "still air"} the bass holds the home note while the chords drift above it.` : "";
   // Glides and flutter (see GLIDE, FLUTTER).
   const glides = layers.melody.filter((n) => n.glide);

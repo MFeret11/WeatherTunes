@@ -43,7 +43,7 @@ export function barAutomation(ctx) {
     melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])).toFixed(2)),
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
-    eqHigh: H.map((h, b) => +clamp(O.eqHighDb(T, b, M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0)
+    eqHigh: H.map((h, b) => +clamp(O.eqHighDb(T, b, M.TONE.cloudCutDb * (h.cloud / 100) + (M.CODES.fog.includes(h.code) ? M.TONE.fogCutDb : 0)
       + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover),
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     eqLow: H.map((h, b) => +clamp(O.eqLowDb(T, b) + M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
@@ -51,7 +51,7 @@ export function barAutomation(ctx) {
     // The melody's echo carries in clear, still, dry air (see ECHO).
     echoCarry: H.map((h, b) => {
       const E = M.ECHO;
-      const wet = h.precip >= 0.1 || M.SNOW_CODES.includes(h.code) || E.fogCodes.includes(h.code);
+      const wet = h.precip >= 0.1 || M.CODES.snow.includes(h.code) || M.CODES.fog.includes(h.code);
       return wet ? 0 : +O.echoCarry(T, b, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)).toFixed(3);
     }),
     // Snow on the ground soaks up the echoes.

@@ -1,6 +1,22 @@
 // Every tunable number in the weather → music mapping lives here, so the
-// sound can be adjusted by ear without touching compose.js.
+// sound can be adjusted by ear without touching the composer (src/score/).
+//
+//   1. Time and weather codes   BARS, STEPS, SECTIONS, CODES
+//   2. Key and tempo            TEMPO (the key comes from the pressure)
+//   3. Mode and story           BRIGHTNESS, MODE_THRESHOLDS, STORM, STORY
+//   4. Harmony                  PROGRESSIONS, CHORD_COLOUR, TWISTS, PEDAL, EVENING
+//   5. Melody and articulation  MELODY, DENSITY, RHYTHMS, HOLD, GROOVE (and swing), GLIDE
+//   6. Layers                   BASS, BASS_FEEL, BASS_TONE, PAD, FLUTTER, ARP, ECHO,
+//                               RAIN, BELLS, RAIN_BEAT, DRY_BEAT, CRACKLE
+//   7. Atmosphere and dynamics  ATMOSPHERE, WIND_NOISE, DYNAMICS, ARC, CALM_DETAIL,
+//                               FILTER, REVERB, PAN_WIDTH, DRIVE, TONE
+//   8. Day mood and outliers    MOOD, HEAT, DEEP_COLD, ICE_STORM, EYE, WHITEOUT, FRONT, HAIL
+//   9. Sky and air              DARK, MOON, AURORA, METEORS, AIR, UV, SNOW_COVER, FROST,
+//                               CALENDAR, CHIMES
+//  10. Instruments              MELODY_VOICES, PAD_VOICES, ARP_VOICE, SWELL, RETRO32
+//  11. Mix and master           MIX, STORM_DRUMS_DB, SOFT_CLIP, ENDING, SUITE
 
+// ==== 1. Time and weather codes ==================================================
 // Time is counted in hour slots: each forecast hour gets STEPS sixteenths
 // (half a bar), so the 24-hour song is 12 bars, about 20–24 seconds.
 // The score's `bar` field is the hour slot; the engine turns it into time.
@@ -13,6 +29,31 @@ export const SECTIONS = [            // 8-hour phrases, named in the liner notes
   { name: "Evening", start: 16 },
 ];
 
+// WMO weather codes, grouped by what's falling (Open-Meteo reports these).
+// Every code from wetFrom up has something falling: drizzle, rain, snow, showers or thunder.
+export const CODES = {
+  fog: [45, 48],
+  drizzle: [51, 53, 55, 56, 57],  // 56, 57 freezing
+  rain: [61, 63, 65, 66, 67],     // 66, 67 freezing
+  snow: [71, 73, 75, 77, 85, 86],
+  showers: [80, 81, 82],
+  thunder: [95, 96, 99],
+  ice: [56, 57, 66, 67],          // freezing drizzle or rain
+  hail: [96, 99],                 // thunderstorm with hail
+  wetFrom: 51,
+};
+
+// ==== 2. Key and tempo ===========================================================
+// The key's root is the day's mean pressure (hPa) mod 12.
+// bpm = base + perRootKmh × √(mean wind, km/h), between min and max. The square
+// root flattens the curve, so ordinary days (4–19 km/h) spread over ~106–125
+// and only a gale nears the ceiling: still air ~96, a breeze ~115, 20 km/h ~126,
+// 37 km/h ~139. Wind also makes each hour busier (DENSITY, BASS, DRY_BEAT hats,
+// ARP rate), so a windy day sounds restless without racing. A harsh day then
+// slows down from here (see MOOD).
+export const TEMPO = { base: 90, perRootKmh: 8, min: 96, max: 140 };
+
+// ==== 3. Mode and story ==========================================================
 // ---- Mode (scale) from "brightness" -------------------------------------
 // brightness = 1 - cloud - rain chance - rainfall - storm, each weighted below.
 export const BRIGHTNESS = {
@@ -35,10 +76,8 @@ export const MODE_THRESHOLDS = [
   { mode: "aeolian", min: 0.2 },
   { mode: "phrygian", min: -Infinity },
 ];
-// A storm day: any thunder code, or an hour with this much rain or wind.
+// A storm day: any thunder code (CODES.thunder), or an hour with this much rain or wind.
 export const STORM = { hourlyPrecipMm: 8, gustKmh: 75 };
-export const THUNDER_CODES = [95, 96, 99];
-export const SNOW_CODES = [71, 73, 75, 77, 85, 86];
 
 // ---- Story: the mood follows the sky through the day -----------------------
 // Each chord (2 hours) gets the brightness of its darker hour (a storm is an
@@ -53,14 +92,111 @@ export const SNOW_CODES = [71, 73, 75, 77, 85, 86];
 //   minChords a chapter lasts at least this many chords
 export const STORY = { precipHourFullMm: 3, smooth: [0.2, 0.6, 0.2], margin: 0.07, minChords: 2 };
 
-// ---- Key, tempo, register ------------------------------------------------
-// bpm = base + perRootKmh × √(mean wind, km/h), between min and max. The square
-// root flattens the curve, so ordinary days (4–19 km/h) spread over ~106–125
-// and only a gale nears the ceiling: still air ~96, a breeze ~115, 20 km/h ~126,
-// 37 km/h ~139. Wind also makes each hour busier (DENSITY, BASS, DRY_BEAT hats,
-// ARP rate), so a windy day sounds restless without racing. A harsh day then
-// slows down from here (see MOOD).
-export const TEMPO = { base: 90, perRootKmh: 8, min: 96, max: 140 };
+// ==== 4. Harmony =================================================================
+// Chords are scale degrees (0 = tonic) built as triads inside the mode.
+// Each mode avoids its diminished chord. Pressure trend picks the row and the
+// day's seed picks one of its loops. Rising loops tend to climb or resolve,
+// falling loops tend to descend.
+export const PROGRESSIONS = {
+  lydian: {
+    rising: [[0, 1, 5, 4], [0, 1, 4, 5]],
+    steady: [[0, 1, 0, 1], [0, 6, 1, 0]],
+    falling: [[5, 1, 0, 4], [5, 4, 1, 0]],
+  },
+  ionian: {
+    rising: [[0, 4, 5, 3], [0, 5, 3, 4]],
+    steady: [[0, 3, 0, 4], [3, 0, 4, 0]],
+    falling: [[5, 3, 0, 4], [0, 2, 5, 3]],
+  },
+  mixolydian: {
+    rising: [[0, 6, 3, 0], [0, 3, 6, 0]],
+    steady: [[0, 6, 0, 3], [0, 1, 6, 0]],
+    falling: [[0, 4, 6, 3], [5, 6, 0, 0]],
+  },
+  dorian: {
+    rising: [[0, 2, 3, 0], [0, 1, 2, 3]],
+    steady: [[0, 3, 0, 3], [0, 2, 6, 3]],
+    falling: [[0, 4, 6, 3], [3, 2, 1, 0]],
+  },
+  aeolian: {
+    rising: [[0, 5, 2, 6], [5, 6, 0, 0]],
+    steady: [[0, 6, 5, 6], [0, 3, 0, 4]],
+    falling: [[0, 3, 5, 4], [0, 6, 5, 4]],
+  },
+  phrygian: {
+    rising: [[0, 1, 0, 6], [0, 2, 1, 0]],
+    steady: [[0, 1, 2, 1], [0, 6, 1, 0]],
+    falling: [[0, 1, 3, 0], [0, 6, 5, 1]],
+  },
+};
+export const PRESSURE_TREND_HPA = 1.5; // change over the day that counts as rising/falling
+
+// ---- Chord colour: each chord's two hours add notes and shape the voicing ----
+//   seventh  the dew point fades in the chord's 7th, from dewFrom °C to full at
+//            dewFull: muggy air sounds lush and jazzy
+//   ninth    clear daylight, (1 − cloud) × daylight, fades in the 9th from
+//            `from` to full at `full`: an open, airy sound
+//   sus2     fog (CODES.fog) swaps the third for the second: neither major nor minor, hazy
+//   sus4     pressure moving at least sus4PressureHpa over the two hours (a front
+//            passing) swaps the third for the fourth: the chord hangs, unresolved
+//   open     a mean wind of at least openWind km/h spreads the chord over more than an octave
+// Colour notes sit above the chord at vel × the pad's velocity × the amount, and
+// are left out under `min`. Only notes in the mode are used, and only a whole-tone
+// 9th or 2nd and a perfect 4th, so nothing lands a half step from the root.
+// The final chord can take a 7th or 9th, but never a sus: the song ends resolved.
+// Pad notes stay between voicing.low and voicing.high (MIDI), each moving as
+// little as it can from the last chord (voice leading).
+export const CHORD_COLOUR = {
+  seventh: { dewFrom: 10, dewFull: 20 },
+  ninth: { from: 0.5, full: 0.9 },
+  sus4PressureHpa: 2.5,
+  openWind: 25,
+  vel: 0.8, min: 0.15,
+  voicing: { low: 53, high: 74, openSpan: 12 },
+};
+
+// ---- Twists: the weather's surprises bend one chord ------------------------
+// The loops above stay inside the mode. A twist swaps one chord (2 hours) for
+// one from outside it, only where that chord's hours do something:
+//   borrow    a passing cloud on a bright chapter (Lydian, major, Mixolydian): an
+//             hour with cloudJump % more cloud than the chords on either side, or a
+//             light shower (under showerMm) → a chord from the parallel minor,
+//             iv or ♭VI (the "Beatles" shadow), in that minor's scale
+//   mediant   a sudden change: a gust gustJump km/h above the hour before, or the
+//             sun breaking through (cloud down clearDrop % in an hour) → a major chord
+//             a major third away: the sun lifts to III, a gust drops to ♭VI
+//             (or to ♭II when ♭VI is already in the mode), in its own major scale
+//   dominant  pressure climbing riseHpa or more across the chord's hours → the chord
+//             becomes V of the next one (a pull toward where the weather is going),
+//             in that dominant's Mixolydian scale; skipped where V would be diatonic
+// Each kind has its own cap, and the day at most maxPerDay. Never the first chord,
+// the last two, the chord either side of a chapter change, a chord next to another
+// twist, a storm's build or peak, a cold-hollowed chord, or after a cold front;
+// and the sun's lift is left out on a harsh day (MOOD), when sun is no relief.
+// The melody, pad, bass and arpeggio all follow the twisted chord and its scale.
+export const TWISTS = {
+  maxPerDay: 2,
+  borrow: { max: 2, cloudJump: 35, showerMm: 0.5, brightModes: ["lydian", "ionian", "mixolydian"], degs: [3, 5] },
+  mediant: { max: 1, gustJump: 22, clearDrop: 45, sunMaxHarsh: 0.25 },
+  dominant: { max: 1, riseHpa: 1.4 },
+};
+// Pedal: in fog (CODES.fog) or dead-still air (every hour of the chord with gusts under
+// calmGust km/h and nothing falling) the bass holds the home note while the
+// chords drift above it. Not under a twist, nor the last chord (it's home anyway).
+export const PEDAL = { calmGust: 6 };
+
+// The ending looks at the evening: does it settle, or is weather moving in?
+// The late evening (lateFrom to 11 pm) is compared with the afternoon (earlyFrom
+// to lateFrom): each of a rise in rain chance (%), cloud (%) or gusts (km/h), and
+// the pressure falling through the evening (hPa), scores 0 to 1 across its range,
+// and rain arriving (codes from CODES.wetFrom, in at least two late hours after a dry
+// afternoon) scores 1. The highest counts. From `hint` the last melody note stops
+// on a chord tone short of home (the chord still resolves); from `open` the last
+// chord stays away too (IV, else vi, else V; never a repeat of the chord before), so the song
+// ends like a question. Below `hint` it ends home, as before.
+export const EVENING = { earlyFrom: 12, lateFrom: 19, pop: [15, 45], cloud: [25, 60], gust: [10, 25], fallHpa: [1, 3], hint: 0.4, open: 0.8 };
+
+// ==== 5. Melody and articulation =================================================
 export const MELODY = {
   spanSteps: 10,       // the day's temperature range covers this many scale steps
   minSpanC: 8,         // flat days are spread over at least this many °C
@@ -105,87 +241,33 @@ export const HOLD = { maxSteps: 16, gustKmh: 8, cloud: 20, pop: 20, precipMm: 1 
 export const REST_PER_CLOUD = 0.3;   // rest chance = this × cloud cover (0–1)
 export const NEIGHBOR_CHANCE = 0.7;  // when the line would repeat a note, step away instead
 
-// ---- Harmony -------------------------------------------------------------
-// Chords are scale degrees (0 = tonic) built as triads inside the mode.
-// Each mode avoids its diminished chord. Pressure trend picks the row and the
-// day's seed picks one of its loops. Rising loops tend to climb or resolve,
-// falling loops tend to descend.
-export const PROGRESSIONS = {
-  lydian: {
-    rising: [[0, 1, 5, 4], [0, 1, 4, 5]],
-    steady: [[0, 1, 0, 1], [0, 6, 1, 0]],
-    falling: [[5, 1, 0, 4], [5, 4, 1, 0]],
-  },
-  ionian: {
-    rising: [[0, 4, 5, 3], [0, 5, 3, 4]],
-    steady: [[0, 3, 0, 4], [3, 0, 4, 0]],
-    falling: [[5, 3, 0, 4], [0, 2, 5, 3]],
-  },
-  mixolydian: {
-    rising: [[0, 6, 3, 0], [0, 3, 6, 0]],
-    steady: [[0, 6, 0, 3], [0, 1, 6, 0]],
-    falling: [[0, 4, 6, 3], [5, 6, 0, 0]],
-  },
-  dorian: {
-    rising: [[0, 2, 3, 0], [0, 1, 2, 3]],
-    steady: [[0, 3, 0, 3], [0, 2, 6, 3]],
-    falling: [[0, 4, 6, 3], [3, 2, 1, 0]],
-  },
-  aeolian: {
-    rising: [[0, 5, 2, 6], [5, 6, 0, 0]],
-    steady: [[0, 6, 5, 6], [0, 3, 0, 4]],
-    falling: [[0, 3, 5, 4], [0, 6, 5, 4]],
-  },
-  phrygian: {
-    rising: [[0, 1, 0, 6], [0, 2, 1, 0]],
-    steady: [[0, 1, 2, 1], [0, 6, 1, 0]],
-    falling: [[0, 1, 3, 0], [0, 6, 5, 1]],
-  },
+// Muggy air swings and slurs; dry air plays straight; cold air plays clipped.
+//   swing  the day's mean dew point (°C), since it's what makes air feel muggy:
+//          straight at or below swingFromDew, swingMax at swingFullDew
+//          (Tone's swing on sixteenths: 0 straight, 0.5 a lazy shuffle)
+//   gate   each note sounds for this fraction of its length, from that hour's
+//          humidity (gateDry → gateHumid), minus up to clipMax when it's cold
+// The melody instrument follows the feels-like temperature (MELODY_VOICES), so a
+// humid 30 °C and a dry 30 °C day can sound different.
+export const GROOVE = {
+  swingMax: 0.5, swingFromDew: 10, swingFullDew: 22,
+  rhLow: 30, rhHigh: 100, gateDry: 0.55, gateHumid: 0.98,
+  clipFromC: 5, clipFullC: -20, clipMax: 0.3,
+  gateMin: 0.3,
 };
-export const PRESSURE_TREND_HPA = 1.5; // change over the day that counts as rising/falling
+// Glide (portamento): when the temperature moves fast, the melody slides into the
+// hour's first note instead of stepping to it. The change from the hour before
+// ramps from fromC to fullC (°C in an hour); the slide lasts up to maxSteps
+// sixteenths (never past the note's own sound), and only between notes at least
+// minSemis apart. Only voices marked `glide` slide: a sliding marimba or bell sounds broken.
+export const GLIDE = { fromC: 2, fullC: 4.5, minSteps: 0.5, maxSteps: 1.5, minSemis: 2 };
 
-// ---- Twists: the weather's surprises bend one chord ------------------------
-// The loops above stay inside the mode. A twist swaps one chord (2 hours) for
-// one from outside it, only where that chord's hours do something:
-//   borrow    a passing cloud on a bright chapter (Lydian, major, Mixolydian): an
-//             hour with cloudJump % more cloud than the chords on either side, or a
-//             light shower (under showerMm) → a chord from the parallel minor,
-//             iv or ♭VI (the "Beatles" shadow), in that minor's scale
-//   mediant   a sudden change: a gust gustJump km/h above the hour before, or the
-//             sun breaking through (cloud down clearDrop % in an hour) → a major chord
-//             a major third away: the sun lifts to III, a gust drops to ♭VI
-//             (or to ♭II when ♭VI is already in the mode), in its own major scale
-//   dominant  pressure climbing riseHpa or more across the chord's hours → the chord
-//             becomes V of the next one (a pull toward where the weather is going),
-//             in that dominant's Mixolydian scale; skipped where V would be diatonic
-// Each kind has its own cap, and the day at most maxPerDay. Never the first chord,
-// the last two, the chord either side of a chapter change, a chord next to another
-// twist, a storm's build or peak, a cold-hollowed chord, or after a cold front;
-// and the sun's lift is left out on a harsh day (MOOD), when sun is no relief.
-// The melody, pad, bass and arpeggio all follow the twisted chord and its scale.
-export const TWISTS = {
-  maxPerDay: 2,
-  borrow: { max: 2, cloudJump: 35, showerMm: 0.5, brightModes: ["lydian", "ionian", "mixolydian"], degs: [3, 5] },
-  mediant: { max: 1, gustJump: 22, clearDrop: 45, sunMaxHarsh: 0.25 },
-  dominant: { max: 1, riseHpa: 1.4 },
-};
-// Pedal: in fog or dead-still air (every hour of the chord with gusts under
-// calmGust km/h and nothing falling) the bass holds the home note while the
-// chords drift above it. Not under a twist, nor the last chord (it's home anyway).
-export const PEDAL = { fogCodes: [45, 48], calmGust: 6 };
+// ==== 6. Layers ==================================================================
+// ---- Weather traits: each sound follows one measurement, on any day ---------
+// No place or "type of day" is coded in. A day's character comes from how
+// these combine: humid grey air crackles, cloud rounds off the bass, rain
+// brings in a beat.
 
-// The ending looks at the evening: does it settle, or is weather moving in?
-// The late evening (lateFrom to 11 pm) is compared with the afternoon (earlyFrom
-// to lateFrom): each of a rise in rain chance (%), cloud (%) or gusts (km/h), and
-// the pressure falling through the evening (hPa), scores 0 to 1 across its range,
-// and rain arriving (codes from wetFrom, in at least two late hours after a dry
-// afternoon) scores 1. The highest counts. From `hint` the last melody note stops
-// on a chord tone short of home (the chord still resolves); from `open` the last
-// chord stays away too (IV, else vi, else V; never a repeat of the chord before), so the song
-// ends like a question. Below `hint` it ends home, as before.
-export const EVENING = { earlyFrom: 12, lateFrom: 19, pop: [15, 45], cloud: [25, 60], gust: [10, 25], fallHpa: [1, 3], wetFrom: 51, hint: 0.4, open: 0.8 };
-
-// ---- Other layers --------------------------------------------------------
 export const BASS = {
   // Pattern per hour by its mean wind (km/h): [pos16, dur16, interval] where
   // interval is 0 root, 7 fifth, 12 octave. Positions fit in STEPS = 8.
@@ -206,36 +288,26 @@ export const BASS = {
 export const BASS_FEEL = {
   doubleEnergy: 0.6,
   halfMeanTemp: 0,
-  halfCodes: [45, 48, 71, 73, 75, 77, 85, 86],
+  halfCodes: [...CODES.fog, ...CODES.snow],
   calmGust: 10,
   double: [[0, 1, 0], [1, 1, 12], [2, 1, 0], [3, 1, 12], [4, 1, 0], [5, 1, 7], [6, 1, 0], [7, 1, 12]],
   half: [[0, 12, 0], [12, 4, 7]],
 };
+
+// Bass tone: the day's mean cloud cover rounds the bass off. At cloudFrom or
+// below it's the plain saw bass; by cloudFull it's a deep sub (a sine with a
+// touch of second harmonic, so small speakers still carry it).
+export const BASS_TONE = { cloudFrom: 0.5, cloudFull: 0.9 };
+
 export const PAD = { velMin: 0.25, velPerCloud: 0.45, center: 60 };
 
-// ---- Chord colour: each chord's two hours add notes and shape the voicing ----
-//   seventh  the dew point fades in the chord's 7th, from dewFrom °C to full at
-//            dewFull: muggy air sounds lush and jazzy
-//   ninth    clear daylight, (1 − cloud) × daylight, fades in the 9th from
-//            `from` to full at `full`: an open, airy sound
-//   sus2     fog (susFogCodes) swaps the third for the second: neither major nor minor, hazy
-//   sus4     pressure moving at least sus4PressureHpa over the two hours (a front
-//            passing) swaps the third for the fourth: the chord hangs, unresolved
-//   open     a mean wind of at least openWind km/h spreads the chord over more than an octave
-// Colour notes sit above the chord at vel × the pad's velocity × the amount, and
-// are left out under `min`. Only notes in the mode are used, and only a whole-tone
-// 9th or 2nd and a perfect 4th, so nothing lands a half step from the root.
-// The final chord can take a 7th or 9th, but never a sus: the song ends resolved.
-// Pad notes stay between voicing.low and voicing.high (MIDI), each moving as
-// little as it can from the last chord (voice leading).
-export const CHORD_COLOUR = {
-  seventh: { dewFrom: 10, dewFull: 20 },
-  ninth: { from: 0.5, full: 0.9 },
-  susFogCodes: [45, 48], sus4PressureHpa: 2.5,
-  openWind: 25,
-  vel: 0.8, min: 0.15,
-  voicing: { low: 53, high: 74, openSpan: 12 },
-};
+// Flutter (tremolo): strong gusts well above the steady wind make the pad's chords
+// flutter like air buffeting a window. Amount = gust strength (gust km/h, gustFrom
+// → gustFull) × gustiness (gust − wind, gapFrom → gapFull); the flutter's rate and
+// depth ramp with it. Forecast gusts often run 25 km/h over the wind on an ordinary
+// day, so both are needed. A pad with its own tremolo keeps whichever is stronger.
+export const FLUTTER = { gustFrom: 40, gustFull: 65, gapFrom: 12, gapFull: 25, rate: [3.5, 7], depth: [0.15, 0.5] };
+
 // ---- Game-music touches: an arpeggio and an echo -----------------------------
 // Video game area themes have two signatures this song borrows: chords broken
 // into quick arpeggios (old sound chips could play only a few notes at once) and
@@ -272,11 +344,58 @@ export const ARP = {
 // still air is 1 at or under calmGust km/h and 0 by windyGust, and rain, snow
 // or fog take it away. Wet and feedback go from their low value at no carry to
 // their high value at full carry.
-export const ECHO = { beats: 0.75, calmGust: 12, windyGust: 45, wet: [0.04, 0.24], feedback: [0.15, 0.38], fogCodes: [45, 48] };
+export const ECHO = { beats: 0.75, calmGust: 12, windyGust: 45, wet: [0.04, 0.24], feedback: [0.15, 0.38] };
 
 export const RAIN = { minPop: 10, maxHits: 5, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
 export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 
+// Rain beat: a skippy, shuffled 2-step pattern in hours when rain is falling
+// (or pop ≥ hourPop) under cloud ≥ hourCloud. Light rain plays the rim and hats;
+// kickMm of rain in the hour brings in the kick. Hits get louder with the chance
+// of rain. Snow hours ring bells instead, and the build and peak of a storm
+// leave the floor to the storm drums.
+// Steps are sixteenths across a 2-hour chord (0–15).
+export const RAIN_BEAT = {
+  hourCloud: 60, hourPop: 40, kickMm: 1,
+  kick: [0, 10], snare: [4, 12], hats: [2, 6, 10, 14], ghosts: [3, 7, 11, 15],
+  vel: { kick: 0.75, snare: 0.5, hat: 0.3, ghost: 0.14 }, humanize: 0.06,
+};
+
+// Dry beat: the same kit, softer, in the hours the rain beat leaves alone (no
+// rain, no snow, not a storm's build or peak, not the last hour). Each part
+// follows one measurement of that hour; steps are sixteenths in the hour (0–7).
+//   hats  the wind (km/h): the first row whose maxWind is above it. Still air
+//         has none; a breeze ticks the off-beats; stronger wind fills in.
+//         Louder with the gusts: hatVel + hatPerGust × gust (km/h), up to hatMax.
+//   kick  the feels-like temperature (°C): the first row whose maxFeels is above it.
+//         Cold air is a slow heartbeat (once per chord), mild air lands on each
+//         beat 1, hot air adds a push into the next hour.
+//   rim   clear sky: a backbeat on the hour's second beat, fading out as the
+//         cloud reaches rimMaxCloud %.
+export const DRY_BEAT = {
+  hats: [
+    { maxWind: 8, steps: [] },
+    { maxWind: 18, steps: [2, 6] },
+    { maxWind: 30, steps: [0, 2, 4, 6] },
+    { maxWind: Infinity, steps: [0, 1, 2, 3, 4, 5, 6, 7] },
+  ],
+  hatVel: 0.14, hatPerGust: 0.004, hatMax: 0.32, hatOffAccent: 1.25,
+  kick: [
+    { maxFeels: 5, steps: [0], perChord: true },
+    { maxFeels: 24, steps: [0] },
+    { maxFeels: Infinity, steps: [0, 6] },
+  ],
+  kickVel: 0.5,
+  rimVel: 0.32, rimMaxCloud: 60,
+  humanize: 0.05,
+};
+
+// Vinyl crackle: humid air under cloud. Per hour,
+//   amount = (rh between rhFrom and rhFull) × (cloud between cloudFrom and cloudFull)
+// gives up to perHour faint pops, louder ones rarer (vel from vel[0] to vel[1]).
+export const CRACKLE = { rhFrom: 70, rhFull: 95, cloudFrom: 50, cloudFull: 90, perHour: 12, vel: [0.08, 0.35] };
+
+// ==== 7. Atmosphere and dynamics =================================================
 // ---- Atmosphere: a noise bed that follows each hour's conditions ----------
 // White = hiss (fog, drizzle), pink = fuller (rain, snow), brown = deep (storms).
 // level = base + perMm × that hour's precipitation, capped at max.
@@ -284,13 +403,13 @@ export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 // Matched by WMO weather code; the first row listing the code wins.
 export const ATMOSPHERE = [
   // Freezing rain: a thin, crisp hiss (its own row, ahead of drizzle and rain).
-  { kind: "ice",     codes: [56, 57, 66, 67],     color: "white", base: 0.14, perMm: 0.04, max: 0.26, cutoff: 9000 },
-  { kind: "fog",     codes: [45, 48],             color: "white", base: 0.10, perMm: 0,    max: 0.10, cutoff: 2500 },
-  { kind: "drizzle", codes: [51, 53, 55, 56, 57], color: "white", base: 0.16, perMm: 0.10, max: 0.30, cutoff: 5000 },
-  { kind: "rain",    codes: [61, 63, 65, 66, 67], color: "pink",  base: 0.25, perMm: 0.06, max: 0.55, cutoff: 6000 },
-  { kind: "showers", codes: [80, 81, 82],         color: "pink",  base: 0.30, perMm: 0.06, max: 0.60, cutoff: 6000 },
-  { kind: "snow",    codes: [71, 73, 75, 77, 85, 86], color: "pink", base: 0.15, perMm: 0.03, max: 0.30, cutoff: 1200 },
-  { kind: "storm",   codes: [95, 96, 99],         color: "brown", base: 0.55, perMm: 0.03, max: 0.75, cutoff: 900 },
+  { kind: "ice",     codes: CODES.ice,           color: "white", base: 0.14, perMm: 0.04, max: 0.26, cutoff: 9000 },
+  { kind: "fog",     codes: CODES.fog,           color: "white", base: 0.10, perMm: 0,    max: 0.10, cutoff: 2500 },
+  { kind: "drizzle", codes: CODES.drizzle,       color: "white", base: 0.16, perMm: 0.10, max: 0.30, cutoff: 5000 },
+  { kind: "rain",    codes: CODES.rain,          color: "pink",  base: 0.25, perMm: 0.06, max: 0.55, cutoff: 6000 },
+  { kind: "showers", codes: CODES.showers,       color: "pink",  base: 0.30, perMm: 0.06, max: 0.60, cutoff: 6000 },
+  { kind: "snow",    codes: CODES.snow,         color: "pink",  base: 0.15, perMm: 0.03, max: 0.30, cutoff: 1200 },
+  { kind: "storm",   codes: CODES.thunder,       color: "brown", base: 0.55, perMm: 0.03, max: 0.75, cutoff: 900 },
 ];
 // Gusts above `from` km/h (a strong breeze; models often forecast 40 km/h gusts on calm days) add a swept pink-noise "whoosh", full at `full` km/h.
 export const WIND_NOISE = { from: 45, full: 100, max: 0.5 };
@@ -374,93 +493,183 @@ export const CALM_DETAIL = {
   margin: 0.04,
 };
 
-// ---- Weather traits: each sound follows one measurement, on any day ---------
-// No place or "type of day" is coded in. A day's character comes from how
-// these combine: humid grey air crackles, cloud rounds off the bass, rain
-// brings in a beat.
-
-// Vinyl crackle: humid air under cloud. Per hour,
-//   amount = (rh between rhFrom and rhFull) × (cloud between cloudFrom and cloudFull)
-// gives up to perHour faint pops, louder ones rarer (vel from vel[0] to vel[1]).
-export const CRACKLE = { rhFrom: 70, rhFull: 95, cloudFrom: 50, cloudFull: 90, perHour: 12, vel: [0.08, 0.35] };
-
-// Bass tone: the day's mean cloud cover rounds the bass off. At cloudFrom or
-// below it's the plain saw bass; by cloudFull it's a deep sub (a sine with a
-// touch of second harmonic, so small speakers still carry it).
-export const BASS_TONE = { cloudFrom: 0.5, cloudFull: 0.9 };
-
-// Rain beat: a skippy, shuffled 2-step pattern in hours when rain is falling
-// (or pop ≥ hourPop) under cloud ≥ hourCloud. Light rain plays the rim and hats;
-// kickMm of rain in the hour brings in the kick. Hits get louder with the chance
-// of rain. Snow hours ring bells instead, and the build and peak of a storm
-// leave the floor to the storm drums.
-// Steps are sixteenths across a 2-hour chord (0–15).
-export const RAIN_BEAT = {
-  hourCloud: 60, hourPop: 40, kickMm: 1,
-  kick: [0, 10], snare: [4, 12], hats: [2, 6, 10, 14], ghosts: [3, 7, 11, 15],
-  vel: { kick: 0.75, snare: 0.5, hat: 0.3, ghost: 0.14 }, humanize: 0.06,
-};
-
-// Dry beat: the same kit, softer, in the hours the rain beat leaves alone (no
-// rain, no snow, not a storm's build or peak, not the last hour). Each part
-// follows one measurement of that hour; steps are sixteenths in the hour (0–7).
-//   hats  the wind (km/h): the first row whose maxWind is above it. Still air
-//         has none; a breeze ticks the off-beats; stronger wind fills in.
-//         Louder with the gusts: hatVel + hatPerGust × gust (km/h), up to hatMax.
-//   kick  the feels-like temperature (°C): the first row whose maxFeels is above it.
-//         Cold air is a slow heartbeat (once per chord), mild air lands on each
-//         beat 1, hot air adds a push into the next hour.
-//   rim   clear sky: a backbeat on the hour's second beat, fading out as the
-//         cloud reaches rimMaxCloud %.
-export const DRY_BEAT = {
-  hats: [
-    { maxWind: 8, steps: [] },
-    { maxWind: 18, steps: [2, 6] },
-    { maxWind: 30, steps: [0, 2, 4, 6] },
-    { maxWind: Infinity, steps: [0, 1, 2, 3, 4, 5, 6, 7] },
-  ],
-  hatVel: 0.14, hatPerGust: 0.004, hatMax: 0.32, hatOffAccent: 1.25,
-  kick: [
-    { maxFeels: 5, steps: [0], perChord: true },
-    { maxFeels: 24, steps: [0] },
-    { maxFeels: Infinity, steps: [0, 6] },
-  ],
-  kickVel: 0.5,
-  rimVel: 0.32, rimMaxCloud: 60,
-  humanize: 0.05,
-};
-
-// ---- Groove and articulation ------------------------------------------------
-// Muggy air swings and slurs; dry air plays straight; cold air plays clipped.
-//   swing  up to swingMax from the day's mean dew point (see DEW below)
-//          (Tone's swing on sixteenths: 0 straight, 0.5 a lazy shuffle)
-//   gate   each note sounds for this fraction of its length, from that hour's
-//          humidity (gateDry → gateHumid), minus up to clipMax when it's cold
-export const GROOVE = {
-  swingMax: 0.5,
-  rhLow: 30, rhHigh: 100, gateDry: 0.55, gateHumid: 0.98,
-  clipFromC: 5, clipFullC: -20, clipMax: 0.3,
-  gateMin: 0.3,
-};
-// Glide (portamento): when the temperature moves fast, the melody slides into the
-// hour's first note instead of stepping to it. The change from the hour before
-// ramps from fromC to fullC (°C in an hour); the slide lasts up to maxSteps
-// sixteenths (never past the note's own sound), and only between notes at least
-// minSemis apart. Only voices marked `glide` slide: a sliding marimba or bell sounds broken.
-export const GLIDE = { fromC: 2, fullC: 4.5, minSteps: 0.5, maxSteps: 1.5, minSemis: 2 };
-// Flutter (tremolo): strong gusts well above the steady wind make the pad's chords
-// flutter like air buffeting a window. Amount = gust strength (gust km/h, gustFrom
-// → gustFull) × gustiness (gust − wind, gapFrom → gapFull); the flutter's rate and
-// depth ramp with it. Forecast gusts often run 25 km/h over the wind on an ordinary
-// day, so both are needed. A pad with its own tremolo keeps whichever is stronger.
-export const FLUTTER = { gustFrom: 40, gustFull: 65, gapFrom: 12, gapFull: 25, rate: [3.5, 7], depth: [0.15, 0.5] };
-
 // ---- Sound shaping (per-hour automation) ----------------------------------
 export const FILTER = { clearHz: 6000, overcastHz: 2000, nightFactor: 0.6 };
 export const REVERB = { min: 0.1, max: 0.6, rhLow: 30, rhHigh: 100 };
 export const PAN_WIDTH = 0.6;
 
-// ---- Instruments ("voices") picked by the climate --------------------------
+// ---- Drive and tone (distortion + 3-band EQ) --------------------------------
+// The band (melody, bass, pad) passes through a distortion whose wet mix
+// follows each hour's energy (see DYNAMICS, which includes CAPE): calm hours
+// stay clean, and rough or unstable weather adds grit.
+//   amount   Tone.Distortion amount (0–1): `amount` on a stable day, rising to
+//            `maxAmount` as the day's peak CAPE goes from capeFrom to capeFull
+//   wetFrom  energy where the grit starts; wetMax at full energy
+export const DRIVE = { amount: 0.25, maxAmount: 0.6, wetFrom: 0.3, wetMax: 0.35 };
+
+// The master EQ3 moves hour by hour (dB):
+//   high  cloud dulls the top end (up to cloudCutDb at 100% cloud); fog (CODES.fog) cuts more
+//   low   wind and storms add weight (up to windBoostDb at windFull km/h gusts)
+export const TONE = {
+  cloudCutDb: -4, fogCutDb: -5,
+  windFrom: 20, windFull: 70, windBoostDb: 3, stormBoostDb: 2,
+  minDb: -9, maxDb: 5,
+};
+
+// ==== 8. Day mood and outliers ===================================================
+// ---- Day mood: how livable the day is -------------------------------------
+// The sky sets the mode, but a clear day at 47 °C or −40 °C isn't a happy one.
+// harsh (0–1) is the day's peak heat (HEAT's feels-like range) or deep cold
+// (DEEP_COLD's), whichever is greater, so it holds all day: hot nights don't
+// cool, and polar air doesn't let up. After a cold front (FRONT) only the hours
+// from the front on count, and only they change. A harsh day is darker, slower and emptier,
+// whatever the sky; the hour-by-hour treatments (HEAT, DEEP_COLD) come on top.
+//   darken  brightness (the day's mode and each chapter's) drops by this × harsh:
+//           Phoenix at 47 °C plays Dorian, McMurdo at −38 °C Aeolian
+//   slow    tempo × (1 − slow × harsh), never under minBpm (below TEMPO.min):
+//           too hot to hurry, too cold to move
+//   thin    the pad and the dry beat lose this share × harsh
+//   arpOff  the clear-daylight arpeggio (the sunniest sound) fades out as harsh reaches this
+// Storms aren't counted: they're dangerous too, but their music is energy
+// (STORM, ARC, DYNAMICS), not stillness.
+export const MOOD = { darken: 0.55, slow: 0.3, minBpm: 80, thin: 0.35, arpOff: 0.35 };
+
+// ---- Outliers: rare, dangerous weather gets its own treatment -----------------
+// Each is measured per hour from the forecast. Like deep cold, most of them take
+// notes away rather than add them, so they don't slow the render.
+
+// Deadly heat: feels-like from fromFeels °C (0) to fullFeels (1). The song wilts:
+//   wobble     the melody's vibrato slows to `rate` Hz and deepens to `depth`, like heat shimmer
+//   highCutDb  the top end dulls
+//   rest       added to each note's chance of a rest; from sparseFrom the melody
+//              plays one row sparser
+//   slur       notes hang on this much longer (a drowsy legato)
+//   hat        the dry beat's hats lose this share
+//   echo       the echo loses this share (hot air smears sound instead of carrying it)
+//   echo is also muted by the day's peak heat (hot nights don't cool), and the
+//   day as a whole turns darker and slower (see MOOD)
+export const HEAT = {
+  fromFeels: 38, fullFeels: 50,
+  wobble: { rate: 1.3, depth: 0.35 }, highCutDb: -5,
+  rest: 0.25, sparseFrom: 0.5, slur: 0.2, hat: 0.7, echo: 1,
+};
+
+// Deep cold: how far each hour's feels-like temperature sits below fromFeels °C,
+// 0 there and 1 at fullFeels (deadly cold). Polar air sounds hollow, sparse and
+// far away, and every part of it means fewer notes, so it renders faster too:
+//   hollowFrom  a chord whose hours average at least this loses its third: sus2
+//               where the scale has a whole-step 2nd, else a bare fifth (the last
+//               chord is always a bare fifth, so it still sounds resolved), with
+//               no 7ths or 9ths and an open voicing
+//   beat        the dry beat's hats, rim and kick are scaled by 1 − this × deep;
+//               hits that drop below minVel go
+//   bassCut     the bass plays this much softer at full deep cold
+//   padCut      ...and the pad this much softer
+//   registerSteps  the melody climbs this many scale steps (an octave) at full
+//   rest        added to each note's chance of a rest
+//   sparseFrom  at least this, the melody strikes one note an hour, whatever the gusts
+//   melodyDb    the melody steps back by this at full, a bell far off
+//   wind        a thin, high wind: level × deep, from fromGust to fullGust km/h,
+//               through a band-pass baseHz higher than the usual wind (baseHz
+//               at full deep cold, the usual 250 Hz with none)
+//   echoCarry   added to the melody echo's carry (cold, dense air carries sound)
+//   reverbLift  added to the reverb's wet mix
+//   lowCutDb    the band's low shelf, for thin, icy air
+export const DEEP_COLD = {
+  fromFeels: -15, fullFeels: -45, hollowFrom: 0.35,
+  beat: { hat: 1, rim: 1, kick: 1 }, minVel: 0.04,
+  bassCut: 0.75, padCut: 0.4, registerSteps: 7, rest: 0.35,
+  sparseFrom: 0.75, melodyDb: -4,
+  wind: { level: 0.3, fromGust: 8, fullGust: 40, baseHz: 900 },
+  echoCarry: 0.5, reverbLift: 0.15, lowCutDb: -3,
+};
+
+// Ice storm: freezing drizzle or rain (CODES.ice). Its shakers become
+// glassy ticks: perHour bells (low → high with the rainfall, up to fullMm),
+// high and short, between MIDI low and high.
+export const ICE_STORM = { perHour: [3, 6], fullMm: 2, low: 86, high: 100, vel: [0.1, 0.24] };
+
+// The eye of a hurricane: on a day with gusts of minGust km/h or more, an hour
+// within nearHpa of the day's lowest pressure whose wind is at most calmShare of
+// the strongest wind in the `look` hours on each side. The storm falls away:
+// no drums, thunder or shakers, the beds drop to `keep`, the band by gainDb,
+// and the melody plays a single soft note.
+export const EYE = { minGust: 118, nearHpa: 3, calmShare: 0.5, look: 3, keep: 0.1, gainDb: -20, vel: 0.5 };
+
+// Whiteout: a snow hour with gusts from fromGust (0) to fullGust (1) km/h. Everything blurs:
+// the melody sinks by melodyDb, the band's filter closes by cutoffCut, the wind
+// rises to at least `wind`, and the reverb opens by reverbLift.
+export const WHITEOUT = { fromGust: 40, fullGust: 80, melodyDb: -6, cutoffCut: 0.5, wind: 0.5, reverbLift: 0.2 };
+
+// A cold front: the temperature falls dropC or more within `hours` hours while the
+// pressure climbs riseHpa or more (from the hour before to two after; an evening's
+// cooling doesn't push the pressure up like this). From
+// the hour it hits, the song turns `darker` modes darker (no further than
+// aeolian unless it already was) and stays there, and a gust of wind (`gust`)
+// marks its arrival.
+export const FRONT = { dropC: 10, hours: 3, riseHpa: 2, darker: 2, gust: 0.4 };
+
+// Hail (CODES.hail, a thunderstorm with hail; models report it only in central Europe):
+// the hour's shakers hit `hits` times as often, velBoost harder.
+export const HAIL = { hits: 2, velBoost: 0.25 };
+
+// ==== 9. Sky and air =============================================================
+// Darkness per hour comes from the sun's altitude (see src/sky.js): 0 in daylight,
+// 1 once the sun is `darkSunAlt`° below the horizon.
+export const DARK = { darkSunAlt: 6, auroraSunAlt: 12 };
+
+// Moonlight (0–1) = moon's lit fraction × how high it is (full at fullAlt°) ×
+// darkness × how much cloud lets through (cloudBlock at 100% cloud).
+// At full moonlight the night dims the melody only (1 − nightLift) as much,
+// and the night filter opens by cutoffLift of the way back to daytime.
+// A moonrise after dark rings one bell (needs minIllum of the face lit).
+// During a visible lunar eclipse the moonlight drops to eclipseLight.
+export const MOON = {
+  fullAlt: 15, cloudBlock: 0.85, nightLift: 0.5, cutoffLift: 0.5,
+  minIllum: 0.15, bellVel: [0.125, 0.25], eclipseLight: 0.1, // bellVel: thin crescent → full moon
+  bellClear: 0.5, // the moonrise bell needs at least this much of the moonlight to get through the cloud
+};
+
+// Auroras: reach (from magnetic latitude and Kp, src/sky.js) × proper darkness
+// × clear sky. Chords whose hours reach `min` get a slow, shimmering high chord
+// (vel scaled by the level), two octaves above the pad.
+export const AURORA = { min: 0.25, vel: 0.55, clearPower: 1.5 };
+
+// Meteor showers: in dark, clear hours (cloud under maxCloud) a run of three
+// falling bell notes, "shooting stars". Count per hour = perHour × zhr/100,
+// fewer (offPeak) a day either side of the peak and under bright moonlight;
+// at most maxPerHour and maxTotal.
+export const METEORS = { maxCloud: 50, perHour: 1.6, offPeak: 0.6, moonDim: 0.6, maxPerHour: 2, maxTotal: 8, vel: 0.32 };
+
+// Air quality (US AQI): haze from `from` (well into "moderate") to full at `full` (unhealthy).
+// Haze dulls the top end (hazeCutDb), lowers the master filter by cutoffCut,
+// and adds dusty crackle (as much as crackle × the CRACKLE amount at full haze).
+// The liner notes mention it from `mention` haze up.
+export const AIR = { from: 75, full: 175, hazeCutDb: -4, cutoffCut: 0.3, crackle: 0.7, mention: 0.15 };
+
+// UV index: from `from` (moderate), sunny hours double the melody an octave up
+// on a soft sine, reaching vel at `full` (very high).
+export const UV = { from: 3, full: 9, vel: 0.3 };
+
+// Snow on the ground (cm) soaks up sound: from 0 to fullCm it takes away up to
+// reverbCut of the reverb and highCutDb of the top end.
+export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
+
+// Frost: clear, still hours at or below maxTemp °C (cloud under maxCloud %,
+// wind under maxWind km/h, nothing falling) between midnight and `until`
+// get a glint, one tiny high bell (two on the season's first frost).
+// The first frost is a day that drops to 0 °C after at least minHistory
+// frost-free days.
+export const FROST = { maxTemp: 0.5, maxCloud: 60, maxWind: 18, until: 10, minHistory: 30, vel: 0.18 };
+
+// A public holiday signs off with a rising bell arpeggio over the last chord.
+// A solstice or equinox rings a bell at the moment it happens.
+export const CALENDAR = { holidayVel: 0.4, seasonVel: 0.35 };
+
+// Bells for all of the above sit in this range (MIDI), above the snow bells.
+export const CHIMES = { low: 72, high: 100 };
+
+// ==== 10. Instruments ============================================================
 // A voice is plain data that the engine turns into a Tone.js synth:
 //   synth   Tone class for each PolySynth voice ("Synth" or "FMSynth")
 //   options passed to that class (oscillator, envelope, FM settings)
@@ -524,7 +733,7 @@ export const MELODY_VOICES = [
 ];
 
 // Pad: sky and moisture. The first row whose conditions all hold wins.
-//   storm / snow  the day is a storm or snow day (see STORM, SNOW_CODES)
+//   storm / snow  the day is a storm or snow day (see STORM, CODES.snow)
 //   minPop        mean chance of rain (0–1) at least this, or minRainMm of rain
 //   minCloud      mean cloud cover (0–1) at least this
 //   maxTemp       mean temperature (°C) below this
@@ -580,33 +789,14 @@ export const PAD_VOICES = [
   },
 ];
 
-// ---- Mix: each layer's fader (dB) -----------------------------------------------
-// The starting balance before the weather moves anything. melody, bass, pad and
-// drums then share the band's swell (DYNAMICS); the melody also dips under
-// cloud and at night (MELODY).
-// Balanced 2026-10-24 on ordinary days (paris-apr, madrid-jul, berlin-oct-wet):
-// in daytime the pad sits about 5 dB under the melody, drums about 6 dB, effects
-// about 10 dB, so the weather's other sounds come through.
-export const MIX = { melody: -4, bass: -20, pad: -11, drums: -6, rain: 6, atmosphere: -5, fx: -3 };
-
-// ---- Master soft clip ---------------------------------------------------------
-// The last stage before the speakers. Below `knee` (0–1 of full scale) the
-// signal passes untouched; above it, peaks are rounded off smoothly towards
-// `ceiling`, so a storm's loudest hits get a little warm crunch instead of
-// harsh digital clipping. `headroom` is how far above full scale (×) the
-// input can go before the curve runs out. A ceiling of 0.89 (−1 dBFS) leaves the
-// room streaming services leave, so Bluetooth and other lossy encoders don't
-// crackle on peaks that briefly overshoot when the phone re-encodes the audio.
-export const SOFT_CLIP = { knee: 0.6, ceiling: 0.89, headroom: 4 };
+// The arpeggio's level (dB) and tone: a quarter-width pulse, rounded off by a lowpass.
+export const ARP_VOICE = { gain: -8, tone: 3200, width: 0.25 };
 // The swell: a breath of filtered noise at sunrise, sunset, a clearing and a storm
 // breaking. It rises over `attack` seconds, falls to `sustain` (0–1) over `decay`,
 // holds for `hold` seconds, then fades over `release`. Band-passed between
 // highpass and lowpass (Hz) so it's airy rather than hissy; `db` is its level.
 export const SWELL = { attack: 1.2, decay: 0.6, sustain: 0.3, hold: 1.4, release: 1.2, highpass: 3000, lowpass: 7500, db: -17, vel: 0.6 };
-// The arpeggio's level (dB) and tone: a quarter-width pulse, rounded off by a lowpass.
-export const ARP_VOICE = { gain: -8, tone: 3200, width: 0.25 };
-// Storm drums (dB): they sit on the bass's note, so they're trimmed to leave it room.
-export const STORM_DRUMS_DB = -3;
+
 // 32-bit mode: lighter instruments in the spirit of a PS1/N64 sound chip, so songs
 // render faster (on by default on phones, where Play waits for the render to get ahead).
 // The score is the same; only the instruments that play it get simpler:
@@ -623,6 +813,29 @@ export const RETRO32 = {
   reverb: { decay: 1.5, preDelay: 0.01, wet: 0.25 },
   trim: { glass: -4, mallet: -2.5, bells: -8, chimes: -4 },
 };
+
+// ==== 11. Mix and master =========================================================
+// Each layer's fader (dB).
+// The starting balance before the weather moves anything. melody, bass, pad and
+// drums then share the band's swell (DYNAMICS); the melody also dips under
+// cloud and at night (MELODY).
+// Balanced 2026-10-24 on ordinary days (paris-apr, madrid-jul, berlin-oct-wet):
+// in daytime the pad sits about 5 dB under the melody, drums about 6 dB, effects
+// about 10 dB, so the weather's other sounds come through.
+export const MIX = { melody: -4, bass: -20, pad: -11, drums: -6, rain: 6, atmosphere: -5, fx: -3 };
+
+// Storm drums (dB): they sit on the bass's note, so they're trimmed to leave it room.
+export const STORM_DRUMS_DB = -3;
+
+// Master soft clip: the last stage before the speakers. Below `knee` (0–1 of full scale) the
+// signal passes untouched; above it, peaks are rounded off smoothly towards
+// `ceiling`, so a storm's loudest hits get a little warm crunch instead of
+// harsh digital clipping. `headroom` is how far above full scale (×) the
+// input can go before the curve runs out. A ceiling of 0.89 (−1 dBFS) leaves the
+// room streaming services leave, so Bluetooth and other lossy encoders don't
+// crackle on peaks that briefly overshoot when the phone re-encodes the audio.
+export const SOFT_CLIP = { knee: 0.6, ceiling: 0.89, headroom: 4 };
+
 // The ending: the last melody note lets go over `releaseSec` and the last pad
 // chord over `padReleaseSec`, on a linear curve instead of their usual quick
 // exponential one. The song's fade-out reaches silence `tailSec` seconds past
@@ -633,179 +846,3 @@ export const ENDING = { releaseSec: 2.6, padReleaseSec: 3.4, tailSec: 3 };
 // Season suite: each movement keeps its own ending, and the next one begins
 // overlapSec before the last has quite faded away.
 export const SUITE = { overlapSec: 1 };
-
-// ---- Drive and tone (distortion + 3-band EQ) --------------------------------
-// The band (melody, bass, pad) passes through a distortion whose wet mix
-// follows each hour's energy (see DYNAMICS, which includes CAPE): calm hours
-// stay clean, and rough or unstable weather adds grit.
-//   amount   Tone.Distortion amount (0–1): `amount` on a stable day, rising to
-//            `maxAmount` as the day's peak CAPE goes from capeFrom to capeFull
-//   wetFrom  energy where the grit starts; wetMax at full energy
-export const DRIVE = { amount: 0.25, maxAmount: 0.6, wetFrom: 0.3, wetMax: 0.35 };
-
-// The master EQ3 moves hour by hour (dB):
-//   high  cloud dulls the top end (up to cloudCutDb at 100% cloud); fog cuts more
-//   low   wind and storms add weight (up to windBoostDb at windFull km/h gusts)
-export const TONE = {
-  cloudCutDb: -4, fogCutDb: -5, fogCodes: [45, 48],
-  windFrom: 20, windFull: 70, windBoostDb: 3, stormBoostDb: 2,
-  minDb: -9, maxDb: 5,
-};
-
-// ---- Sky and air: the moon, auroras, the calendar, air quality, UV, snow and frost ----
-// Darkness per hour comes from the sun's altitude (see src/sky.js): 0 in daylight,
-// 1 once the sun is `darkSunAlt`° below the horizon.
-export const DARK = { darkSunAlt: 6, auroraSunAlt: 12 };
-
-// Moonlight (0–1) = moon's lit fraction × how high it is (full at fullAlt°) ×
-// darkness × how much cloud lets through (cloudBlock at 100% cloud).
-// At full moonlight the night dims the melody only (1 − nightLift) as much,
-// and the night filter opens by cutoffLift of the way back to daytime.
-// A moonrise after dark rings one bell (needs minIllum of the face lit).
-// During a visible lunar eclipse the moonlight drops to eclipseLight.
-export const MOON = {
-  fullAlt: 15, cloudBlock: 0.85, nightLift: 0.5, cutoffLift: 0.5,
-  minIllum: 0.15, bellVel: [0.125, 0.25], eclipseLight: 0.1, // bellVel: thin crescent → full moon
-  bellClear: 0.5, // the moonrise bell needs at least this much of the moonlight to get through the cloud
-};
-
-// Auroras: reach (from magnetic latitude and Kp, src/sky.js) × proper darkness
-// × clear sky. Chords whose hours reach `min` get a slow, shimmering high chord
-// (vel scaled by the level), two octaves above the pad.
-export const AURORA = { min: 0.25, vel: 0.55, clearPower: 1.5 };
-
-// Meteor showers: in dark, clear hours (cloud under maxCloud) a run of three
-// falling bell notes, "shooting stars". Count per hour = perHour × zhr/100,
-// fewer (offPeak) a day either side of the peak and under bright moonlight;
-// at most maxPerHour and maxTotal.
-export const METEORS = { maxCloud: 50, perHour: 1.6, offPeak: 0.6, moonDim: 0.6, maxPerHour: 2, maxTotal: 8, vel: 0.32 };
-
-// Air quality (US AQI): haze from `from` (well into "moderate") to full at `full` (unhealthy).
-// Haze dulls the top end (hazeCutDb), lowers the master filter by cutoffCut,
-// and adds dusty crackle (as much as crackle × the CRACKLE amount at full haze).
-// The liner notes mention it from `mention` haze up.
-export const AIR = { from: 75, full: 175, hazeCutDb: -4, cutoffCut: 0.3, crackle: 0.7, mention: 0.15 };
-
-// UV index: from `from` (moderate), sunny hours double the melody an octave up
-// on a soft sine, reaching vel at `full` (very high).
-export const UV = { from: 3, full: 9, vel: 0.3 };
-
-// Dew point (°C) sets the swing, since it's what makes air feel muggy:
-// straight at or below swingFromDew, GROOVE.swingMax at swingFullDew.
-// The melody instrument follows the feels-like temperature (MELODY_VOICES),
-// so a humid 30 °C and a dry 30 °C day can sound different.
-export const DEW = { swingFromDew: 10, swingFullDew: 22 };
-
-// Snow on the ground (cm) soaks up sound: from 0 to fullCm it takes away up to
-// reverbCut of the reverb and highCutDb of the top end.
-export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
-
-// Frost: clear, still hours at or below maxTemp °C (cloud under maxCloud %,
-// wind under maxWind km/h, nothing falling) between midnight and `until`
-// get a glint, one tiny high bell (two on the season's first frost).
-// The first frost is a day that drops to 0 °C after at least minHistory
-// frost-free days.
-export const FROST = { maxTemp: 0.5, maxCloud: 60, maxWind: 18, until: 10, minHistory: 30, vel: 0.18 };
-
-// Deep cold: how far each hour's feels-like temperature sits below fromFeels °C,
-// 0 there and 1 at fullFeels (deadly cold). Polar air sounds hollow, sparse and
-// far away, and every part of it means fewer notes, so it renders faster too:
-//   hollowFrom  a chord whose hours average at least this loses its third: sus2
-//               where the scale has a whole-step 2nd, else a bare fifth (the last
-//               chord is always a bare fifth, so it still sounds resolved), with
-//               no 7ths or 9ths and an open voicing
-//   beat        the dry beat's hats, rim and kick are scaled by 1 − this × deep;
-//               hits that drop below minVel go
-//   bassCut     the bass plays this much softer at full deep cold
-//   padCut      ...and the pad this much softer
-//   registerSteps  the melody climbs this many scale steps (an octave) at full
-//   rest        added to each note's chance of a rest
-//   sparseFrom  at least this, the melody strikes one note an hour, whatever the gusts
-//   melodyDb    the melody steps back by this at full, a bell far off
-//   wind        a thin, high wind: level × deep, from fromGust to fullGust km/h,
-//               through a band-pass baseHz higher than the usual wind (baseHz
-//               at full deep cold, the usual 250 Hz with none)
-//   echoCarry   added to the melody echo's carry (cold, dense air carries sound)
-//   reverbLift  added to the reverb's wet mix
-//   lowCutDb    the band's low shelf, for thin, icy air
-export const DEEP_COLD = {
-  fromFeels: -15, fullFeels: -45, hollowFrom: 0.35,
-  beat: { hat: 1, rim: 1, kick: 1 }, minVel: 0.04,
-  bassCut: 0.75, padCut: 0.4, registerSteps: 7, rest: 0.35,
-  sparseFrom: 0.75, melodyDb: -4,
-  wind: { level: 0.3, fromGust: 8, fullGust: 40, baseHz: 900 },
-  echoCarry: 0.5, reverbLift: 0.15, lowCutDb: -3,
-};
-
-// ---- Day mood: how livable the day is -------------------------------------
-// The sky sets the mode, but a clear day at 47 °C or −40 °C isn't a happy one.
-// harsh (0–1) is the day's peak heat (HEAT's feels-like range) or deep cold
-// (DEEP_COLD's), whichever is greater, so it holds all day: hot nights don't
-// cool, and polar air doesn't let up. After a cold front (FRONT) only the hours
-// from the front on count, and only they change. A harsh day is darker, slower and emptier,
-// whatever the sky; the hour-by-hour treatments (HEAT, DEEP_COLD) come on top.
-//   darken  brightness (the day's mode and each chapter's) drops by this × harsh:
-//           Phoenix at 47 °C plays Dorian, McMurdo at −38 °C Aeolian
-//   slow    tempo × (1 − slow × harsh), never under minBpm (below TEMPO.min):
-//           too hot to hurry, too cold to move
-//   thin    the pad and the dry beat lose this share × harsh
-//   arpOff  the clear-daylight arpeggio (the sunniest sound) fades out as harsh reaches this
-// Storms aren't counted: they're dangerous too, but their music is energy
-// (STORM, ARC, DYNAMICS), not stillness.
-export const MOOD = { darken: 0.55, slow: 0.3, minBpm: 80, thin: 0.35, arpOff: 0.35 };
-
-// ---- Outliers: rare, dangerous weather gets its own treatment -----------------
-// Each is measured per hour from the forecast. Like deep cold, most of them take
-// notes away rather than add them, so they don't slow the render.
-
-// Deadly heat: feels-like from fromFeels °C (0) to fullFeels (1). The song wilts:
-//   wobble     the melody's vibrato slows to `rate` Hz and deepens to `depth`, like heat shimmer
-//   highCutDb  the top end dulls
-//   rest       added to each note's chance of a rest; from sparseFrom the melody
-//              plays one row sparser
-//   slur       notes hang on this much longer (a drowsy legato)
-//   hat        the dry beat's hats lose this share
-//   echo       the echo loses this share (hot air smears sound instead of carrying it)
-//   echo is also muted by the day's peak heat (hot nights don't cool), and the
-//   day as a whole turns darker and slower (see MOOD)
-export const HEAT = {
-  fromFeels: 38, fullFeels: 50,
-  wobble: { rate: 1.3, depth: 0.35 }, highCutDb: -5,
-  rest: 0.25, sparseFrom: 0.5, slur: 0.2, hat: 0.7, echo: 1,
-};
-
-// Ice storm: freezing drizzle or rain (these WMO codes). Its shakers become
-// glassy ticks: perHour bells (low → high with the rainfall, up to fullMm),
-// high and short, between MIDI low and high.
-export const ICE_STORM = { codes: [56, 57, 66, 67], perHour: [3, 6], fullMm: 2, low: 86, high: 100, vel: [0.1, 0.24] };
-
-// The eye of a hurricane: on a day with gusts of minGust km/h or more, an hour
-// within nearHpa of the day's lowest pressure whose wind is at most calmShare of
-// the strongest wind in the `look` hours on each side. The storm falls away:
-// no drums, thunder or shakers, the beds drop to `keep`, the band by gainDb,
-// and the melody plays a single soft note.
-export const EYE = { minGust: 118, nearHpa: 3, calmShare: 0.5, look: 3, keep: 0.1, gainDb: -20, vel: 0.5 };
-
-// Whiteout: a snow hour with gusts from fromGust (0) to fullGust (1) km/h. Everything blurs:
-// the melody sinks by melodyDb, the band's filter closes by cutoffCut, the wind
-// rises to at least `wind`, and the reverb opens by reverbLift.
-export const WHITEOUT = { fromGust: 40, fullGust: 80, melodyDb: -6, cutoffCut: 0.5, wind: 0.5, reverbLift: 0.2 };
-
-// A cold front: the temperature falls dropC or more within `hours` hours while the
-// pressure climbs riseHpa or more (from the hour before to two after; an evening's
-// cooling doesn't push the pressure up like this). From
-// the hour it hits, the song turns `darker` modes darker (no further than
-// aeolian unless it already was) and stays there, and a gust of wind (`gust`)
-// marks its arrival.
-export const FRONT = { dropC: 10, hours: 3, riseHpa: 2, darker: 2, gust: 0.4 };
-
-// Hail (thunderstorm with hail; models report it only in central Europe):
-// the hour's shakers hit `hits` times as often, velBoost harder.
-export const HAIL = { codes: [96, 99], hits: 2, velBoost: 0.25 };
-
-// A public holiday signs off with a rising bell arpeggio over the last chord.
-// A solstice or equinox rings a bell at the moment it happens.
-export const CALENDAR = { holidayVel: 0.4, seasonVel: 0.35 };
-
-// Bells for all of the above sit in this range (MIDI), above the snow bells.
-export const CHIMES = { low: 72, high: 100 };

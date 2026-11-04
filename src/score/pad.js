@@ -58,7 +58,7 @@ export function arpeggio(ctx) {
     const h = H[b];
     const amount = arpAmount(T, b, clamp(((1 - h.cloud / 100) * (h.isDay ? 1 : 0) - AR.from) / (AR.full - AR.from), 0, 1));
     if (b % M.BARS_PER_CHORD === 0) step = 0; // each chord starts its run from the bottom (or top)
-    if (amount <= 0 || h.precip >= 0.1 || M.SNOW_CODES.includes(h.code)) continue;
+    if (amount <= 0 || h.precip >= 0.1 || M.CODES.snow.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const pcs = chordPcs(b).slice();
     if (colourAt(b).seventh >= K.min) pcs.push((rootAt(b) + MODES[modeAt(b)][(chordDeg(b) + 6) % 7]) % 12);

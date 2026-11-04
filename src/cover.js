@@ -4,7 +4,7 @@
 // lightning fall where they do in the day.
 
 import { tempColor } from "./icons.js";
-import { THUNDER_CODES, SNOW_CODES } from "./mapping.js";
+import { CODES } from "./mapping.js";
 
 const NIGHT = [24, 22, 52];
 const CLEAR = [104, 170, 228];
@@ -34,7 +34,7 @@ export function coverArt(forecast, meta) {
 
   // Sky, hour by hour.
   const stops = H.map((h, i) => {
-    const storm = THUNDER_CODES.includes(h.code);
+    const storm = CODES.thunder.includes(h.code);
     const day = storm ? STORM : mix(CLEAR, GREY, h.cloud / 100);
     let c = mix(mix(NIGHT, day, Math.max(0.05, meta.hourBrightness[i])),
       h.isDay ? ICE_DAY : ICE_NIGHT, 0.9 * (meta.deepCold?.[i] ?? 0));
@@ -82,11 +82,11 @@ export function coverArt(forecast, meta) {
     const op = Math.min(0.85, 0.25 + h.precip / 4 + h.pop / 400);
     for (let k = 0; k < n; k++) {
       const px = x(i) + (rand() - 0.5) * 4, py = 44 + rand() * 30;
-      wet += SNOW_CODES.includes(h.code)
+      wet += CODES.snow.includes(h.code)
         ? `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r=".9" fill="#fff" opacity="${op.toFixed(2)}"/>`
         : `<path d="M${px.toFixed(1)} ${py.toFixed(1)}l-1.4 5" stroke="#bfe3ff" stroke-width=".7" stroke-linecap="round" opacity="${op.toFixed(2)}"/>`;
     }
-    if (THUNDER_CODES.includes(h.code) && i % 3 === 0) {
+    if (CODES.thunder.includes(h.code) && i % 3 === 0) {
       const bx = x(i);
       wet += `<path d="M${bx + 1} 40l-4 9h3.5l-2.5 8 6-10.5h-3.6l2.4-6.5z" fill="#ffd23f"/>`;
     }

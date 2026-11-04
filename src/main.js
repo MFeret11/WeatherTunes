@@ -10,7 +10,7 @@ import { Player } from "./stream.js";
 import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor, moonDisc } from "./icons.js";
 import { coverArt } from "./cover.js";
-import { SNOW_CODES, SUITE } from "./mapping.js";
+import { CODES, SUITE } from "./mapping.js";
 import { fetchSuite } from "./seasons.js";
 
 const SAMPLES = [
@@ -548,7 +548,7 @@ function skyAt(bar) {
   card.style.setProperty("--energy", score.automation.energy[bar].toFixed(2));
   // Rain streaks or falling snow, heavier with the hour's precipitation.
   const fall = Math.min(1, h.precip / 4 + (h.precip > 0 ? 0.2 : 0));
-  const snowing = SNOW_CODES.includes(h.code);
+  const snowing = CODES.snow.includes(h.code);
   card.style.setProperty("--wet", (snowing ? 0 : fall).toFixed(2));
   card.style.setProperty("--flakes", (snowing ? Math.max(fall, 0.25) : 0).toFixed(2));
   card.dataset.phase = score.meta.arc.phases[bar];

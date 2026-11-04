@@ -26,7 +26,7 @@ export function scoreContext(f) {
     return +Math.max(G.gateMin, G.gateDry + (G.gateHumid - G.gateDry) * humid - G.clipMax * cold).toFixed(3);
   };
   // Muggy air swings: the dew point measures how much water the air holds.
-  const swing = +(G.swingMax * clamp((stats.dewMean - M.DEW.swingFromDew) / (M.DEW.swingFullDew - M.DEW.swingFromDew), 0, 1)).toFixed(3);
+  const swing = +(G.swingMax * clamp((stats.dewMean - G.swingFromDew) / (G.swingFullDew - G.swingFromDew), 0, 1)).toFixed(3);
   const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
   // Outliers: extreme heat and cold, whiteout, ice, a hurricane's eye, a cold front (see traits.js).

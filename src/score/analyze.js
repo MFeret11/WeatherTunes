@@ -35,11 +35,11 @@ export function analyze(f) {
 
   stats.rainRate = stats.wetHours ? stats.precipSum / stats.wetHours : 0; // mm per wet hour
   const stormHour = (h) =>
-    M.THUNDER_CODES.includes(h.code) ||
+    M.CODES.thunder.includes(h.code) ||
     h.precip >= M.STORM.hourlyPrecipMm ||
     (h.gust >= M.STORM.gustKmh && h.precip > 0);
   const storm = H.some(stormHour);
-  const snow = H.filter((h) => M.SNOW_CODES.includes(h.code)).length >= 3;
+  const snow = H.filter((h) => M.CODES.snow.includes(h.code)).length >= 3;
 
   const B = M.BRIGHTNESS;
   const HT = M.HEAT, DC = M.DEEP_COLD, MD = M.MOOD;
@@ -106,7 +106,7 @@ export function dynamicsCurve(H) {
   const raw = H.map((h) => Math.max(
     clamp(h.precip / D.rainFullMm, 0, 1),
     clamp((h.gust - D.gustFrom) / (D.gustFull - D.gustFrom), 0, 1),
-    M.THUNDER_CODES.includes(h.code) ? 1 : 0,
+    M.CODES.thunder.includes(h.code) ? 1 : 0,
     capeLevel(h.cape) * D.capeWeight,
   ));
   const energy = raw.map((r, b) => {

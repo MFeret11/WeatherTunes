@@ -85,7 +85,7 @@ export function pedalBars(H, bars) {
   for (let b = 0; b < M.BARS - BPC; b += BPC) {
     const hrs = H.slice(b, b + BPC);
     if (bars[b].twist) continue;
-    const fog = hrs.some((h) => P.fogCodes.includes(h.code));
+    const fog = hrs.some((h) => M.CODES.fog.includes(h.code));
     const still = hrs.every((h) => h.gust < P.calmGust && h.precip === 0);
     if (fog || still) for (let k = b; k < b + BPC; k++) out[k] = true;
   }
@@ -105,7 +105,7 @@ export function chordColour(hrs, mode, deg, final) {
   let sus = null;
   let susBy = null;
   if (!final) {
-    const foggy = hrs.some((h) => K.susFogCodes.includes(h.code));
+    const foggy = hrs.some((h) => M.CODES.fog.includes(h.code));
     const moving = Math.abs(hrs[hrs.length - 1].pressure - hrs[0].pressure) * (2 / Math.max(1, hrs.length - 1)) >= K.sus4PressureHpa;
     if (foggy && second) sus = "sus2";
     else if ((foggy || moving) && fourth) sus = "sus4";
@@ -158,7 +158,7 @@ export function eveningOutlook(H) {
   const early = H.slice(E.earlyFrom, E.lateFrom), late = H.slice(E.lateFrom);
   const ramp = (x, [a, b]) => clamp((x - a) / (b - a), 0, 1);
   const rise = (fn) => mean(late.map(fn)) - mean(early.map(fn));
-  const wet = (h) => h.code >= E.wetFrom;
+  const wet = (h) => h.code >= M.CODES.wetFrom;
   const scores = {
     rain: !early.some(wet) && late.filter(wet).length >= 2 ? 1 : 0,
     pop: ramp(rise((h) => h.pop ?? 0), E.pop),

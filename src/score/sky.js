@@ -40,7 +40,7 @@ export function daySky(f) {
   const cover = clamp(snowCm / M.SNOW_COVER.fullCm, 0, 1);
 
   const FR = M.FROST;
-  const falling = (h) => h.precip >= 0.1 || M.SNOW_CODES.includes(h.code);
+  const falling = (h) => h.precip >= 0.1 || M.CODES.snow.includes(h.code);
   const frostHours = H.map((h, b) => (b < FR.until && h.temp <= FR.maxTemp && h.cloud < FR.maxCloud && h.wind < FR.maxWind && !falling(h) ? b : -1)).filter((b) => b >= 0);
   const tMin = Math.min(...H.map((h) => h.temp));
   const past = X.minTemps;
