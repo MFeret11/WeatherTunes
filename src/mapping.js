@@ -144,6 +144,36 @@ export const PROGRESSIONS = {
 };
 export const PRESSURE_TREND_HPA = 1.5; // change over the day that counts as rising/falling
 
+// ---- Twists: the weather's surprises bend one chord ------------------------
+// The loops above stay inside the mode. A twist swaps one chord (2 hours) for
+// one from outside it, only where that chord's hours do something:
+//   borrow    a passing cloud on a bright chapter (Lydian, major, Mixolydian): an
+//             hour with cloudJump % more cloud than the chords on either side, or a
+//             light shower (under showerMm) → a chord from the parallel minor,
+//             iv or ♭VI (the "Beatles" shadow), in that minor's scale
+//   mediant   a sudden change: a gust gustJump km/h above the hour before, or the
+//             sun breaking through (cloud down clearDrop % in an hour) → a major chord
+//             a major third away: the sun lifts to III, a gust drops to ♭VI
+//             (or to ♭II when ♭VI is already in the mode), in its own major scale
+//   dominant  pressure climbing riseHpa or more across the chord's hours → the chord
+//             becomes V of the next one (a pull toward where the weather is going),
+//             in that dominant's Mixolydian scale; skipped where V would be diatonic
+// Each kind has its own cap, and the day at most maxPerDay. Never the first chord,
+// the last two, the chord either side of a chapter change, a chord next to another
+// twist, a storm's build or peak, a cold-hollowed chord, or after a cold front;
+// and the sun's lift is left out on a harsh day (MOOD), when sun is no relief.
+// The melody, pad, bass and arpeggio all follow the twisted chord and its scale.
+export const TWISTS = {
+  maxPerDay: 2,
+  borrow: { max: 2, cloudJump: 35, showerMm: 0.5, brightModes: ["lydian", "ionian", "mixolydian"], degs: [3, 5] },
+  mediant: { max: 1, gustJump: 22, clearDrop: 45, sunMaxHarsh: 0.25 },
+  dominant: { max: 1, riseHpa: 1.4 },
+};
+// Pedal: in fog or dead-still air (every hour of the chord with gusts under
+// calmGust km/h and nothing falling) the bass holds the home note while the
+// chords drift above it. Not under a twist, nor the last chord (it's home anyway).
+export const PEDAL = { fogCodes: [45, 48], calmGust: 6 };
+
 // ---- Other layers --------------------------------------------------------
 export const BASS = {
   // Pattern per hour by its mean wind (km/h): [pos16, dur16, interval] where
@@ -206,15 +236,23 @@ export const CHORD_COLOUR = {
 // peak, and the last hour have none.
 //   rate       the wind (km/h) sets the speed: the first row whose maxWind is
 //              above the hour's wind gives `every` (sixteenths between notes)
-//   shape      the pressure trend sets the direction: rising climbs, falling
-//              descends, steady goes up and back down
+//   shape      the pressure trend sets the family, the day's seed picks one of it:
+//              up / climb (leapfrog 1-3-2-4…) when rising, down / fall when falling,
+//              updown / rock (the low note between each upper one) when steady
+//   reach      the day's temperature swing sets how many notes the run spans, from
+//              reach.notes[0] at reach.fromC or less to reach.notes[1] at reach.fullC
+//              (a flat day ripples, a big swing sweeps over an octave)
+//   lilt       on a muggy day (mean dew point at least lilt.dew °C) the notes fall
+//              3 + 3 + 2 (a tresillo) instead of evenly
 //   low, high  the register (MIDI); the chord's 7th joins when CHORD_COLOUR adds one
 //   vel        at full amount, with `accent` more on each beat; gate is the note length
 export const ARP = {
   from: 0.4, full: 0.85,
   rate: [{ maxWind: 12, every: 2 }, { maxWind: Infinity, every: 1 }],
-  shape: { rising: "up", steady: "updown", falling: "down" },
-  low: 67, high: 86,
+  shape: { rising: ["up", "climb"], steady: ["updown", "rock"], falling: ["down", "fall"] },
+  reach: { fromC: 5, fullC: 15, notes: [3, 7] },
+  lilt: { dew: 17, steps: [0, 3, 6] },
+  low: 67, high: 91,
   vel: 0.28, accent: 0.06, gate: 0.5,
 };
 

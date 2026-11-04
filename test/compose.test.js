@@ -1,6 +1,6 @@
 import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
-import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels, chordColour, voiceChord, pickVoices } from "../src/compose.js";
+import { compose, analyze, chordDegreeAt, dynamicsCurve, capeLevel, bassFeels, chordColour, voiceChord, pickVoices, arpRun } from "../src/compose.js";
 import { MODES, melodyDegrees, triadPcs, chordLabel, stepAbove } from "../src/theory.js";
 import * as M from "../src/mapping.js";
 
@@ -16,7 +16,9 @@ const scores = Object.fromEntries(FIXTURES.map((n) => [n, compose(forecasts[n])]
 
 const each = (fn) => { for (const n of FIXTURES) fn(n, scores[n], forecasts[n]); };
 // Each bar has its own mode (the day's story) and chord.
-const melodyPcs = (s, bar) => { const m = s.meta.barModes[bar]; return new Set(melodyDegrees(m, s.meta.snow).map((d) => (s.meta.root + MODES[m][d]) % 12)); };
+// A twisted chord (see TWISTS) moves its tonic by barShifts semitones.
+const tonicAt = (s, bar) => (s.meta.root + (s.meta.barShifts?.[bar] ?? 0)) % 12;
+const melodyPcs = (s, bar) => { const m = s.meta.barModes[bar]; return new Set(melodyDegrees(m, s.meta.snow).map((d) => (tonicAt(s, bar) + MODES[m][d]) % 12)); };
 // The chord as played: its triad, or a sus chord with the third swapped (see CHORD_COLOUR).
 const chordAt = (s, bar) => s.meta.chordPcs[bar];
 
@@ -497,7 +499,7 @@ test("the forecast paragraph mentions feels-like, air, UV, snow and frost when t
 test("chords are their triad, or a sus with a whole-tone 2nd or perfect 4th", () => each((n, s) => {
   for (let b = 0; b < M.BARS; b++) {
     const m = s.meta.barModes[b], d = s.meta.chordDegrees[b];
-    const t = triadPcs(s.meta.root, m, d);
+    const t = triadPcs(tonicAt(s, b), m, d);
     const got = s.meta.chordPcs[b];
     const sus = s.meta.colours[Math.floor(b / M.BARS_PER_CHORD)].sus;
     if (sus === "5") { equal(got, [t[0], t[2]], `${n} bar ${b} bare fifth`); continue; }
@@ -688,7 +690,7 @@ test("arpeggio: chord tones, in range, only in clear dry daylight", () => each((
     const pcs = new Set(chordAt(s, x.bar));
     if (s.meta.colours[Math.floor(x.bar / M.BARS_PER_CHORD)].seventh >= M.CHORD_COLOUR.min) {
       const m = s.meta.barModes[x.bar];
-      pcs.add((s.meta.root + MODES[m][(s.meta.chordDegrees[x.bar] + 6) % 7]) % 12);
+      pcs.add((tonicAt(s, x.bar) + MODES[m][(s.meta.chordDegrees[x.bar] + 6) % 7]) % 12);
     }
     assert(pcs.has(x.midi % 12), `${n} arp ${x.note} not in the chord at hour ${x.bar}`);
     assert(x.vel > 0 && x.vel <= M.ARP.vel + M.ARP.accent, `${n} arp vel ${x.vel}`);
@@ -728,4 +730,53 @@ test("cloudy days split three ways: warm horns, grey organ, drifting swells", ()
   equal(pickVoices(day({ tMean: 8, cloud: 0.9 }), false, false).pad.id, "overcast", "cool and grey");
   equal(pickVoices(day({ tMean: 12, cloud: 0.6 }), false, false).pad.id, "drift", "broken cloud");
   equal(pickVoices(day({ tMean: 12, cloud: 0.3, rh: 50 }), false, false).pad.id, "airy", "clear days unchanged");
+});
+
+// ---- Twists, pedal, arpeggio shapes ---------------------------------------------
+
+test("twists are few, spaced out, and kept off the opening, the ending and chapter turns", () => each((n, s) => {
+  const T = s.meta.twists, BPC = M.BARS_PER_CHORD, last = M.BARS / BPC - 1;
+  assert(T.length <= M.TWISTS.maxPerDay, `${n} ${T.length} twists`);
+  const turns = new Set(s.meta.chapters.map((c) => c.bar / BPC));
+  for (const [i, t] of T.entries()) {
+    assert(t.chord >= 1 && t.chord <= last - 2, `${n} twist at chord ${t.chord}`);
+    assert(!turns.has(t.chord) && !turns.has(t.chord + 1), `${n} twist beside a chapter turn`);
+    if (i) assert(t.chord - T[i - 1].chord >= 2, `${n} twists side by side`);
+    const pcs = s.meta.chordPcs[t.bar];
+    if (t.kind !== "borrow" && !s.meta.colours[t.chord].sus) equal((pcs[1] - pcs[0] + 12) % 12, 4, `${n} ${t.kind} is a major chord`);
+  }
+}));
+
+test("a passing cloud on a bright day borrows a minor-key chord; a gust or rising pressure bends one", () => {
+  const cloud = tweak("kyoto-spring", (h, b) => { if (b === 10 || b === 11) h.cloud = 70; });
+  const t = cloud.meta.twists.find((x) => x.kind === "borrow");
+  assert(t, `cloud → borrow (${JSON.stringify(cloud.meta.twists)})`);
+  equal(cloud.meta.barModes[t.bar], "aeolian", "borrowed from the parallel minor");
+  assert(["iv", "bVI"].includes(cloud.meta.chords[t.bar]), `iv or bVI, got ${cloud.meta.chords[t.bar]}`);
+  assert(/minor key/.test(cloud.meta.liner.paragraphs[0]), "liner mentions it");
+  equal(scores["kyoto-spring"].meta.twists.length, 0, "a steady clear day stays in the loop");
+  const gust = tweak("kyoto-spring", (h, b) => { if (b === 9) h.gust += 30; });
+  assert(gust.meta.twists.some((x) => x.kind === "mediant" && x.why === "gust"), "gust → distant chord");
+  equal(scores["phoenix-heat"].meta.twists.filter((x) => x.why === "sun").length, 0, "no sunny lift in dangerous heat");
+});
+
+test("fog or dead-still air holds the bass on the home note", () => {
+  const still = tweak("kyoto-spring", (h) => { h.gust = 2; h.wind = 1; h.precip = 0; });
+  const ped = still.meta.pedal;
+  assert(ped.filter(Boolean).length >= 8, "most of a still day is pedal");
+  const home = [still.meta.root, (still.meta.root + 7) % 12]; // the pattern's root and fifth, on the home note
+  for (const x of still.bass) if (ped[x.bar]) assert(home.includes(x.midi % 12), `bass ${x.note} on the home note`);
+  assert(/bass holds the home note/.test(still.meta.liner.paragraphs[0]), "liner mentions the pedal");
+});
+
+test("arpeggio shapes and reach", () => {
+  const L = [60, 64, 67, 72, 76];
+  equal(arpRun(L, "up"), L);
+  equal(arpRun(L, "down"), [76, 72, 67, 64, 60]);
+  equal(arpRun(L, "climb"), [60, 67, 64, 72, 67, 76]);
+  equal(arpRun(L, "fall"), [76, 67, 72, 64, 67, 60]);
+  equal(arpRun(L, "rock"), [60, 64, 60, 67, 60, 72, 60, 76]);
+  const flat = tweak("kyoto-spring", (h) => { h.temp = 15; }), wide = scores["kyoto-spring"];
+  const span = (s) => { const m = s.arp.map((x) => x.midi); return Math.max(...m) - Math.min(...m); };
+  assert(span(wide) > span(flat), `a big temperature swing reaches wider (${span(wide)} vs ${span(flat)})`);
 });

@@ -337,6 +337,93 @@ export function storyChords(arc, A, seed) {
 }
 
 /**
+ * Twists (see TWISTS): swap a few chords in `bars` (from storyChords) for chords
+ * outside the mode, in place. A twisted bar gets { mode, deg, shift, twist }, where
+ * shift moves the chord's tonic in semitones. Returns [{ chord, bar, kind, why }].
+ */
+export function twistChords(H, A, arc, bars, { day, deep, front, seed }) {
+  const TW = M.TWISTS;
+  const BPC = M.BARS_PER_CHORD;
+  const n = M.BARS / BPC;
+  const rng = mulberry32((seed ^ 0x7157) >>> 0); // its own stream, so the other parts stay as they were
+  const starts = new Set(arc.chapters.map((c) => c.chord));
+  const sectionEnds = new Set(M.SECTIONS.map((x) => x.start / BPC - 1));
+  const used = { borrow: 0, mediant: 0, dominant: 0 };
+  const out = [];
+  const cloudOf = (c) => mean(H.slice(c * BPC, (c + 1) * BPC).map((h) => h.cloud));
+  const pcOf = (bar) => (A.root + (bar.shift ?? 0) + MODES[bar.mode][bar.deg]) % 12;
+  for (let c = 1; c < n - 2 && out.length < TW.maxPerDay; c++) {
+    const b = c * BPC;
+    const hrs = H.slice(b, b + BPC);
+    if (starts.has(c) || starts.has(c + 1) || sectionEnds.has(c)) continue;
+    if (out.some((t) => c - t.chord <= 1)) continue;
+    if (front != null && b + BPC > front) continue;
+    if (hrs.some((_, i) => day.stormy && (day.phases[b + i] === "build" || day.phases[b + i] === "peak"))) continue;
+    if (mean(deep.slice(b, b + BPC)) >= M.DEEP_COLD.hollowFrom) continue;
+    const { mode } = bars[b];
+    let tw = null;
+    const gust = hrs.some((h, i) => h.gust - H[b + i - 1].gust >= TW.mediant.gustJump);
+    const sun = A.harsh < TW.mediant.sunMaxHarsh && hrs.some((h, i) => h.isDay && H[b + i - 1].cloud - h.cloud >= TW.mediant.clearDrop);
+    if (used.mediant < TW.mediant.max && (sun || gust)) {
+      const shift = sun ? 4 : MODES[mode][5] === 8 ? 1 : 8;
+      tw = { kind: "mediant", why: sun ? "sun" : "gust", mode: "ionian", deg: 0, shift };
+    }
+    const next = bars[b + BPC];
+    const rise = (H[b + BPC]?.pressure ?? hrs[BPC - 1].pressure) - hrs[0].pressure;
+    if (!tw && used.dominant < TW.dominant.max && rise >= TW.dominant.riseHpa
+      && (MODES[next.mode][(next.deg + 4) % 7] - MODES[next.mode][next.deg] + 12) % 12 === 7) {
+      const dom = (pcOf(next) + 7) % 12;
+      const diatonic = [0, 1, 2, 3, 4, 5, 6].some((d) => (A.root + MODES[mode][d]) % 12 === dom
+        && (MODES[mode][(d + 2) % 7] - MODES[mode][d] + 12) % 12 === 4);
+      if (!diatonic) tw = { kind: "dominant", why: "pressure", mode: "mixolydian", deg: 0, shift: (dom - A.root + 12) % 12 };
+    }
+    if (!tw && used.borrow < TW.borrow.max && TW.borrow.brightModes.includes(mode)) {
+      const around = (cloudOf(c - 1) + cloudOf(c + 1)) / 2;
+      const passing = hrs.some((h) => h.cloud - around >= TW.borrow.cloudJump);
+      const shower = hrs.some((h) => h.precip > 0 && h.precip < TW.borrow.showerMm);
+      if (passing || shower) {
+        const deg = TW.borrow.degs[Math.floor(rng() * TW.borrow.degs.length)];
+        tw = { kind: "borrow", why: shower ? "shower" : "cloud", mode: "aeolian", deg, shift: 0 };
+      }
+    }
+    if (!tw) continue;
+    used[tw.kind]++;
+    for (let k = b; k < b + BPC; k++) bars[k] = { mode: tw.mode, deg: tw.deg, shift: tw.shift, twist: tw.kind };
+    out.push({ chord: c, bar: b, kind: tw.kind, why: tw.why });
+  }
+  return out;
+}
+
+/** One cycle of an arpeggio over `ladder` (chord tones, low to high), by shape (see ARP). */
+export function arpRun(ladder, shape) {
+  const L = ladder, n = L.length;
+  if (n < 3) return L.slice();
+  switch (shape) {
+    case "down": return L.slice().reverse();
+    case "updown": return L.concat(L.slice(1, -1).reverse());
+    case "climb": return L.slice(0, -2).flatMap((m, i) => [m, L[i + 2]]); // leapfrog up: 1-3, 2-4, 3-5…
+    case "fall": return arpRun(L.slice().reverse(), "climb");
+    case "rock": return L.slice(1).flatMap((m) => [L[0], m]); // low note under each upper one (Alberti)
+    default: return L.slice();
+  }
+}
+
+/** Pedal bars (see PEDAL): true where the bass holds the home note under the chord. */
+export function pedalBars(H, bars) {
+  const P = M.PEDAL;
+  const BPC = M.BARS_PER_CHORD;
+  const out = H.map(() => false);
+  for (let b = 0; b < M.BARS - BPC; b += BPC) {
+    const hrs = H.slice(b, b + BPC);
+    if (bars[b].twist) continue;
+    const fog = hrs.some((h) => P.fogCodes.includes(h.code));
+    const still = hrs.every((h) => h.gust < P.calmGust && h.precip === 0);
+    if (fog || still) for (let k = b; k < b + BPC; k++) out[k] = true;
+  }
+  return out;
+}
+
+/**
  * A chord's colour from the weather in its hours (see CHORD_COLOUR):
  * { sus: null | "sus2" | "sus4", seventh: 0–1, ninth: 0–1, open: bool }.
  * Only intervals that sit well are used: a whole-tone 2nd or 9th, a perfect 4th.
@@ -528,7 +615,11 @@ export function compose(f, { units = "metric" } = {}) {
   const mode = Object.keys(counts).sort((a, b) => counts[b] - counts[a] || MODE_ORDER.indexOf(a) - MODE_ORDER.indexOf(b))[0];
   const firstLoops = M.PROGRESSIONS[arc.chapters[0].mode][A.trend];
   const progression = firstLoops[seed % firstLoops.length];
+  // Twists: a few chords step outside the mode where the weather surprises (see TWISTS).
+  const twists = twistChords(H, A, arc, barChords, { day, deep, front, seed });
   const chordDeg = (b) => barChords[b].deg;
+  const rootAt = (b) => (root + (barChords[b].shift ?? 0)) % 12;
+  const keyAt = (b) => `${barChords[b].mode}@${barChords[b].shift ?? 0}`;
   // Each chord's colour (sevenths, ninths, sus, spread) from its two hours.
   const colours = Array.from({ length: M.BARS / M.BARS_PER_CHORD }, (_, c) => {
     const b = c * M.BARS_PER_CHORD;
@@ -544,7 +635,7 @@ export function compose(f, { units = "metric" } = {}) {
   const colourAt = (b) => colours[Math.floor(b / M.BARS_PER_CHORD)];
   // The chord's own tones: a sus chord swaps its third, and the melody's strong beats follow it.
   const chordPcs = (b) => {
-    const t = triadPcs(root, modeAt(b), chordDeg(b));
+    const t = triadPcs(rootAt(b), modeAt(b), chordDeg(b));
     const { sus } = colourAt(b);
     if (sus === "5") return [t[0], t[2]]; // a bare fifth
     if (sus) t[1] = (t[0] + (sus === "sus2" ? 2 : 5)) % 12;
@@ -557,12 +648,17 @@ export function compose(f, { units = "metric" } = {}) {
   const MEL = M.MELODY;
   const rootMidi = 60 + root - (root >= 6 ? 12 : 0); // tonic between F#3 and F4
   const tables = {};
-  for (const m of new Set(barChords.map((x) => x.mode))) {
-    const p = scalePitches(root, m, melodyDegrees(m, snow));
-    tables[m] = { p, base: p.indexOf(rootMidi) };
+  for (let b = 0; b < M.BARS; b++) {
+    const k = keyAt(b), m = modeAt(b);
+    if (tables[k]) continue;
+    const p = scalePitches(rootAt(b), m, melodyDegrees(m, snow));
+    // A twisted chord's scale may not hold the tonic: step 0 is its nearest note (lower on a tie).
+    let base = p.indexOf(rootMidi);
+    if (base < 0) base = p.reduce((best, x, i) => (Math.abs(x - rootMidi) < Math.abs(p[best] - rootMidi) ? i : best), 0);
+    tables[k] = { p, base };
   }
   const octave = melodyDegrees(mode, snow).length; // steps per octave
-  const pitchAt = (b, r) => { const t = tables[modeAt(b)]; return t.p[t.base + r]; };
+  const pitchAt = (b, r) => { const t = tables[keyAt(b)]; return t.p[t.base + r]; };
   const baseIdx = 0;
 
   const span = Math.max(stats.tMax - stats.tMin, MEL.minSpanC);
@@ -682,8 +778,9 @@ export function compose(f, { units = "metric" } = {}) {
   // ---- Bass --------------------------------------------------------------
   const bass = [];
   const bassFeel = bassFeels(H, energy, stats);
+  const pedal = pedalBars(H, barChords);
   for (let b = 0; b < M.BARS; b++) {
-    const pc = chordPcs(b)[0];
+    const pc = pedal[b] ? root : chordPcs(b)[0]; // a pedal holds the home note under the chord
     const m = 36 + pc; // root between C2 and B2
     const feel = bassFeel[b];
     let pattern;
@@ -793,7 +890,7 @@ export function compose(f, { units = "metric" } = {}) {
     const deg = chordDeg(b);
     for (const [kind, k, amount] of [["7th", 6, col.seventh], ["9th", 1, col.ninth]]) {
       if (amount < K.min) continue;
-      const midi = above((root + MODES[modeAt(b)][(deg + k) % 7]) % 12);
+      const midi = above((rootAt(b) + MODES[modeAt(b)][(deg + k) % 7]) % 12);
       colour.push({ kind, midi, note: midiToNote(midi), vel: +(vel * K.vel * amount).toFixed(3) });
     }
     pad.push({ bar: b, pos: 0, dur: M.STEPS * M.BARS_PER_CHORD, midis, notes: midis.map(midiToNote), vel, colour });
@@ -802,7 +899,13 @@ export function compose(f, { units = "metric" } = {}) {
   // ---- Arpeggio: clear daylight runs up and down the chord (see ARP) --------
   const AR = M.ARP;
   const arp = [];
-  const shape = AR.shape[A.trend];
+  // The day's shape (pressure trend + seed), reach (temperature swing) and lilt (dew point).
+  const arng = mulberry32((seed ^ 0xa7b) >>> 0);
+  const shapes = AR.shape[A.trend];
+  const shape = shapes[Math.floor(arng() * shapes.length)];
+  const reach = Math.round(AR.reach.notes[0] + (AR.reach.notes[1] - AR.reach.notes[0])
+    * clamp((stats.tMax - stats.tMin - AR.reach.fromC) / (AR.reach.fullC - AR.reach.fromC), 0, 1));
+  const lilt = mean(H.map((h) => h.dew ?? -99)) >= AR.lilt.dew;
   let step = 0;
   for (let b = 0; b < M.BARS - 1; b++) {
     const h = H[b];
@@ -812,16 +915,17 @@ export function compose(f, { units = "metric" } = {}) {
     if (amount <= 0 || h.precip >= 0.1 || M.SNOW_CODES.includes(h.code)) continue;
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const pcs = chordPcs(b).slice();
-    if (colourAt(b).seventh >= K.min) pcs.push((root + MODES[modeAt(b)][(chordDeg(b) + 6) % 7]) % 12);
+    if (colourAt(b).seventh >= K.min) pcs.push((rootAt(b) + MODES[modeAt(b)][(chordDeg(b) + 6) % 7]) % 12);
     const lowest = AR.low + ((((pcs[0] - AR.low) % 12) + 12) % 12); // start on the chord's root
     const ladder = [];
-    for (let m = lowest; m <= AR.high && ladder.length < pcs.length + 1; m++) if (pcs.includes(m % 12)) ladder.push(m);
-    const run = shape === "down" ? ladder.slice().reverse()
-      : shape === "updown" ? ladder.concat(ladder.slice(1, -1).reverse()) : ladder;
+    for (let m = lowest; m <= AR.high && ladder.length < reach; m++) if (pcs.includes(m % 12)) ladder.push(m);
+    const run = arpRun(ladder, shape);
     const every = AR.rate.find((r) => h.wind < r.maxWind).every;
-    for (let pos = 0; pos < M.STEPS; pos += every) {
+    const steps = lilt ? AR.lilt.steps : Array.from({ length: Math.ceil(M.STEPS / every) }, (_, i) => i * every);
+    for (const [i, pos] of steps.entries()) {
+      const dur = (steps[i + 1] ?? M.STEPS) - pos;
       const midi = run[step++ % run.length];
-      arp.push({ bar: b, pos, dur: every, midi, note: midiToNote(midi),
+      arp.push({ bar: b, pos, dur, midi, note: midiToNote(midi),
         vel: +(AR.vel * amount + (pos % 4 === 0 ? AR.accent * amount : 0)).toFixed(3) });
     }
   }
@@ -829,7 +933,7 @@ export function compose(f, { units = "metric" } = {}) {
   // ---- Rain shakers (or snow bells) ---------------------------------------
   const rain = [];
   const bells = [];
-  const bellPitches = (b) => tables[modeAt(b)].p.filter((p) => p >= M.BELLS.low && p <= M.BELLS.high);
+  const bellPitches = (b) => tables[keyAt(b)].p.filter((p) => p >= M.BELLS.low && p <= M.BELLS.high);
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
     if (h.pop < M.RAIN.minPop && h.precip === 0) continue;
@@ -864,7 +968,7 @@ export function compose(f, { units = "metric" } = {}) {
     if (!iceHour[b]) continue;
     const k = clamp(H[b].precip / IS.fullMm, 0, 1);
     const count = Math.round(IS.perHour[0] + (IS.perHour[1] - IS.perHour[0]) * k);
-    const pitches = tables[modeAt(b)].p.filter((p) => p >= IS.low && p <= IS.high);
+    const pitches = tables[keyAt(b)].p.filter((p) => p >= IS.low && p <= IS.high);
     const slots = shuffle([0, 1, 2, 3, 4, 5, 6, 7], irng).slice(0, count).sort((x, y) => x - y);
     for (const pos of slots) {
       const midi = pitches[Math.floor(irng() * pitches.length)];
@@ -919,7 +1023,7 @@ export function compose(f, { units = "metric" } = {}) {
   const srng = mulberry32((seed ^ 0x5eed) >>> 0);
   const chimes = [];
   const shimmer = [];
-  const chimePitches = (b, pcs) => tables[modeAt(b)].p.filter((p) => p >= M.CHIMES.low && p <= M.CHIMES.high && (!pcs || pcs.includes(p % 12)));
+  const chimePitches = (b, pcs) => tables[keyAt(b)].p.filter((p) => p >= M.CHIMES.low && p <= M.CHIMES.high && (!pcs || pcs.includes(p % 12)));
   const chime = (bar, pos, midi, vel, kind, dur = 4) => chimes.push({ bar, pos, dur, midi, note: midiToNote(midi), vel: +vel.toFixed(3), kind });
   const { moon } = SK;
   // Moonrise after dark: one bell on the key's fifth, louder for a fuller moon.
@@ -1043,6 +1147,13 @@ export function compose(f, { units = "metric" } = {}) {
     +Math.max(d, M.MELODY.floorDb - automation.melodyDb[b]).toFixed(2));
 
   const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
+  for (const t of twists) for (let b = t.bar; b < t.bar + M.BARS_PER_CHORD; b++) {
+    if (t.kind === "mediant") chords[b] = { 4: "III", 8: "bVI", 1: "bII" }[barChords[b].shift];
+    else if (t.kind === "dominant") {
+      const to = chords[t.bar + M.BARS_PER_CHORD];
+      chords[b] = /^[Ii]$/.test(to) ? "V" : `V/${to}`; // V of the tonic is just V (a major V in a minor key)
+    }
+  }
   // With colour: "Imaj7", "ii9", "Vsus4", "IVadd9".
   const chordNames = chords.map((label, b) => {
     const col = colourAt(b);
@@ -1065,6 +1176,8 @@ export function compose(f, { units = "metric" } = {}) {
     bassSub: +clamp((stats.cloud - M.BASS_TONE.cloudFrom) / (M.BASS_TONE.cloudFull - M.BASS_TONE.cloudFrom), 0, 1).toFixed(3),
     bassFeel,
     barModes: barChords.map((x) => x.mode),
+    barShifts: barChords.map((x) => x.shift ?? 0),
+    twists, pedal,
     chordDegrees: barChords.map((x) => x.deg),
     chapters: arc.chapters.map((c) => ({ bar: c.chord * M.BARS_PER_CHORD, mode: c.mode, label: MODE_LABELS[c.mode], turn: c.turn })),
     capeMax: Math.max(...f.hours.map((h) => h.cape ?? 0)),
@@ -1208,7 +1321,23 @@ function linerNotes(f, A, meta, layers, units) {
     : white.length >= 2 ? "The deep cold hollows the chords out to bare, open intervals."
       : "The deep cold hollows the chords out to bare, open intervals and thins the band, so the melody rings out alone in the frozen air.";
 
-  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, frigid, ...outliers, daylight])] };
+  // Twists and the pedal (see TWISTS, PEDAL).
+  const WHO = { cloud: "a passing cloud", shower: "a light shower", sun: "the sun breaking through", gust: "a sudden gust", pressure: "rising pressure" };
+  const DOES = {
+    borrow: (n) => `${n > 1 ? "borrow chords" : "borrows a chord"} from the minor key`,
+    mediant: (_, why) => (why === "sun" ? "lifts the harmony to a bright, distant chord" : "knocks the harmony to a distant chord"),
+    dominant: () => "pulls the chords forward",
+  };
+  const tw = [];
+  for (const kind of ["borrow", "mediant", "dominant"]) {
+    const ts = (meta.twists ?? []).filter((t) => t.kind === kind);
+    if (ts.length) tw.push(`${listOf(ts.map((t) => `${WHO[t.why]} around ${hourLabel(t.bar + 1)}`))} ${DOES[kind](ts.length, ts[0].why)}`);
+  }
+  const twistNote = tw.length ? `${tw[0][0].toUpperCase()}${listOf(tw).slice(1)}.` : "";
+  const pedals = (meta.pedal ?? []).filter((x, b) => x && b % M.BARS_PER_CHORD === 0).length;
+  const fogPedal = (meta.pedal ?? []).some((x, b) => x && M.PEDAL.fogCodes.includes(H[b].code));
+  const pedalNote = pedals >= 2 ? `In the ${fogPedal ? "fog" : "still air"} the bass holds the home note while the chords drift above it.` : "";
+  return { paragraphs: [join([sets, drives, shape, skyNote(f, meta.sky, layers, units), arp, twistNote, pedalNote, frigid, ...outliers, daylight])] };
 }
 
 const moonNoun = (phase) => (/moon$/.test(phase) ? phase : `${phase} moon`);
