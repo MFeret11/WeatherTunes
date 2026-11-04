@@ -2,11 +2,12 @@
 
 import * as M from "../mapping.js";
 import { melodyDegrees, scalePitches, triadPcs, stepAbove } from "../theory.js";
-import { clamp, mean, mulberry32 } from "../util.js";
-import { seedFor, analyze, bassFeels, calmStir, eyeHours, frontHour } from "./analyze.js";
+import { clamp, mulberry32 } from "../util.js";
+import { seedFor, analyze, bassFeels, calmStir } from "./analyze.js";
 import { MODE_ORDER, afterFront, storyArc, dayArc, storyChords } from "./story.js";
 import { twistChords, pedalBars, chordColour, eveningOutlook, openDegree } from "./harmony.js";
 import { daySky } from "./sky.js";
+import { hourTraits, chordDeep } from "./traits.js";
 
 /**
  * Everything the layers share, built once per song: the day's analysis, per-hour
@@ -28,17 +29,8 @@ export function scoreContext(f) {
   const swing = +(G.swingMax * clamp((stats.dewMean - M.DEW.swingFromDew) / (M.DEW.swingFullDew - M.DEW.swingFromDew), 0, 1)).toFixed(3);
   const busierRow = (rows, i, b) => (energy[b] >= D.busier ? Math.min(i + 1, rows.length - 1) : i);
   const H = f.hours;
-  const DC = M.DEEP_COLD;
-  const deep = H.map((h) => +clamp((DC.fromFeels - (h.feels ?? h.temp)) / (DC.fromFeels - DC.fullFeels), 0, 1).toFixed(3));
-  const HT = M.HEAT;
-  const GL = M.GLIDE, FL = M.FLUTTER;
-  const heat = H.map((h) => +clamp(((h.feels ?? h.temp) - HT.fromFeels) / (HT.fullFeels - HT.fromFeels), 0, 1).toFixed(3));
-  const WO = M.WHITEOUT;
-  const whiteout = H.map((h) => (M.SNOW_CODES.includes(h.code)
-    ? +clamp((h.gust - WO.fromGust) / (WO.fullGust - WO.fromGust), 0, 1).toFixed(3) : 0));
-  const iceHour = H.map((h) => M.ICE_STORM.codes.includes(h.code));
-  const eye = eyeHours(H);
-  const front = frontHour(H);
+  // Outliers: extreme heat and cold, whiteout, ice, a hurricane's eye, a cold front (see traits.js).
+  const T = hourTraits(H, A);
   const SK = daySky(f);
   const seed = seedFor(f);
   const rng = mulberry32(seed);
@@ -49,7 +41,7 @@ export function scoreContext(f) {
   const C = M.CALM_DETAIL;
   // On a calm day the music follows the day's small changes (zero on dramatic days).
   const stir = day.dramatic ? H.map(() => 0) : calmStir(H);
-  const arc = afterFront(storyArc(H, A, day.dramatic ? M.STORY.margin : C.margin), front);
+  const arc = afterFront(storyArc(H, A, day.dramatic ? M.STORY.margin : C.margin), T.front);
   const R = M.ARC;
   const lift = (b) => Math.round(R.liftSteps * energy[b]);
   const barChords = storyChords(arc, A, seed);
@@ -61,7 +53,7 @@ export function scoreContext(f) {
   const firstLoops = M.PROGRESSIONS[arc.chapters[0].mode][A.trend];
   const progression = firstLoops[seed % firstLoops.length];
   // Twists: a few chords step outside the mode where the weather surprises (see TWISTS).
-  const twists = twistChords(H, A, arc, barChords, { day, deep, front, seed });
+  const twists = twistChords(H, A, arc, barChords, { day, deep: T.deep, front: T.front, seed });
   // The ending follows the evening: weather moving in leaves the last chord away from home.
   const evening = eveningOutlook(H);
   if (evening.kind === "open") {
@@ -78,7 +70,7 @@ export function scoreContext(f) {
     const final = b + M.BARS_PER_CHORD >= M.BARS;
     const col = chordColour(H.slice(b, b + M.BARS_PER_CHORD), modeAt(b), chordDeg(b), final);
     // Deep cold hollows the chord out (see DEEP_COLD).
-    if (mean(deep.slice(b, b + M.BARS_PER_CHORD)) >= DC.hollowFrom) {
+    if (chordDeep(T, b) >= M.DEEP_COLD.hollowFrom) {
       const second = stepAbove(modeAt(b), chordDeg(b), 1) === 2;
       return { ...col, sus: !final && second ? "sus2" : "5", susBy: "cold", seventh: 0, ninth: 0, open: true };
     }
@@ -97,7 +89,6 @@ export function scoreContext(f) {
   // ---- Melody pitch tables (the melody, bells and chimes pick from them) --
   // Melody positions are scale steps relative to the tonic, so a line carries
   // across a change of mode: step 2 is the third in major or minor alike.
-  const MEL = M.MELODY;
   const rootMidi = 60 + root - (root >= 6 ? 12 : 0); // tonic between F#3 and F4
   const tables = {};
   for (let b = 0; b < M.BARS; b++) {
@@ -114,8 +105,7 @@ export function scoreContext(f) {
   const bassFeel = bassFeels(H, energy, stats);
   const pedal = pedalBars(H, barChords);
   return {
-    f, H, A, stats, root, snow, energy, gateFor, swing, busierRow, deep, heat, whiteout, iceHour,
-    eye, front, SK, seed, rng, pick, day, stir, arc, lift, barChords, modeAt, mode, progression,
+    f, H, A, stats, root, snow, energy, gateFor, swing, busierRow, T, SK, seed, rng, pick, day, stir, arc, lift, barChords, modeAt, mode, progression,
     twists, evening, chordDeg, rootAt, keyAt, colours, colourAt, chordPcs, tables, octave, pitchAt, bassFeel, pedal,
   };
 }

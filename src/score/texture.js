@@ -4,12 +4,13 @@
 import * as M from "../mapping.js";
 import { midiToNote } from "../theory.js";
 import { clamp, mulberry32, shuffle } from "../util.js";
+import { outlierWind } from "./traits.js";
 
 /**
  * Rain shakers, snow bells and ice ticks. Returns { rain, bells }.
  */
 export function rainAndBells(ctx) {
-  const { H, iceHour, seed, rng, pick, keyAt, tables } = ctx;
+  const { H, T, seed, rng, pick, keyAt, tables } = ctx;
   const rain = [];
   const bells = [];
   const bellPitches = (b) => tables[keyAt(b)].p.filter((p) => p >= M.BELLS.low && p <= M.BELLS.high);
@@ -25,7 +26,7 @@ export function rainAndBells(ctx) {
       }
       continue;
     }
-    if (iceHour[b]) continue; // ice ticks instead (below)
+    if (T.ice[b]) continue; // ice ticks instead (below)
     const hail = M.HAIL.codes.includes(h.code);
     let count = Math.round((h.pop / 100) * M.RAIN.maxHits);
     if (h.precip > 0) count = Math.max(1, count);
@@ -44,7 +45,7 @@ export function rainAndBells(ctx) {
   const IS = M.ICE_STORM;
   const irng = mulberry32((seed ^ 0x1ce) >>> 0);
   for (let b = 0; b < M.BARS; b++) {
-    if (!iceHour[b]) continue;
+    if (!T.ice[b]) continue;
     const k = clamp(H[b].precip / IS.fullMm, 0, 1);
     const count = Math.round(IS.perHour[0] + (IS.perHour[1] - IS.perHour[0]) * k);
     const pitches = tables[keyAt(b)].p.filter((p) => p >= IS.low && p <= IS.high);
@@ -63,21 +64,15 @@ export function rainAndBells(ctx) {
  * The atmosphere (noise bed) and wind whoosh, one value per bar.
  */
 export function atmosphereBed(ctx) {
-  const { H, A, deep, whiteout, front, day } = ctx;
-  const DC = M.DEEP_COLD;
-  const WO = M.WHITEOUT;
+  const { H, A, T, day } = ctx;
   const R = M.ARC;
   const atmosphere = H.map((h, b) => {
     let row = M.ATMOSPHERE.find((r) => r.codes.includes(h.code));
     if (A.stormHour(h)) row = M.ATMOSPHERE.find((r) => r.kind === "storm");
     else if (!row && h.precip >= 0.1) row = M.ATMOSPHERE.find((r) => r.kind === "rain");
     const W = M.WIND_NOISE;
-    const DW = DC.wind;
     const wind = +Math.max(clamp((h.gust - W.from) / (W.full - W.from), 0, 1) * W.max,
-      day.breeze[b] ? R.breezeLevel : 0,
-      DW.level * deep[b] * clamp((h.gust - DW.fromGust) / (DW.fullGust - DW.fromGust), 0, 1),
-      WO.wind * whiteout[b],
-      front == null ? 0 : b === front ? M.FRONT.gust : b === front + 1 ? M.FRONT.gust / 2 : 0).toFixed(3);
+      day.breeze[b] ? R.breezeLevel : 0, ...outlierWind(T, b, h)).toFixed(3);
     if (!row) return { bar: b, kind: null, color: null, level: 0, cutoff: 6000, wind };
     return {
       bar: b, kind: row.kind, color: row.color, cutoff: row.cutoff, wind,
@@ -118,7 +113,7 @@ export function oneOffFx(ctx) {
  * The eye of a hurricane (see EYE): the storm layers fall away in its hours (in place).
  */
 export function eyeOfStorm(ctx, { drums, garage, beat, rain, fx, atmosphere }) {
-  const { eye } = ctx;
+  const { eye } = ctx.T;
   if (eye.some(Boolean)) {
     const calm = (x) => !eye[x.bar];
     for (const list of [drums, garage, beat, rain]) {

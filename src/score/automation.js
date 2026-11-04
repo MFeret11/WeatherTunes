@@ -2,20 +2,18 @@
 
 import * as M from "../mapping.js";
 import { MODE_LABELS, keyName, chordLabel, stepAbove } from "../theory.js";
-import { clamp, mean } from "../util.js";
+import { clamp } from "../util.js";
 import { capeLevel, hourBrightness } from "./analyze.js";
 import { linerNotes, notesAsText } from "./liner.js";
+import * as O from "./traits.js";
 
 /**
  * Per-bar automation: filter, gain, reverb, EQ, echo and the other mix curves.
  */
 export function barAutomation(ctx) {
-  const { f, H, A, stats, energy, deep, heat, whiteout, eye, SK, day, stir } = ctx;
+  const { f, H, A, stats, energy, T, SK, day, stir } = ctx;
   const D = M.DYNAMICS;
-  const DC = M.DEEP_COLD;
-  const HT = M.HEAT;
   const FL = M.FLUTTER;
-  const WO = M.WHITEOUT;
   const C = M.CALM_DETAIL;
   const R = M.ARC;
   const F = M.FILTER;
@@ -23,41 +21,38 @@ export function barAutomation(ctx) {
   const automation = {
     pan: H.map((h) => +(M.PAN_WIDTH * Math.sin((h.dir * Math.PI) / 180)).toFixed(3)),
     // Night closes the filter; moonlight opens it part way again; haze closes it a little.
-    cutoff: H.map((h, b) => Math.round(
+    cutoff: H.map((h, b) => Math.round(O.cutoffHz(T, b,
       (F.clearHz - (F.clearHz - F.overcastHz) * (h.cloud / 100))
       * (h.isDay ? 1 : F.nightFactor + (1 - F.nightFactor) * M.MOON.cutoffLift * SK.moonlight[b])
-      * (1 - M.AIR.cutoffCut * SK.haze[b]) * (1 - WO.cutoffCut * whiteout[b]))),
+      * (1 - M.AIR.cutoffCut * SK.haze[b])))),
     energy,
     // Dramatic days dip in their calm hours, so the storm is a real crescendo.
-    gainDb: energy.map((e, b) => +(D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
+    gainDb: energy.map((e, b) => +O.gainDb(T, b, D.maxBoostDb * e + (day.dramatic ? D.quietDb * (1 - e) : 0)
       + C.swellDb * (2 * stir[b] - 1) * (day.dramatic ? 0 : 1)
-      + (b === 0 ? D.introDb : 0) + (eye[b] ? M.EYE.gainDb : 0)).toFixed(2)),
-    reverbLift: day.phases.map((ph, b) => +((ph === "release" ? R.reverbLift : 0) + DC.reverbLift * deep[b]
-      + WO.reverbLift * whiteout[b]).toFixed(3)),
-    melodyDb: H.map((h, b) => +(M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)
-      + DC.melodyDb * deep[b] + WO.melodyDb * whiteout[b]).toFixed(2)),
+      + (b === 0 ? D.introDb : 0)).toFixed(2)),
+    reverbLift: day.phases.map((ph, b) => +O.reverbLift(T, b, ph === "release" ? R.reverbLift : 0).toFixed(3)),
+    melodyDb: H.map((h, b) => +O.melodyDb(T, b,
+      M.MELODY.overcastDb * clamp((h.cloud - M.MELODY.overcastFrom) / (100 - M.MELODY.overcastFrom), 0, 1)).toFixed(2)),
     // Gusts well above the wind make the pad flutter (see FLUTTER).
     flutter: H.map((h) => +(clamp((h.gust - FL.gustFrom) / (FL.gustFull - FL.gustFrom), 0, 1)
       * clamp((h.gust - h.wind - FL.gapFrom) / (FL.gapFull - FL.gapFrom), 0, 1)).toFixed(3)),
     // Heat shimmer on the melody (see HEAT); left out on days without it.
-    ...(heat.some((x) => x > 0) ? { wobble: heat } : {}),
-    // Deep cold thins the wind to a high whistle (one value for the song).
-    windBaseHz: Math.round(250 + (DC.wind.baseHz - 250) * mean(deep)),
+    ...(T.heat.some((x) => x > 0) ? { wobble: T.heat } : {}),
+    windBaseHz: O.windBaseHz(T),
     // Moonlight keeps the night from dimming the melody as far.
     melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])).toFixed(2)),
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
-    eqHigh: H.map((h, b) => +clamp(M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0)
-      + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover + HT.highCutDb * heat[b],
+    eqHigh: H.map((h, b) => +clamp(O.eqHighDb(T, b, M.TONE.cloudCutDb * (h.cloud / 100) + (M.TONE.fogCodes.includes(h.code) ? M.TONE.fogCutDb : 0)
+      + M.AIR.hazeCutDb * SK.haze[b] + M.SNOW_COVER.highCutDb * SK.cover),
       M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
-    eqLow: H.map((h, b) => +clamp(DC.lowCutDb * deep[b] + M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
+    eqLow: H.map((h, b) => +clamp(O.eqLowDb(T, b) + M.TONE.windBoostDb * clamp((h.gust - M.TONE.windFrom) / (M.TONE.windFull - M.TONE.windFrom), 0, 1)
       + (A.stormHour(h) ? M.TONE.stormBoostDb : 0), M.TONE.minDb, M.TONE.maxDb).toFixed(2)),
     // The melody's echo carries in clear, still, dry air (see ECHO).
     echoCarry: H.map((h, b) => {
       const E = M.ECHO;
       const wet = h.precip >= 0.1 || M.SNOW_CODES.includes(h.code) || E.fogCodes.includes(h.code);
-      return wet ? 0 : +(Math.min(1, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)
-        + DC.echoCarry * deep[b]) * (1 - HT.echo * Math.max(heat[b], A.dayHeat))).toFixed(3);
+      return wet ? 0 : +O.echoCarry(T, b, (1 - h.cloud / 100) * clamp((E.windyGust - h.gust) / (E.windyGust - E.calmGust), 0, 1)).toFixed(3);
     }),
     // Snow on the ground soaks up the echoes.
     reverbWet: +((RV.min + (RV.max - RV.min) * clamp((stats.rh - RV.rhLow) / (RV.rhHigh - RV.rhLow), 0, 1))
@@ -74,7 +69,7 @@ export function barAutomation(ctx) {
  * The score's meta: key, chords and their names, story, outliers, sky and liner notes.
  */
 export function scoreMeta(ctx, { melody, arp, rain, bells, drums, garage, beat, crackle, atmosphere, fx, automation, chimes, shimmer }, held, units) {
-  const { f, H, A, stats, root, snow, swing, deep, heat, whiteout, iceHour, eye, front, SK, seed, day, stir, arc, barChords, modeAt, mode, progression, twists, evening, chordDeg, colours, colourAt, chordPcs, bassFeel, pedal } = ctx;
+  const { f, H, A, stats, root, snow, swing, T, SK, seed, day, stir, arc, barChords, modeAt, mode, progression, twists, evening, chordDeg, colours, colourAt, chordPcs, bassFeel, pedal } = ctx;
   const K = M.CHORD_COLOUR;
   const chords = Array.from({ length: M.BARS }, (_, b) => chordLabel(modeAt(b), chordDeg(b)));
   for (const t of twists) for (let b = t.bar; b < t.bar + M.BARS_PER_CHORD; b++) {
@@ -116,8 +111,8 @@ export function scoreMeta(ctx, { melody, arp, rain, bells, drums, garage, beat, 
   meta.arc = day;
   meta.heldNotes = held;
   meta.stir = stir;
-  meta.deepCold = deep;
-  meta.outliers = { heat, whiteout, ice: iceHour, eye, front };
+  meta.deepCold = T.deep;
+  meta.outliers = { heat: T.heat, whiteout: T.whiteout, ice: T.ice, eye: T.eye, front: T.front };
   meta.hourBrightness = H.map((h) => +clamp(hourBrightness(h, A.stormHour), 0, 1).toFixed(3));
   const { sky: _sky, ...skyMeta } = SK;
   meta.sky = { ...skyMeta, magLat: SK.sky.magLat };

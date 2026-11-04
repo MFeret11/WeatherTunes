@@ -3,13 +3,13 @@
 import * as M from "../mapping.js";
 import { midiToNote } from "../theory.js";
 import { clamp, mulberry32 } from "../util.js";
+import { bassVel, beatVel, beatKept } from "./traits.js";
 
 /**
  * The bass: the chord's root (or a pedal on the home note), patterned by wind and energy.
  */
 export function bassLine(ctx) {
-  const { H, root, gateFor, busierRow, deep, chordPcs, bassFeel, pedal } = ctx;
-  const DC = M.DEEP_COLD;
+  const { H, root, gateFor, busierRow, T, chordPcs, bassFeel, pedal } = ctx;
   const bass = [];
   for (let b = 0; b < M.BARS; b++) {
     const pc = pedal[b] ? root : chordPcs(b)[0]; // a pedal holds the home note under the chord
@@ -21,7 +21,7 @@ export function bassLine(ctx) {
     else if (feel === "double") pattern = M.BASS_FEEL.double;
     else pattern = M.BASS.patterns[busierRow(M.BASS.patterns, M.BASS.patterns.findIndex((p) => H[b].wind < p.maxWind), b)].hits;
     for (const [pos, dur, iv] of pattern) {
-      bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: +(M.BASS.vel * (1 - DC.bassCut * deep[b])).toFixed(3), gate: gateFor(H[b]) });
+      bass.push({ bar: b, pos, dur, midi: m + iv, note: midiToNote(m + iv), vel: +bassVel(T, b, M.BASS.vel).toFixed(3), gate: gateFor(H[b]) });
     }
   }
   return bass;
@@ -83,9 +83,7 @@ export function rainBeat(ctx) {
  * The dry beat (see DRY_BEAT), on dry hours the rain beat leaves free.
  */
 export function dryBeat(ctx, garage) {
-  const { H, A, deep, heat, seed, day } = ctx;
-  const DC = M.DEEP_COLD;
-  const HT = M.HEAT;
+  const { H, T, seed, day } = ctx;
   const RB = M.RAIN_BEAT;
   // Dry beat (see DRY_BEAT): wind sets the hats, warmth the kick, clear sky the backbeat.
   // Its own random stream (for the humanizing only), so the rest of the song is unchanged.
@@ -99,9 +97,8 @@ export function dryBeat(ctx, garage) {
     if (day.stormy && (day.phases[b] === "build" || day.phases[b] === "peak")) continue;
     const hit = (kind, pos, v) => {
       const human = (brng() - 0.5) * 2 * DB.humanize; // drawn for every hit, so the cold only removes hits
-      const cold = v * (1 - DC.beat[kind === "snare" ? "rim" : kind] * deep[b]) * (kind === "hat" ? 1 - HT.hat * heat[b] : 1)
-        * (b >= A.moodFrom ? 1 - M.MOOD.thin * A.harsh : 1);
-      if (!deep[b] || cold >= DC.minVel) beat.push({ bar: b, pos, kind, vel: +clamp(cold + human, 0.05, 1).toFixed(3) });
+      const vel = beatVel(T, b, kind, v);
+      if (beatKept(T, b, vel)) beat.push({ bar: b, pos, kind, vel: +clamp(vel + human, 0.05, 1).toFixed(3) });
     };
     const k = DB.kick.find((r) => (h.feels ?? h.temp) < r.maxFeels);
     if (!k.perChord || b % M.BARS_PER_CHORD === 0) for (const p of k.steps) hit("kick", p, DB.kickVel);

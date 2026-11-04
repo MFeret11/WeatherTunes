@@ -4,16 +4,15 @@
 import * as M from "../mapping.js";
 import { midiToNote } from "../theory.js";
 import { clamp } from "../util.js";
+import { melodyLift, melodyNotes, restChance, noteGate, melodyVel } from "./traits.js";
 
 /**
  * The melody follows the temperature, one bar per hour, then steady hours tie repeated notes.
  * Returns { melody, held } (held: how many notes were tied).
  */
 export function melodyLine(ctx) {
-  const { H, A, stats, root, energy, gateFor, busierRow, deep, heat, eye, rng, pick, day, stir, lift, evening, chordPcs, octave, pitchAt } = ctx;
+  const { H, A, stats, root, energy, gateFor, busierRow, T, rng, pick, day, stir, lift, evening, chordPcs, octave, pitchAt } = ctx;
   const D = M.DYNAMICS;
-  const DC = M.DEEP_COLD;
-  const HT = M.HEAT;
   const GL = M.GLIDE;
   const C = M.CALM_DETAIL;
   const R = M.ARC;
@@ -54,7 +53,7 @@ export function melodyLine(ctx) {
   const melody = [];
   let prev = null;
   let prevMidi = null;
-  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp) + lift(b) + Math.round(DC.registerSteps * deep[b]), b), chordPcs(b), b));
+  const anchors = H.map((h, b) => snapTo(inRange(tempIdx(h.temp) + lift(b) + melodyLift(T, b), b), chordPcs(b), b));
 
   for (let b = 0; b < M.BARS; b++) {
     const h = H[b];
@@ -63,12 +62,13 @@ export function melodyLine(ctx) {
     // The release after a peak breathes out: one row sparser, never busier.
     let n = last ? 1
       : M.DENSITY[day.phases[b] === "release" ? Math.max(0, row - 1) : busierRow(M.DENSITY, row, b)].notes;
-    if (!last && deep[b] >= DC.sparseFrom) n = 1; // one far-off bell an hour
-    else if (!last && heat[b] >= HT.sparseFrom && n > 1) n -= 1; // too hot to move
-    else if (!last && eye[b]) n = 1;
-    else if (!last && !day.dramatic) {
-      if (stir[b] >= C.busier) n = Math.max(n, Math.min(n + 1, C.maxNotes));
-      else if (stir[b] <= C.sparser && n > 1) n -= 1;
+    if (!last) {
+      const outlier = melodyNotes(T, b, n);
+      if (outlier != null) n = outlier;
+      else if (!day.dramatic) { // a calm day follows its small changes
+        if (stir[b] >= C.busier) n = Math.max(n, Math.min(n + 1, C.maxNotes));
+        else if (stir[b] <= C.sparser && n > 1) n -= 1;
+      }
     }
     const rhythm = last ? [M.STEPS] : pick(M.RHYTHMS[n]);
     const anchor = anchors[b];
@@ -85,7 +85,7 @@ export function melodyLine(ctx) {
           const pcs = chordPcs(b).filter((pc) => tonicPcs.includes(pc));
           idx = snapTo(idx, pcs.length ? pcs : chordPcs(b), b);
         }
-      } else if (rng() < M.REST_PER_CLOUD * (h.cloud / 100) + DC.rest * deep[b] + HT.rest * heat[b] && !(sectionEnd && k === rhythm.length - 1)) {
+      } else if (rng() < restChance(T, b, M.REST_PER_CLOUD * (h.cloud / 100)) && !(sectionEnd && k === rhythm.length - 1)) {
         pos += dur;
         return; // rest
       } else {
@@ -114,8 +114,8 @@ export function melodyLine(ctx) {
         ? clamp((Math.abs(h.temp - H[b - 1].temp) - GL.fromC) / (GL.fullC - GL.fromC), 0, 1) : 0;
       melody.push({
         ...(glide > 0 ? { from: prevMidi, glide: +Math.min(GL.minSteps + (GL.maxSteps - GL.minSteps) * glide, dur * 0.6).toFixed(2) } : {}),
-        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : Math.min(0.98, gateFor(h) + (day.phases[b] === "release" ? R.releaseGate : 0) + HT.slur * heat[b]),
-        vel: +(Math.min(0.95, vel + (k === 0 ? MEL.accent : 0)) * (eye[b] ? M.EYE.vel : 1)).toFixed(3),
+        bar: b, pos, dur, midi, note: midiToNote(midi), gate: last ? 0.95 : Math.min(0.98, noteGate(T, b, gateFor(h) + (day.phases[b] === "release" ? R.releaseGate : 0))),
+        vel: +melodyVel(T, b, Math.min(0.95, vel + (k === 0 ? MEL.accent : 0))).toFixed(3),
       });
       prev = idx;
       prevMidi = midi;
