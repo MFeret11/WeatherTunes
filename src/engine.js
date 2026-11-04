@@ -90,6 +90,16 @@ export function retroVoice(v) {
   return v;
 }
 
+/**
+ * Slide the voice a PolySynth started last to `toMidi`, arriving `seconds` after t.
+ * PolySynth has no public way to reach one of its voices, so this reads the private
+ * `_activeVoices` list. That's safe only because Tone.js is vendored at a fixed
+ * version (vendor/tone-15.1.22.js): check this still works when upgrading Tone.
+ */
+function bendNewestVoice(synth, t, toMidi, seconds) {
+  synth._activeVoices.at(-1)?.voice.frequency.exponentialRampToValueAtTime(440 * 2 ** ((toMidi - 69) / 12), t + seconds);
+}
+
 export class Engine {
   /**
    * `retro`: build the lighter 32-bit instruments (see RETRO32).
@@ -101,8 +111,18 @@ export class Engine {
     this.context = T.getContext();
     this.transport = T.getTransport();
     this.score = null;
+    // The parts of the graph, built in signal order.
+    this.buildMaster(output);
+    this.buildChannels();
+    this.buildBand();
+    this.buildPercussion();
+    this.buildEffects();
+  }
 
-    // ---- Master chain ----
+  /** The master chain: bus → EQ3 → filter → delay → reverb → master → fade → limiter → soft clip → out. */
+  buildMaster(output) {
+    const T = Tone();
+    const retro = this.retro;
     this.bus = new T.Gain(1);
     this.eq = new T.EQ3({ low: 0, mid: 0, high: 0 });
     this.filter = new T.Filter({ type: "lowpass", frequency: 6000, Q: 0.7, rolloff: -12 });
@@ -119,8 +139,11 @@ export class Engine {
     this.bus.chain(this.eq, this.filter, this.delay, this.reverb, this.master, this.fade, this.limiter,
       this.clipIn, this.softClip, output ?? T.getDestination());
     this.ready = this.reverb.ready;
+  }
 
-    // ---- Layer volumes (one fader + mute per layer) ----
+  /** One fader + mute per layer, the band's swell and drive, and the melody and pad chains. */
+  buildChannels() {
+    const T = Tone();
     // Melody, bass and pad share a "band" volume that swells with the weather.
     // Distortion between the band and the bus; its wet mix follows the weather.
     this.drive = new T.Distortion({ distortion: 0.25, oversample: "2x", wet: 0 }).connect(this.bus);
@@ -152,7 +175,11 @@ export class Engine {
     this.melody = null;
     this.pad = null;
     this.voiceIds = {};
+  }
 
+  /** The bass and the arpeggio (the melody and pad synths come per song, see setVoices). */
+  buildBand() {
+    const T = Tone();
     this.bass = new T.MonoSynth({
       oscillator: { type: "sawtooth" },
       filter: { type: "lowpass", Q: 2, rolloff: -24 },
@@ -166,7 +193,11 @@ export class Engine {
       envelope: { attack: 0.003, decay: 0.12, sustain: 0.3, release: 0.08 },
     }).connect(new T.Filter({ type: "lowpass", frequency: ARP_VOICE.tone, rolloff: -12 })
       .connect(new T.Volume(ARP_VOICE.gain).connect(this.vol.pad)));
+  }
 
+  /** Storm drums, the beat kit (kick, rim, hats), vinyl crackle and the rain shaker. */
+  buildPercussion() {
+    const T = Tone();
     // Storm drums: a low, timpani-like membrane.
     this.drums = new T.MembraneSynth({
       pitchDecay: 0.06, octaves: 3,
@@ -200,6 +231,11 @@ export class Engine {
       noise: { type: "white" },
       envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.03 },
     }).connect(this.shakerFilter);
+  }
+
+  /** Snow bells, the atmosphere and wind beds, one-shots (thunder, swell) and the sky's bells and shimmer. */
+  buildEffects() {
+    const T = Tone();
     const bellVoice = this.asPlayed({
       id: "bells", synth: "FMSynth", gain: 6, options: {
         harmonicity: 3.01, modulationIndex: 14,
@@ -363,7 +399,7 @@ export class Engine {
         if (n.bar === lastBar) this.melody.set({ envelope: { release: ENDING.releaseSec, releaseCurve: "linear" } });
         // A glide (GLIDE) starts on the last note and bends this voice up or down to its own.
         this.melody.triggerAttackRelease(n.glide ? midiToNote(n.from) : n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel);
-        if (n.glide) this.melody._activeVoices.at(-1)?.voice.frequency.exponentialRampToValueAtTime(440 * 2 ** ((n.midi - 69) / 12), t + this.s16(n.glide));
+        if (n.glide) bendNewestVoice(this.melody, t, n.midi, this.s16(n.glide));
       }, at(n.bar, n.pos));
     }
     for (const n of score.bass) {
