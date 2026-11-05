@@ -171,6 +171,7 @@ function rememberAndLink() {
 // ---- Rendering -----------------------------------------------------------------
 
 function render() {
+  player.prepare(score, retro, muted); // start rendering now, so Play has less to wait for
   const m = score.meta;
   const mv = suite?.movements[suite.index];
   $("place-kind").textContent = mv ? `Season suite · ${suite.index + 1} of ${suite.movements.length}` : KIND_LABELS[current.kind];

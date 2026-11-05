@@ -20,6 +20,7 @@ const LEAD = 0.75; // seconds of audio ready before playback starts or a new ren
 const MARGIN = 0.12; // how far past "now" the first block is scheduled, seconds
 const TAP = new URL("./tap.worklet.js", import.meta.url).href;
 const XFADE = 0.1; // crossfade when a new render takes over, seconds
+const PREPARE_DELAY = 0.8; // seconds after a song appears before rendering it early, so the page paints first
 // A render from partway starts early enough to replay every note still ringing:
 const PRE = {
   tailSec: 3.5, // the longest release (the slow pads)
@@ -263,11 +264,31 @@ export class Player {
   }
 
   /**
+   * Start rendering a song before Play is pressed, so some of it is ready by then
+   * (Play and Download reuse it). Renders can't be cancelled, so only one early
+   * render runs at a time: a newer request waits for it, and only the latest is kept.
+   */
+  prepare(score, retro, muted) {
+    this.prepared = score;
+    if (this.playing) return;
+    const want = (this.wanted = { score, retro, muted: { ...muted } });
+    clearTimeout(this.prepTimer);
+    const go = () => {
+      if (this.wanted !== want || this.playing) return;
+      const busy = this.renders.find((r) => !r.done);
+      if (busy) busy.promise.then(go);
+      else this.render(score, retro, muted);
+    };
+    this.prepTimer = setTimeout(go, PREPARE_DELAY * 1000);
+  }
+
+  /**
    * Play `score`, then each score in `queue` in turn (a season suite), each
    * starting as the one before rings out. `track` is the first one's number.
    */
   play(score, { retro = false, muted = {}, queue = [], track = 0 } = {}) {
     if (this.playing) this.stop();
+    this.wanted = null;
     this.wake();
     this.queue = [...queue];
     this.track = track;
@@ -311,6 +332,7 @@ export class Player {
     const changed = retro !== this.retro || LAYERS.some((l) => !!muted[l] !== !!this.muted?.[l]);
     this.retro = retro;
     this.muted = { ...muted };
+    if (!this.playing && changed && this.prepared) this.prepare(this.prepared, retro, muted);
     if (!this.playing || !changed) return;
     clearTimeout(this.debounce); // a few quick taps make one new render
     this.debounce = setTimeout(() => this.rerender(), 250);
