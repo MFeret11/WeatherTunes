@@ -253,6 +253,17 @@ A place's year as four movements, for anyone who wants more than one 20-second d
 - **Kept:** the chosen days are saved in the browser for 30 days per place. Holidays are looked up for each day's year. Air quality comes from the archive when it exists; aurora (Kp) and first frost are left out.
 - **Shareable:** `&suite=1` on a place or sample link opens the suite.
 
+### 6.7 Right now (planned, 2026-11-05)
+
+A short piece for the present moment instead of the whole day: you're inside, rain is hitting the window, and the music matches it. Today's song stays exactly as it is.
+
+- **Data:** the same Open-Meteo request also asks for `current` and `minutely_15`. The present conditions plus the next hour or two, held nearly steady, become the 24 slots the composer already reads, so every existing layer (rain, wind, cloud, temperature) works unchanged.
+- **Score:** day/night, moon and sunrise follow the present moment, not the whole day. Whole-day features that make no sense for a moment (the evening-outlook ending, chapter turns) are off. Steady weather already gives an even, calm song.
+- **Page:** a "Right now" button beside Season suite, `&now=1` links, its own cover and liner notes ("How the rain outside wrote this").
+- **Step 2, keep playing:** when a piece ends, fetch fresh weather and queue the next, so the music follows the rain as it picks up or eases off. Reuses the suite's Player queue and overlap, and `Player.prepare()` renders the next piece during the current one. Starts only on Play, never by itself.
+- **Caveats:** real 15-minute data exists only where high-resolution models run (mainly the US and Central Europe); elsewhere it's filled in from hourly, so pieces sound steadier. Rainy pieces render slowest on phones, so step 2 must start preparing early to avoid gaps.
+- **Done when:** song snapshots for every daily fixture are unchanged, and a rainy "now" piece sounds like the room you're sitting in.
+
 ## 7. The synth (what the public plays with)
 
 The weather sets the defaults, and the user can change anything. A marker shows which controls the weather set, and **"Back to the forecast"** resets them all.
@@ -339,6 +350,7 @@ Assertions:
 | **M2b** ✅ | Sky and air (§6.3b): moon, aurora, meteors, solstices, holidays, air quality, UV, dew point, feels-like, snow cover, frost | Every sample day shows and plays its sky; tests check the sky maths against published events |
 | **M2c** ✅ | Chord colour, dry beat, soft clip (§6.3a+) | Every sample day shows its chord names in `test/summary.html`; no sample clips hard |
 | **M2d** ✅ | Season suite (§6.6) | Any place plays four typical days as one piece, and the page follows each season |
+| **M2e** planned | Right now (§6.7): a piece for the present moment; step 2 keeps playing and follows the weather | Any place plays a "now" piece, and daily song snapshots are unchanged |
 | **M3** | Synth panel, "Back to the forecast", play-along keyboard | Every control in §7 works on desktop and phone |
 | **M4** | Forecast chart with playhead, liner notes, share links, mobile layout, accessibility pass | A shared link reproduces the song on another device |
 | **M5** | Portfolio story, homepage card and About mention | Live on mferet.com |
