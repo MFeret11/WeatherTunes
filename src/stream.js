@@ -13,7 +13,7 @@
 // has got to, then crossfades over once the new audio is ready. That render starts
 // a little earlier (see preRoll), so notes still ringing carry on through the switch.
 
-import { Engine, LAYERS, FADE, songSeconds, cueTimes } from "./engine.js";
+import { Engine, LAYERS, FADE, songSeconds, cueTimes, timeline } from "./engine.js";
 import { SUITE } from "./mapping.js";
 
 export const SAMPLE_RATE = 44100;
@@ -36,12 +36,12 @@ const NOTE_LAYERS = ["melody", "pad", "bass", "arp", "drums", "bells", "chimes",
 /** Seconds before `offset` to start rendering, so notes ringing at `offset` are played in full. */
 export function preRoll(score, offset) {
   if (offset <= 0) return 0;
-  const steps = score.meta.steps ?? 16;
   const s16 = (n) => (n * 15) / score.meta.bpm;
+  const tl = timeline(score);
   let from = offset - PRE.settleSec;
   for (const l of NOTE_LAYERS) {
     for (const n of score[l] ?? []) {
-      const t = s16(n.bar * steps + n.pos);
+      const t = s16(tl.at(n));
       if (t < from && t + s16(n.dur) + PRE.tailSec > offset) from = t;
     }
   }

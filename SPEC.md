@@ -264,6 +264,18 @@ A short piece for the present moment instead of the whole day: you're inside, ra
 - **Caveats:** real 15-minute data exists only where high-resolution models run (mainly the US and Central Europe); elsewhere it's filled in from hourly, so pieces sound steadier. Rainy pieces render slowest on phones, so step 2 must start preparing early to avoid gaps.
 - **Done when:** song snapshots for every daily fixture are unchanged, and a rainy "now" piece sounds like the room you're sitting in.
 
+### 6.8 Eventful days run longer (built 2026-11-06)
+
+Every song used to be 12 bars (about 20–29 s), however much happened. Now a flat day stays as it is, and a day with a storm, a front or the sun breaking out of a grey spell gets room to breathe.
+
+- **Render efficiency first:** the Player's engine builds only the instruments a song uses (`partsFor` in `engine.js`), 10–15% faster on the Pi; seeded solo renders match the full build within 0.1 dB. If a render falls behind mid-song, playback pauses once ("Buffering…") instead of stuttering.
+- **Time map:** `meta.timeline` (only on stretched days) holds `length`, `barAt`, the play-order `slots` (each applies its hour's settings), the stretched chords and the wind-down; every event then carries `t`, its start in sixteenths. `timeline()` in `engine.js` reads it, falling back to the even grid, so unstretched songs are byte-for-byte unchanged.
+- **How eventful each chord is** (`STRETCH` in `mapping.js`, `score/stretch.js`): felt storms (rain, gusts, thunder; never CAPE alone), fronts, a hurricane's eye, rain starting after a dry spell, fog lifting, the sun breaking out of a long grey spell, a sudden drop in temperature, meteors or an aurora. Ordinary morning warming, drizzle and the daily moonrise don't count.
+- **Second passes:** up to 4 chords play twice (at most one quiet one). Weather: the band carries on and the melody answers, stepping chord tones to the next chord tone so strong beats stay on the chord. A quiet moment: a breath, with the melody and drums resting while the pad, bass, arpeggio and chimes ring on.
+- **Wind-down:** a day whose felt weather peaks at 0.6 or more gets one or two bars after 11 pm: the last chord held, the last melody notes at half speed, drips if it rained late, then the usual ending.
+- **Survey (local/debug/stretch.html, 108 days):** 57 unchanged; storm days run 25–45% longer (Baltimore 30 → 38 s, Houston 29 → 41 s).
+- **Not done:** the liner notes don't mention the extra time yet, and the hour chart's highlight simply stays on an hour while it plays again.
+
 ## 7. The synth (what the public plays with)
 
 The weather sets the defaults, and the user can change anything. A marker shows which controls the weather set, and **"Back to the forecast"** resets them all.
@@ -351,6 +363,7 @@ Assertions:
 | **M2c** ✅ | Chord colour, dry beat, soft clip (§6.3a+) | Every sample day shows its chord names in `test/summary.html`; no sample clips hard |
 | **M2d** ✅ | Season suite (§6.6) | Any place plays four typical days as one piece, and the page follows each season |
 | **M2e** planned | Right now (§6.7): a piece for the present moment; step 2 keeps playing and follows the weather | Any place plays a "now" piece, and daily song snapshots are unchanged |
+| **M2f** ✅ | Eventful days run longer (§6.8): leaner engine, stretched chords and a wind-down | Dull days unchanged; storm days 25–45% longer; no mid-song stalls |
 | **M3** | Synth panel, "Back to the forecast", play-along keyboard | Every control in §7 works on desktop and phone |
 | **M4** | Forecast chart with playhead, liner notes, share links, mobile layout, accessibility pass | A shared link reproduces the song on another device |
 | **M5** | Portfolio story, homepage card and About mention | Live on mferet.com |

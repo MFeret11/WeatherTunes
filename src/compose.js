@@ -8,10 +8,11 @@ import { melodyLine } from "./score/melody.js";
 import { bassLine, stormDrums, rainBeat, dryBeat, vinylCrackle } from "./score/rhythm.js";
 import { padChords, arpeggio } from "./score/pad.js";
 import { rainAndBells, atmosphereBed, oneOffFx, eyeOfStorm } from "./score/texture.js";
+import { stretch } from "./score/stretch.js";
 import { skyChimes, skyShimmer } from "./score/skylayers.js";
 import { barAutomation, scoreMeta } from "./score/automation.js";
 
-export function compose(f, { units = "metric" } = {}) {
+export function compose(f, { units = "metric", stretch: stretchIt = true } = {}) {
   const ctx = scoreContext(f);
   const { melody, held } = melodyLine(ctx);
   const bass = bassLine(ctx);
@@ -29,5 +30,8 @@ export function compose(f, { units = "metric" } = {}) {
   eyeOfStorm(ctx, { drums, garage, beat, rain, fx, atmosphere });
   const automation = barAutomation(ctx);
   const meta = scoreMeta(ctx, { melody, arp, rain, bells, drums, garage, beat, crackle, atmosphere, fx, automation, chimes, shimmer }, held, units);
+  // Eventful days run longer (SPEC §6.8): second passes and a wind-down, with their time map.
+  const timeline = stretchIt && stretch(ctx, { melody, bass, pad, arp, drums, garage, beat, crackle, rain, bells, chimes, shimmer, fx });
+  if (timeline) meta.timeline = timeline;
   return { meta, melody, bass, pad, arp, drums, garage, beat, crackle, rain, bells, atmosphere, fx, automation, chimes, shimmer };
 }

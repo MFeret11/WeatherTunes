@@ -14,7 +14,10 @@ export const FIXTURES = [
 const raw = {};
 for (const name of FIXTURES) raw[name] = await (await fetch(`../samples/${name}.json`)).json();
 const forecasts = Object.fromEntries(FIXTURES.map((n) => [n, normalizeForecast(raw[n])]));
-const scores = Object.fromEntries(FIXTURES.map((n) => [n, compose(forecasts[n])]));
+// Most tests read the day hour by hour, so they check the song before eventful
+// chords are stretched (see the stretch tests for the longer version).
+const scores = Object.fromEntries(FIXTURES.map((n) => [n, compose(forecasts[n], { stretch: false })]));
+const stretched = Object.fromEntries(FIXTURES.map((n) => [n, compose(forecasts[n])]));
 
 const each = (fn) => { for (const n of FIXTURES) fn(n, scores[n], forecasts[n]); };
 // Each bar has its own mode (the day's story) and chord.
@@ -56,7 +59,8 @@ test("polar night has no sunrise", () => {
 // ---- compose.js ------------------------------------------------------------
 
 test("same forecast → identical score", () => each((n, s, f) => {
-  equal(compose(f), s, n);
+  equal(compose(f, { stretch: false }), s, n);
+  equal(compose(f), stretched[n], `${n} stretched`);
 }));
 
 test("different days and places → different melodies", () => {
@@ -184,7 +188,7 @@ test("same score whatever the hour of the call (seed ignores time)", () => {
 
 test("units change the wording, never the music", () => {
   const f = forecasts["phoenix-heat"];
-  const us = compose(f, { units: "us" });
+  const us = compose(f, { units: "us", stretch: false });
   const metric = scores["phoenix-heat"];
   equal({ ...us, meta: { ...us.meta, notes: null, liner: null } }, { ...metric, meta: { ...metric.meta, notes: null, liner: null } });
   assert(us.meta.notes.some((t) => t.includes("116\u00a0°F")), "46.9 °C shows as 116 °F");
@@ -425,7 +429,7 @@ const withDate = (n, date, extras) => ({ ...forecasts[n], date, extras: { ...for
 const inRange = (c) => c.midi >= M.CHIMES.low && c.midi <= M.CHIMES.high;
 
 test("sky extras add parts but never change the rest of the song", () => each((n, s, f) => {
-  const bare = compose({ ...f, extras: {} });
+  const bare = compose({ ...f, extras: {} }, { stretch: false });
   for (const k of ["melody", "bass", "pad", "drums", "rain", "bells", "garage"]) equal(bare[k], s[k], `${n} ${k}`);
   for (const c of s.chimes) assert(inRange(c) && c.vel > 0 && c.vel <= 1 && c.pos >= 0 && c.pos < M.STEPS, `${n} chime ${JSON.stringify(c)}`);
   for (const x of s.shimmer) assert(x.notes.length && x.vel > 0 && x.vel <= 1, `${n} shimmer`);
@@ -523,7 +527,7 @@ test("chords are their triad, or a sus with a whole-tone 2nd or perfect 4th", ()
 }));
 
 // ---- Outliers --------------------------------------------------------------
-const tweak = (name, fn) => { const f = structuredClone(forecasts[name]); f.hours.forEach((h, b) => fn(h, b)); return compose(f); };
+const tweak = (name, fn, opts = { stretch: false }) => { const f = structuredClone(forecasts[name]); f.hours.forEach((h, b) => fn(h, b)); return compose(f, opts); };
 
 test("deadly heat wobbles and thins the melody; mild days don't", () => {
   const s = scores["phoenix-heat"];
@@ -857,3 +861,61 @@ test("a fast temperature change slides the melody; strong gusts flutter the pad"
   assert(scores["kyoto-spring"].automation.flutter.every((x) => x < 0.5), "a calm day barely flutters");
 });
 
+
+// ---- Eventful days run longer (STRETCH, SPEC §6.8) ---------------------------
+
+const firstPass = (s) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k,
+  Array.isArray(v) && k !== "atmosphere" ? v.filter((e) => !e.again && !e.coda).map(({ t, last, ...e }) => e) : v]));
+const unstretchedMeta = (s) => { const { timeline, ...meta } = s.meta; return meta; };
+
+test("a quiet day is left exactly as it was; an eventful one only adds", () => each((n, s) => {
+  const x = stretched[n];
+  if (!x.meta.timeline) { equal(x, s, `${n} unchanged`); return; }
+  const a = firstPass(x), b = firstPass(s);
+  for (const k of ["melody", "bass", "pad", "arp", "drums", "garage", "beat", "rain", "bells", "chimes", "shimmer", "fx"]) {
+    const sort = (l) => [...(l ?? [])].sort((p, q) => p.bar - q.bar || p.pos - q.pos || JSON.stringify(p).localeCompare(JSON.stringify(q)));
+    equal(sort(a[k]), sort(b[k]), `${n} ${k}: the first pass is the plain song`);
+  }
+  equal(unstretchedMeta(x), s.meta, `${n} meta`);
+}));
+
+test("stretched songs: a time for every note, longer by at most half, one ending", () => each((n, s) => {
+  const x = stretched[n], tl = x.meta.timeline;
+  if (!tl) return;
+  const plain = M.BARS * M.STEPS;
+  assert(tl.length > plain && tl.length <= plain * 1.5 + 32, `${n} length ${tl.length}`);
+  for (const k of ["melody", "bass", "pad", "arp", "drums", "garage", "beat", "rain", "bells", "chimes", "shimmer", "fx"]) {
+    for (const e of x[k] ?? []) assert(Number.isFinite(e.t) && e.t >= 0 && e.t < tl.length, `${n} ${k} t=${e.t}`);
+  }
+  equal(x.melody.filter((m) => m.last).length, 1, `${n} one last note`);
+  assert(x.melody.at(-1).last && x.pad.at(-1).last, `${n} the last note and chord ring out`);
+  const hits = x.rain.map((r) => r.t);
+  equal(new Set(hits).size, hits.length, `${n} one shaker never hits twice at once`);
+  equal(tl.slots.length, M.BARS + tl.again.length * M.BARS_PER_CHORD, `${n} every pass applies its hours`);
+}));
+
+test("what fills a second pass follows what happened", () => {
+  let weather = 0, quiet = 0;
+  each((n) => {
+    const x = stretched[n];
+    for (const a of x.meta.timeline?.again ?? []) {
+      const pass = (l) => x[l].filter((e) => e.again && Math.floor(e.bar / M.BARS_PER_CHORD) === a.chord);
+      if (a.kind === "quiet") { quiet++; equal(pass("melody").length + pass("drums").length + pass("beat").length, 0, `${n} a breath rests the melody and drums`); }
+      else {
+        weather++;
+        assert(pass("melody").length === x.melody.filter((m) => !m.again && !m.coda && Math.floor(m.bar / M.BARS_PER_CHORD) === a.chord).length, `${n} the melody answers note for note`);
+      }
+    }
+  });
+  assert(weather > 0, "some sample stretches for weather");
+  assert(scores["houston-storms"] && stretched["houston-storms"].meta.timeline?.coda, "a stormy day winds down");
+  assert(!stretched["kyoto-spring"].meta.timeline || stretched["kyoto-spring"].meta.timeline.again.length <= 1, "a gentle spring day barely stretches");
+});
+
+test("the melody's answer keeps strong beats on the chord", () => each((n) => {
+  const x = stretched[n];
+  for (const m of x.melody.filter((e) => e.again)) {
+    const strong = m.pos % 4 === 0;
+    if (strong) assert(x.meta.chordPcs[m.bar].includes(((m.midi % 12) + 12) % 12) || x.melody.some((o) => !o.again && o.bar === m.bar && o.pos === m.pos && !x.meta.chordPcs[m.bar].includes(o.midi % 12)), `${n} answer bar ${m.bar} pos ${m.pos} ${m.note}`);
+  }
+}));

@@ -488,7 +488,7 @@ $("suite").addEventListener("click", () => (suite ? endSuite() : startSuite()));
 /** How busy each layer is in each hour, 0–1, from the score itself. */
 function activity(sc, hours) {
   const lane = () => new Array(hours).fill(0);
-  const add = (a, notes, w = (n) => n.vel ?? 1) => { for (const n of notes ?? []) if (n.bar < hours) a[n.bar] += w(n); return a; };
+  const add = (a, notes, w = (n) => n.vel ?? 1) => { for (const n of notes ?? []) if (n.bar < hours && !n.again && !n.coda) a[n.bar] += w(n); return a; }; // second passes and the wind-down replay hours already counted
   const act = {
     // The melody's lane also shows its level (cloud and night turn it down).
     // A held note counts in every hour it sounds through.

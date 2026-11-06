@@ -855,6 +855,37 @@ export const SOFT_CLIP = { knee: 0.6, ceiling: 0.89, headroom: 4 };
 // hour, then trails off, so the final note rings out into the reverb.
 export const ENDING = { releaseSec: 2.6, padReleaseSec: 3.4, tailSec: 3 };
 
+// Eventful days run longer (SPEC §6.8). Each chord (2 hours) is scored for how much
+// happens in it, counting weather you'd notice, and intensity over duration:
+//   storm       felt rain, gusts or thunder (DYNAMICS energy without CAPE) at least
+//               stormFrom, scored by that energy
+//   front, eye  a cold front or a hurricane's eye in the chord
+//   wetStarts   rain or snow starting (at least wetMm in the hour) after dryHours dry hours
+//   fogLifts    fog clearing
+//   sunBreaks   the sun coming out in daylight (cloud at most clearCloud %) after
+//               greyHours hours of heavy cloud (at least greyCloud %) or rain
+//   tempDrop    the air cooling at least tempDropC within the chord (a gust front, a
+//               downpour's chill); ordinary daytime warming doesn't count
+//   sky         a meteor shower or an aurora (the moon rises every day, so it doesn't count)
+// The score is the strongest of these. A chord scoring at least `min` plays twice,
+// the busiest maxChords of them (at most maxQuiet quiet ones), never the first or last
+// chord. What fills the second pass depends on what happened: weather → the band
+// carries on and the melody answers (the same rhythm, chord tones stepping to the next
+// chord tone, other notes answerSteps scale steps, toward where the weather is
+// heading); a quiet moment (sun, fog lifting, sky) → a breath: the melody and drums
+// rest while the pad, bass, arpeggio and chimes ring on.
+// A day whose felt weather reaches coda.from gets a wind-down after 11 pm: the last
+// chord held for `bars` bars (two from coda.long), the last few melody notes at half
+// speed, drips if it rained late, then the usual ENDING.
+export const STRETCH = {
+  weights: { storm: 1, front: 1, eye: 1, wetStarts: 0.6, fogLifts: 0.6, sunBreaks: 0.6, tempDrop: 0.7, sky: 0.6 },
+  stormFrom: 0.6, wetMm: 1, dryHours: 3, tempDropC: 4,
+  greyHours: 4, greyCloud: 80, clearCloud: 40,
+  min: 0.6, maxChords: 4, maxQuiet: 1,
+  answerSteps: 2,
+  coda: { from: 0.6, long: 0.9, bars: [1, 2], melodyNotes: 3, vel: 0.8, drips: 3, dripVel: 0.14 },
+};
+
 // Season suite: each movement keeps its own ending, and the next one begins
 // overlapSec before the last has quite faded away.
 export const SUITE = { overlapSec: 1 };

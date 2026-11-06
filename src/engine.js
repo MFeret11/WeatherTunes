@@ -53,10 +53,30 @@ function fadeOutCurve(from = 0, n = 64) {
 }
 export const DEFAULT_LEVELS = MIX; // see mapping.js
 
+/**
+ * A score's time map, in sixteenths. Usually every hour slot is `steps` long; on an
+ * eventful day (meta.timeline, see score/stretch.js) some play twice and a wind-down
+ * follows, and every event carries its own start `t`.
+ *   length   sixteenths of music (before the ending's tail)
+ *   barAt    where hour slot b first starts
+ *   slots    every { bar, t } in play order: each one applies that hour's settings
+ *   at       an event's start
+ */
+export function timeline(score) {
+  const steps = score.meta.steps ?? 16;
+  const bars = score.meta.bars;
+  const tl = score.meta.timeline;
+  return {
+    length: tl?.length ?? bars * steps,
+    barAt: (b) => (tl ? tl.barAt[b] : b * steps),
+    slots: tl?.slots ?? Array.from({ length: bars }, (_, b) => ({ bar: b, t: b * steps })),
+    at: (e) => e.t ?? e.bar * steps + e.pos,
+  };
+}
+
 /** How long a score plays, in seconds, from the start to the end of its fade-out. */
 export function songSeconds(score) {
-  const steps = score.meta.steps ?? 16;
-  return ((score.meta.bars * steps + outGap(score.meta.bpm) + 2) * 15) / score.meta.bpm + 0.3;
+  return ((timeline(score).length + outGap(score.meta.bpm) + 2) * 15) / score.meta.bpm + 0.3;
 }
 
 /**
@@ -67,13 +87,13 @@ export function songSeconds(score) {
  *   end      the fade-out is done and the song is over
  */
 export function cueTimes(score) {
-  const steps = score.meta.steps ?? 16;
   const s16 = (n) => (n * 15) / score.meta.bpm;
+  const tl = timeline(score);
   return {
-    bars: score.atmosphere.map((_, bar) => s16(bar * steps)),
-    barsEnd: s16(Math.ceil((score.meta.bars * steps) / 16) * 16),
-    fx: score.fx.map((f) => ({ t: s16(f.bar * steps + f.pos), type: f.type })).sort((a, b) => a.t - b.t),
-    end: s16(score.meta.bars * steps + outGap(score.meta.bpm) + 2),
+    bars: score.atmosphere.map((_, bar) => s16(tl.barAt(bar))),
+    barsEnd: s16(Math.ceil(tl.length / 16) * 16),
+    fx: score.fx.map((f) => ({ t: s16(tl.at(f)), type: f.type })).sort((a, b) => a.t - b.t),
+    end: s16(tl.length + outGap(score.meta.bpm) + 2),
   };
 }
 
@@ -428,7 +448,8 @@ export class Engine {
     tr.swingSubdivision = "16n";
     tr.loop = false; // plays once; pressing Play again starts it over
     const steps = score.meta.steps ?? 16; // sixteenths per hour slot
-    const realBars = Math.ceil((score.meta.bars * steps) / 16);
+    const tl = timeline(score);
+    const realBars = Math.ceil(tl.length / 16);
 
     this.reverb.wet.value = score.automation.reverbWet;
     if (this.drive) this.drive.distortion = score.meta.drive ?? 0.25;
@@ -442,25 +463,25 @@ export class Engine {
     this.bass.filterEnvelope.octaves = 2.5 - 1.5 * sub;
     this.bass.volume.value = 5 * sub;
 
-    // `bar` in the score is an hour slot of `steps` sixteenths.
-    const at = (bar, pos) => {
-      const t = bar * steps + pos;
-      return `${Math.floor(t / 16)}:${Math.floor((t % 16) / 4)}:${t % 4}`;
-    };
+    // Transport time for a start in sixteenths, and for an event (see timeline()).
+    const pos16 = (t) => `${Math.floor(t / 16)}:${Math.floor((t % 16) / 4)}:${t % 4}`;
+    const at = (e) => pos16(tl.at(e));
 
     // The last melody note and pad chord let go slowly (ENDING), so the song rings out.
-    const lastBar = score.meta.bars - 1;
-    const lastChord = score.pad.at(-1); // chords span several hours, so the last one starts before the last bar
+    // A stretched score marks them (`last`); otherwise they're the last bar's notes and the last chord.
+    const marked = score.melody.some((n) => n.last);
+    const isLastNote = (n) => (marked ? !!n.last : n.bar === score.meta.bars - 1);
+    const lastChord = score.pad.find((c) => c.last) ?? score.pad.at(-1); // chords span several hours, so the last one starts before the last bar
     for (const n of score.melody) {
       tr.schedule((t) => {
-        if (n.bar === lastBar) this.melody.set({ envelope: { release: ENDING.releaseSec, releaseCurve: "linear" } });
+        if (isLastNote(n)) this.melody.set({ envelope: { release: ENDING.releaseSec, releaseCurve: "linear" } });
         // A glide (GLIDE) starts on the last note and bends this voice up or down to its own.
         this.melody.triggerAttackRelease(n.glide ? midiToNote(n.from) : n.note, this.s16(n.dur) * (n.gate ?? 0.9), t, n.vel);
         if (n.glide) bendNewestVoice(this.melody, t, n.midi, this.s16(n.glide));
-      }, at(n.bar, n.pos));
+      }, at(n));
     }
     for (const n of score.bass) {
-      tr.schedule((t) => this.bass.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.85), t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.bass.triggerAttackRelease(n.note, this.s16(n.dur) * (n.gate ?? 0.85), t, n.vel), at(n));
     }
     for (const c of score.pad) {
       tr.schedule((t) => {
@@ -468,13 +489,13 @@ export class Engine {
         this.pad.triggerAttackRelease(c.notes, this.s16(c.dur) * 0.95, t, c.vel);
         // Colour notes (7th, 9th) each at their own, weather-set level.
         for (const x of c.colour ?? []) this.pad.triggerAttackRelease(x.note, this.s16(c.dur) * 0.95, t, x.vel);
-      }, at(c.bar, c.pos));
+      }, at(c));
     }
     for (const n of score.arp ?? []) {
-      tr.schedule((t) => this.arp.triggerAttackRelease(n.note, this.s16(n.dur) * ARP.gate, t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.arp.triggerAttackRelease(n.note, this.s16(n.dur) * ARP.gate, t, n.vel), at(n));
     }
     for (const n of score.drums ?? []) {
-      tr.schedule((t) => this.drums.triggerAttackRelease(n.note, this.s16(n.dur) * 2, t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.drums.triggerAttackRelease(n.note, this.s16(n.dur) * 2, t, n.vel), at(n));
     }
     // The rain beat and the dry beat share one kit.
     for (const n of [...(score.garage ?? []), ...(score.beat ?? [])]) {
@@ -482,7 +503,7 @@ export class Engine {
         snare: (t) => this.rim.triggerAttackRelease(0.1, t, n.vel),
         hat: (t) => this.hat.triggerAttackRelease(0.03, t, n.vel),
         ghost: (t) => this.hat.triggerAttackRelease(0.03, t, n.vel) }[n.kind];
-      tr.schedule(play, at(n.bar, n.pos));
+      tr.schedule(play, at(n));
     }
     // Crackle sits between the sixteenths, so it's placed in ticks.
     const ticks16 = tr.PPQ / 4;
@@ -492,7 +513,7 @@ export class Engine {
     // is ~7 ms long, so nothing audible is lost).
     const gap = Math.max(1, Math.ceil(0.01 * (score.meta.bpm / 60) * tr.PPQ));
     let last = -Infinity;
-    const clicks = (score.crackle ?? []).map((n) => ({ n, tick: Math.round((n.bar * steps + n.pos) * ticks16) }))
+    const clicks = (score.crackle ?? []).map((n) => ({ n, tick: Math.round(tl.at(n) * ticks16) }))
       .sort((a, b) => a.tick - b.tick);
     for (const { n, tick: at16 } of clicks) {
       const tick = Math.max(at16, last + gap);
@@ -500,25 +521,25 @@ export class Engine {
       tr.schedule((t) => this.crackle.triggerAttackRelease(0.004, t, n.vel), `${tick}i`);
     }
     for (const n of score.rain) {
-      tr.schedule((t) => this.shaker.triggerAttackRelease(0.05, t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.shaker.triggerAttackRelease(0.05, t, n.vel), at(n));
     }
     for (const n of score.bells) {
-      tr.schedule((t) => this.bells.triggerAttackRelease(n.note, this.s16(n.dur), t, n.vel), at(n.bar, n.pos));
+      tr.schedule((t) => this.bells.triggerAttackRelease(n.note, this.s16(n.dur), t, n.vel), at(n));
     }
     for (const c of score.chimes ?? []) {
-      tr.schedule((t) => this.chimes.triggerAttackRelease(c.note, this.s16(c.dur), t, c.vel), at(c.bar, c.pos));
+      tr.schedule((t) => this.chimes.triggerAttackRelease(c.note, this.s16(c.dur), t, c.vel), at(c));
     }
     for (const x of score.shimmer ?? []) {
       const synth = x.kind === "aurora" ? this.aurora : this.sparkle;
-      tr.schedule((t) => synth.triggerAttackRelease(x.notes, this.s16(x.dur) * (x.kind === "aurora" ? 0.9 : 0.8), t, x.vel), at(x.bar, x.pos));
+      tr.schedule((t) => synth.triggerAttackRelease(x.notes, this.s16(x.dur) * (x.kind === "aurora" ? 0.9 : 0.8), t, x.vel), at(x));
     }
     for (const f of score.fx) {
-      if (f.type === "thunder") tr.schedule((t) => this.thunder.triggerAttackRelease(3, t, 0.9), at(f.bar, f.pos));
-      if (f.type === "swell") tr.schedule((t) => this.swell.triggerAttackRelease(SWELL.attack + SWELL.decay + SWELL.hold, t, SWELL.vel), at(f.bar, f.pos));
+      if (f.type === "thunder") tr.schedule((t) => this.thunder.triggerAttackRelease(3, t, 0.9), at(f));
+      if (f.type === "swell") tr.schedule((t) => this.swell.triggerAttackRelease(SWELL.attack + SWELL.decay + SWELL.hold, t, SWELL.vel), at(f));
     }
 
     // Per-hour automation.
-    score.atmosphere.forEach((_, bar) => tr.schedule((t) => this.applyBar(bar, t), at(bar, 0)));
+    for (const slot of tl.slots) tr.schedule((t) => this.applyBar(slot.bar, t), pos16(slot.t));
     // Fade in at the top of every pass; fade out across the last hour into the gap.
     const g = this.fade.gain;
     tr.schedule((t) => {
@@ -529,7 +550,7 @@ export class Engine {
     tr.schedule((t) => {
       g.cancelScheduledValues(t);
       g.setValueCurveAtTime(fadeOutCurve(), t, this.s16(FADE.outHours * steps + outGap(score.meta.bpm)));
-    }, at(score.meta.bars - FADE.outHours, 0));
+    }, pos16(tl.length - FADE.outHours * steps));
     // Fade the beds out after the last bar.
     tr.schedule((t) => {
       for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, this.s16(8), t);
@@ -587,9 +608,10 @@ export class Engine {
     this.windFilter?.start(when);
     if (offset > 0) {
       const steps = this.score.meta.steps ?? 16;
-      const bars = this.score.meta.bars;
-      this.applyBar(Math.min(bars - 1, Math.floor(offset / this.s16(steps))), when, true);
-      const outStart = this.s16((bars - FADE.outHours) * steps);
+      const tl = timeline(this.score);
+      const slot = tl.slots.filter((x) => this.s16(x.t) <= offset).at(-1) ?? tl.slots[0];
+      this.applyBar(slot.bar, when, true);
+      const outStart = this.s16(tl.length - FADE.outHours * steps);
       const outEnd = outStart + this.s16(FADE.outHours * steps + outGap(this.score.meta.bpm));
       const g = this.fade.gain;
       g.cancelScheduledValues(when);
