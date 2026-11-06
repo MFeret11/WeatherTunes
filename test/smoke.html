@@ -44,21 +44,16 @@ try {
   let [w, d] = await open("");
   check(text(d, "place-kind") === "Today's featured city", `featured city: ${text(d, "place-name")}`);
   check(!d.getElementById("status").classList.contains("error"), "live forecast loaded without error");
-  check(d.querySelectorAll("#hours .hour").length === 24 && d.querySelectorAll("#notes p").length >= 1, "hours and liner notes shown");
+  check(d.querySelectorAll("#hours .hour").length === 24 && d.querySelectorAll("#desc p").length >= 1, "hours and the weather paragraph shown");
   d.getElementById("play").click();
   const t0 = performance.now();
   // Slow machines can take a while to render enough of the song to start.
   await until(() => sounding(w), 90000);
   check(sounding(w) && text(d, "play") === "Stop", `plays (sound after ${((performance.now() - t0) / 1000).toFixed(1)} s)`);
 
-  // 1b. Muting a part mid-song renders the rest again without it (the crossfade
-  // itself is covered by a dev check; a slow machine may reach the end of the song first).
   const renderOf = () => (w.wtPlayer.next ?? w.wtPlayer.active)?.render;
-  d.querySelector("#layers .factor.melody").click();
-  const muted = await until(() => renderOf()?.muted.melody === true || !w.wtPlayer.playing, 5000);
-  check(muted && w.wtPlayer.playing, "muting mid-song renders the rest without it, still playing");
 
-  // 1c. The 32-bit switch does the same, both ways.
+  // 1b. The 32-bit switch renders the rest again mid-song, both ways.
   const retro = d.getElementById("retro");
   const retroWas = retro.getAttribute("aria-pressed");
   for (const step of ["on", "back"]) {
@@ -69,7 +64,6 @@ try {
     check(asked && w.wtPlayer.playing && (step === "on" ? pressed !== retroWas : pressed === retroWas),
       `32-bit switch ${step === "on" ? "flipped" : "flipped back"} mid-song (pressed: ${pressed}), still playing`);
   }
-  d.querySelector("#layers .factor.melody").click(); // unmute again
 
   // 2. Units toggle changes the words only.
   const bpm = bpmOf(d);

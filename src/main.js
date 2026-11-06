@@ -26,24 +26,6 @@ const SAMPLES = [
   ["oslo-snow", "Oslo · snowstorm"],
   ["reykjavik-wind", "Reykjavik · gale"],
 ];
-// The factors: each layer of the song and the weather that plays it.
-const ICON = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
-const CHANNELS = [
-  { layer: "melody", name: () => "Melody", weather: "temperature",
-    icon: ICON('<path d="M10 14V5a2 2 0 1 1 4 0v9a4 4 0 1 1-4 0z"/><path d="M12 9v7"/>') },
-  { layer: "pad", name: () => "Pad", weather: "sky",
-    icon: ICON('<path d="M7 18h10a4 4 0 0 0 .5-8A5.5 5.5 0 0 0 7 9.5 4.3 4.3 0 0 0 7 18z"/>') },
-  { layer: "bass", name: (m) => (m.bassSub >= 0.5 ? "Deep bass" : "Bass"), weather: "pressure & cloud",
-    icon: ICON('<circle cx="12" cy="12" r="8"/><path d="M7.5 15.5l.8-.6M6.5 11h1M8.8 7.6l.6.8M12 6.5v1M15.2 7.6l-.6.8M17.5 11h-1M16.5 15.5l-.8-.6M12 12l3.2-3.2"/><circle cx="12" cy="12" r=".6"/>') },
-  { layer: "rain", name: (m) => (m.snow ? "Shakers & bells" : "Shakers"), weather: "rain & snow",
-    icon: ICON('<path d="M12 3c3 4 5 6.5 5 9a5 5 0 0 1-10 0c0-2.5 2-5 5-9z"/>') },
-  { layer: "drums", name: () => "Beat", weather: "wind, warmth & storms",
-    icon: ICON('<ellipse cx="12" cy="8" rx="7" ry="3"/><path d="M5 8v8c0 1.7 3.1 3 7 3s7-1.3 7-3V8"/>') },
-  { layer: "atmosphere", name: () => "Noise", weather: "gusts, rain & fog",
-    icon: ICON('<path d="M3 9h11a3 3 0 1 0-3-3M3 15h15a3 3 0 1 1-3 3M3 12h7"/>') },
-  { layer: "fx", name: () => "Sparkles", weather: "sun, moon & sky",
-    icon: ICON('<circle cx="12" cy="15" r="4"/><path d="M12 5v3M5 15H3M21 15h-2M6.3 9.3l1.4 1.4M17.7 9.3l-1.4 1.4M3 20h18"/>') },
-];
 // Your own location has no place name, so holidays use your browser's region.
 const BROWSER_CC = (navigator.language || "").split("-")[1]?.toUpperCase() || null;
 const KIND_LABELS = {
@@ -69,7 +51,7 @@ let current = null; // { kind, place?, sample? }
 // `forecast` and `score` then point at the movement on show.
 let suite = null;
 let loadToken = 0;
-const muted = {};
+const muted = {}; // the player can mute parts; nothing on the page does since the factors went
 // US-style units for US visitors (and the two other countries using °F), metric for everyone else.
 const region = (navigator.language || "").split("-")[1];
 let units = store.get("wt:units") || (["US", "LR", "MM"].includes(region) ? "us" : "metric");
@@ -199,7 +181,6 @@ function render() {
   vinyl.style.setProperty("--press", press.pattern);
   vinyl.dataset.press = press.kind;
   vinyl.title = press.name;
-  renderBand(m);
   renderSuite();
   $("rain-key").textContent = forecast.observed ? "Rain or snow" : "Chance of rain or snow";
 
@@ -563,55 +544,6 @@ function endSuite() {
 
 $("suite").addEventListener("click", () => (suite ? endSuite() : startSuite()));
 
-// ---- The factors: one per part of the weather, lit while it plays ----
-
-/** How busy each layer is in each hour, 0–1, from the score itself. */
-function activity(sc, hours) {
-  const lane = () => new Array(hours).fill(0);
-  const add = (a, notes, w = (n) => n.vel ?? 1) => { for (const n of notes ?? []) if (n.bar < hours && !n.again && !n.coda) a[n.bar] += w(n); return a; }; // second passes and the wind-down replay hours already counted
-  const act = {
-    // The melody's lane also shows its level (cloud and night turn it down).
-    // A held note counts in every hour it sounds through.
-    melody: add(lane(), sc.melody.flatMap((n) => Array.from({ length: Math.ceil((n.pos + n.dur) / (sc.meta.steps ?? 8)) }, (_, k) => ({ ...n, bar: n.bar + k })))).map((v, b) => v * 10 ** (((sc.automation.melodyDb[b] ?? 0) + (sc.automation.melodyDayDb?.[b] ?? 0)) / 20)),
-    bass: add(lane(), sc.bass),
-    pad: add(lane(), sc.pad),
-    drums: add(add(add(lane(), sc.drums), sc.garage), sc.beat),
-    rain: add(add(lane(), sc.rain), sc.bells),
-    atmosphere: add(sc.atmosphere.map((a) => a.level + a.wind), sc.crackle, () => 0.02),
-    fx: add(add(add(lane(), sc.fx, () => 1), sc.chimes), sc.shimmer),
-  };
-  for (const k of Object.keys(act)) {
-    const top = Math.max(...act[k]);
-    act[k] = act[k].map((v) => (top > 0 ? v / top : 0));
-  }
-  return act;
-}
-
-function renderBand(m) {
-  const act = activity(score, forecast.hours.length);
-  $("layers").replaceChildren(...CHANNELS.map((ch) => {
-    const lane = act[ch.layer];
-    const silent = lane.every((v) => v === 0);
-    const name = ch.name(m);
-    const by = silent ? "silent today" : ch.weather;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = `factor ${ch.layer}` + (muted[ch.layer] ? " muted" : "") + (silent ? " silent" : "");
-    btn.setAttribute("aria-pressed", String(!muted[ch.layer]));
-    btn.setAttribute("aria-label", `${name}, played by ${ch.weather}${silent ? ", silent today" : ""}`);
-    btn.title = `${name}: ${by}. Tap to mute or unmute.`;
-    btn.innerHTML = `<span class="f-icon">${ch.icon}</span><span class="f-name">${name}</span><span class="f-plays">${by}</span>`;
-    btn.addEventListener("click", () => {
-      muted[ch.layer] = !muted[ch.layer];
-      btn.setAttribute("aria-pressed", String(!muted[ch.layer]));
-      btn.classList.toggle("muted", muted[ch.layer]);
-      player.update(retro, muted);
-    });
-    btn.lane = lane;
-    return btn;
-  }));
-}
-
 // ---- Live sky: the player darkens, rains and flashes with the hour being played ----
 
 function skyAt(bar) {
@@ -645,8 +577,6 @@ function onEvent(type) {
 
 function highlight(bar) {
   for (const [i, el] of [...$("hours").querySelectorAll(".hour")].entries()) el.classList.toggle("now", i === bar);
-  // A factor lights up while its part is playing this hour.
-  for (const f of $("layers").children) f.classList.toggle("live", bar != null && f.lane[bar] > 0);
   if (bar == null) $("nowhour").textContent = "";
   else {
     const h = forecast.hours[bar];
@@ -742,8 +672,8 @@ retroBtn.addEventListener("click", () => {
   player.update(retro, muted);
 });
 
-// ---- Download: save the song as a WAV, as it sounds now (muted layers stay muted,
-// and 32-bit mode carries over). It reuses the render Play made, if nothing's changed.
+// ---- Download: save the song as a WAV, as it sounds now
+// (32-bit mode carries over). It reuses the render Play made, if nothing's changed.
 const dlBtn = $("download");
 let rendering = null;
 dlBtn.addEventListener("click", async () => {
