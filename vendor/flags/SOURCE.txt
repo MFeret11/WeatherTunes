@@ -1,0 +1,2 @@
+Country flags from flag-icons 7.2.3 (https://github.com/lipis/flag-icons), MIT licence (see LICENSE).
+Only the two-letter 4x3 flags are kept. The cover loads just the one it needs.

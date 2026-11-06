@@ -502,24 +502,36 @@ select, .btn {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 .cover svg { display: block; }
+/* The record: black most days; src/vinyl.js picks a special pressing for notable
+   ones (--disc is its colour, --press a pattern that turns with it). */
 .vinyl {
   --label: var(--accent);
+  --disc: #222227;
+  --press: none;
   position: absolute; top: 4%; left: 4%;
   width: calc(var(--cs) * 0.92); aspect-ratio: 1;
   border-radius: 50%;
   background:
     radial-gradient(circle, var(--label) 0 17%, #111 17.5% 19%, transparent 19.5%),
-    repeating-radial-gradient(circle, #1b1b1f 0 1.5px, #26262c 1.5px 3px);
+    repeating-radial-gradient(circle, rgba(0, 0, 0, 0.16) 0 1.5px, rgba(255, 255, 255, 0.035) 1.5px 3px),
+    var(--disc);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
   transform: translateX(16%);
   transition: transform 0.7s cubic-bezier(.2, .8, .2, 1);
+}
+.vinyl::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background-image: var(--press);
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  -webkit-mask: radial-gradient(circle, transparent 19.5%, #000 20%);
+  mask: radial-gradient(circle, transparent 19.5%, #000 20%);
 }
 .vinyl::after {
   content: ""; position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(from 20deg, transparent 0 12%, rgba(255, 255, 255, 0.14) 16%, transparent 22% 62%, rgba(255, 255, 255, 0.1) 66%, transparent 72%);
 }
 .player.playing .vinyl { transform: translateX(30%); }
-.player.playing .vinyl::after { animation: spin 1.8s linear infinite; }
+.player.playing .vinyl::before, .player.playing .vinyl::after { animation: spin 1.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .now-info { min-width: 0; }
 .now-info h2 { margin: 2px 0 4px; font-size: clamp(1.6rem, 4.5vw, 2.4rem); }
@@ -706,6 +718,6 @@ select, .btn {
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
   .sky .rainfx, .sky .snowfx, .sky .snowfx::before, .sky .snowfx::after { animation: none; }
-  .player.playing .vinyl::after { animation: none; }
+  .player.playing .vinyl::before, .player.playing .vinyl::after { animation: none; }
   .play.preparing::after { animation: none; }
 }

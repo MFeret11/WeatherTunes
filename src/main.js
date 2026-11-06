@@ -10,6 +10,7 @@ import { Player } from "./stream.js";
 import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor, moonDisc } from "./icons.js";
 import { coverArt } from "./cover.js";
+import { pressing } from "./vinyl.js";
 import { CODES, SUITE } from "./mapping.js";
 import { fetchSuite } from "./seasons.js";
 
@@ -192,7 +193,13 @@ function render() {
     (wet >= 10 ? `${wetWord}\u00a0${wet}%` : "Dry");
   $("cover").innerHTML = coverArt(forecast, m);
   $("cover").style.setProperty("--label", tempColor(forecast.hours[hiI].temp));
-  document.querySelector(".vinyl").style.setProperty("--label", tempColor(forecast.hours[hiI].temp));
+  const vinyl = document.querySelector(".vinyl");
+  const press = pressing(forecast, m);
+  vinyl.style.setProperty("--label", tempColor(forecast.hours[hiI].temp));
+  vinyl.style.setProperty("--disc", press.base);
+  vinyl.style.setProperty("--press", press.pattern);
+  vinyl.dataset.press = press.kind;
+  vinyl.title = press.name;
   renderBand(m);
   renderSuite();
   $("rain-key").textContent = forecast.observed ? "Rain or snow" : "Chance of rain or snow";

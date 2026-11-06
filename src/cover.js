@@ -1,10 +1,11 @@
 // A small "album cover" for the day, drawn from the forecast: the sky colour
 // changes across the cover from midnight (left) to 11 pm (right), the sun sits at
 // the hottest hour in the colour of that temperature (dimmed by the day's cloud and rain), and rain, snow and
-// lightning fall where they do in the day.
+// lightning fall where they do in the day. Auroras glow over the hours they can be
+// seen, and the country's flag sits in the corner.
 
 import { tempColor } from "./icons.js";
-import { CODES } from "./mapping.js";
+import { CODES, AURORA } from "./mapping.js";
 
 const NIGHT = [24, 22, 52];
 const CLEAR = [104, 170, 228];
@@ -24,6 +25,43 @@ function rng(text) {
   let h = 2166136261;
   for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0) / 4294967296);
+}
+
+const FLAGS = new URL("../vendor/flags/", import.meta.url).href;
+
+/** The country's flag as a small sticker in the corner, like a parental advisory label. */
+function flag(cc) {
+  if (!/^[A-Za-z]{2}$/.test(cc ?? "")) return ""; // out at sea, or no country
+  const w = 12, h = 9, x = 100 - 6 - w, y = 100 - 6 - h;
+  return `<g><rect x="${x - 0.8}" y="${y - 0.8}" width="${w + 1.6}" height="${h + 1.6}" rx=".6" fill="#fff" opacity=".95"/>` +
+    `<image href="${FLAGS}${cc.toLowerCase()}.svg" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"/></g>`;
+}
+
+/**
+ * Aurora curtains over the hours when the lights could be seen: soft green
+ * bands that rise to a violet fringe, brighter as the aurora gets stronger.
+ */
+function aurora(forecast, meta, rand) {
+  const level = meta.sky?.aurora ?? [];
+  const H = forecast.hours;
+  if (!level.some((a) => a >= AURORA.min)) return "";
+  let out = `<defs><linearGradient id="cv-aur" x1="0" y1="1" x2="0" y2="0">` +
+    `<stop offset="0" stop-color="#5cf2a4" stop-opacity="0"/><stop offset=".25" stop-color="#5cf2a4" stop-opacity=".85"/>` +
+    `<stop offset=".7" stop-color="#3fd6b0" stop-opacity=".35"/><stop offset="1" stop-color="#b07cf0" stop-opacity=".45"/></linearGradient>` +
+    `<filter id="cv-aur-blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.4"/></filter></defs><g filter="url(#cv-aur-blur)">`;
+  H.forEach((_, i) => {
+    const a = level[i] ?? 0;
+    if (a < AURORA.min * 0.6) return;
+    const x0 = (i / H.length) * 100;
+    // A few wavy vertical rays per hour, their height and strength set by the aurora.
+    for (let k = 0; k < 3; k++) {
+      const cx = x0 + (k + rand()) * (100 / H.length / 3);
+      const top = 8 + (1 - a) * 22 + rand() * 6, base = 46 + rand() * 10;
+      const sway = (rand() - 0.5) * 6;
+      out += `<path d="M${(cx - 1.4).toFixed(1)} ${base.toFixed(1)} Q${(cx + sway).toFixed(1)} ${((top + base) / 2).toFixed(1)} ${(cx - 1).toFixed(1)} ${top.toFixed(1)} L${(cx + 1.6).toFixed(1)} ${top.toFixed(1)} Q${(cx + sway + 2.4).toFixed(1)} ${((top + base) / 2).toFixed(1)} ${(cx + 1.4).toFixed(1)} ${base.toFixed(1)} Z" fill="url(#cv-aur)" opacity="${Math.min(0.9, 0.35 + a * 0.6).toFixed(2)}"/>`;
+    }
+  });
+  return out + "</g>";
 }
 
 /** forecast: normalized forecast; meta: score.meta (for hourBrightness). Returns an SVG string. */
@@ -93,7 +131,8 @@ export function coverArt(forecast, meta) {
   });
 
   const city = meta.name.split(",")[0];
-  const size = Math.min(11, 150 / Math.max(city.length, 1));
+  // Long names shrink to leave the bottom-right corner for the flag.
+  const size = Math.min(11, 118 / Math.max(city.length, 1));
   const date = new Date(`${meta.date}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 
   return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
@@ -102,8 +141,9 @@ export function coverArt(forecast, meta) {
     <linearGradient id="cv-fade" x1="0" y1="0" x2="0" y2="1"><stop offset=".45" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></linearGradient>
   </defs>
   <rect width="100" height="100" fill="url(#cv-sky)"/>
-  ${body}${clouds}${wet}
+  ${body}${aurora(forecast, meta, rand)}${clouds}${wet}
   <rect width="100" height="100" fill="url(#cv-fade)"/>
+  ${flag(forecast.country)}
   <text x="7" y="11" fill="#fff" opacity=".8" font-family="JetBrains Mono, monospace" font-size="4" letter-spacing=".6">WEATHERTUNES</text>
   <text x="7" y="${(92 - 6).toFixed(1)}" fill="#fff" font-family="Space Grotesk, sans-serif" font-weight="700" font-size="${size.toFixed(1)}">${esc(city)}</text>
   <text x="7" y="93" fill="#fff" opacity=".85" font-family="Inter, sans-serif" font-size="4.4">${esc(date)}</text>
