@@ -178,7 +178,6 @@ function render() {
   $("place-kind").textContent = mv ? `Season suite · ${suite.index + 1} of ${suite.movements.length}` : KIND_LABELS[current.kind];
   $("place-name").textContent = m.name;
   const date = new Date(`${m.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  renderNotes(m);
   $("units").textContent = units === "us" ? "Show °C" : "Show °F";
 
   // High, low and the wettest hour, for the header line.
@@ -367,24 +366,8 @@ function renderChips() {
   $("extras").innerHTML = chips.join("");
 }
 
-// ---- Liner notes: the credits row, then a short write-up ----
-
 const cap = (t) => t[0].toUpperCase() + t.slice(1);
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-
-function renderNotes(m) {
-  const credits = [
-    ["Key", `${m.rootName} ${m.modeLabel}`],
-    ["Tempo", `${m.bpm} BPM`],
-    ["Chords", m.progression.join("–")],
-    ["Melody", cap(m.voices.melody.label)],
-    ["Pad", cap(m.voices.pad.label)],
-  ];
-  $("credits").innerHTML = credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("");
-  $("notes").innerHTML = suite ? suiteNotes() : "";
-  fold($("notes"), m.liner.paragraphs, 2, !!suite);
-  $("notes-sub").textContent = suite ? `How a typical ${seasonWord(suite.movements[suite.index].season)} day wrote this movement` : "How today's weather wrote this song";
-}
 
 // ---- The back of the sleeve: liner notes, credits and a barcode ------------------
 
@@ -422,7 +405,7 @@ function renderSleeveBack() {
     <h2 id="sleeve-title" class="sb-title">${esc(m.name.split(",")[0])}</h2>
     <p class="sb-date">${esc(date)}</p>
     <dl class="sb-credits">${credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
-    <div class="sb-notes">${m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("")}</div>
+    <div class="sb-notes">${suite ? suiteNotes() : ""}${m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("")}</div>
     <footer class="sb-foot">
       <div class="sb-code">${code.svg}<span>${code.digits}</span></div>
       <small>Played from the forecast. Weather data by Open-Meteo.com (CC BY 4.0).</small>
@@ -457,11 +440,8 @@ sleeve.addEventListener("click", (e) => { if (e.target === sleeve) sleeve.close(
 
 const sentences = (t) => t.split(/(?<=[.!?])\s+(?=[A-Z"“])/);
 
-/**
- * Fill `el` with paragraphs, showing only the first `keep` sentences until "More"
- * is pressed. `append` keeps what's already in `el` (the suite's notes) above them.
- */
-function fold(el, paragraphs, keep, append = false) {
+/** Fill `el` with paragraphs, showing only the first `keep` sentences until "More" is pressed. */
+function fold(el, paragraphs, keep) {
   const lead = sentences(paragraphs[0] ?? "");
   const shown = lead.slice(0, keep).join(" ");
   const rest = [lead.slice(keep).join(" "), ...paragraphs.slice(1)].filter(Boolean);
@@ -475,8 +455,7 @@ function fold(el, paragraphs, keep, append = false) {
     e.currentTarget.setAttribute("aria-expanded", open);
     e.currentTarget.textContent = open ? "Less" : "More";
   });
-  if (!append) el.replaceChildren();
-  el.append(box);
+  el.replaceChildren(box);
 }
 
 // ---- Season suite ----------------------------------------------------------------
@@ -494,7 +473,7 @@ function wetWords(share) {
 
 const longDate = (d) => new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 
-/** The suite's opening liner notes (HTML): what it is, then a line per season. */
+/** The suite's opening liner notes (HTML, for the back of the sleeve): what it is, then a line per season. */
 function suiteNotes() {
   const mv = suite.movements;
   const years = Math.min(...mv.map((x) => x.climate.years));

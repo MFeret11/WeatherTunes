@@ -119,7 +119,6 @@ main.wrap { display: flex; flex-direction: column; }
 main.wrap > .card { margin: 10px 0; }
 .player { order: 1; scroll-margin-top: calc(var(--head, 64px) + 12px); }
 .finder { order: 2; scroll-margin-top: calc(var(--head, 64px) + 12px); }
-.liner { order: 4; }
 .foot { order: 5; }
 .top { padding: 28px 0 4px; }
 .top h1 { margin-bottom: 0.2em; }
@@ -568,6 +567,11 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
 .sb-credits dd { margin: 0; font-weight: 600; line-height: 1.25; }
 .sb-notes { flex: 1; min-height: 0; overflow-y: auto; line-height: 1.5; padding-right: 0.3em; }
 .sb-notes p { margin: 0 0 0.7em; }
+/* The season suite's notes, on card stock in either theme. */
+.sb-notes .suite-note { color: #6d6455; }
+.sb-notes .suite-list li { color: #6d6455; padding: 0.3em 0.5em; }
+.sb-notes .suite-list li b { color: #1d1a15; }
+.sb-notes .suite-list li.on { background: rgba(0, 0, 0, 0.06); }
 .sb-notes p:first-child::first-letter { font: 700 2.4em/0.8 var(--font-display); float: left; margin: 0.08em 0.1em 0 0; }
 .sb-foot { display: flex; align-items: flex-end; gap: 1em; margin-top: 0.7em; padding-top: 0.6em; border-top: 1px solid rgba(0, 0, 0, 0.18); }
 .sb-code { flex: none; display: grid; justify-items: center; background: #fff; padding: 0.35em 0.5em 0.2em; }
@@ -706,7 +710,6 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
 .more:hover { text-decoration: underline; }
 .desc .fold .fold-rest { display: revert; }
 .desc .more { display: none; }
-.liner-text .fold:not(.open) p { margin-bottom: 2px; }
 .change-top { display: none; }
 /* ---------- Also today: moon, sky events, air ---------- */
 /* Plain text with an icon, so they don't look like buttons. */
@@ -754,24 +757,6 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
 .factor.muted { opacity: 0.45; }
 .factor.muted .f-name { text-decoration: line-through; }
 
-/* ---------- Liner notes ---------- */
-.liner-text { max-width: 72ch; }
-.liner-text p:first-child { font-size: 1.05rem; }
-.liner-text p { margin: 0 0 1em; line-height: 1.7; }
-.liner-text p:last-child { margin-bottom: 0; }
-.credits {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 1px;
-  margin: 0 0 18px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-}
-.credits > div { background: var(--surface-2); padding: 10px 14px; }
-.credits dt { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
-.credits dd { margin: 2px 0 0; font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; line-height: 1.3; }
 
 .foot { color: var(--muted); font-size: 0.85rem; padding: 16px 0 40px; }
 .foot p { margin: 0 0 0.4em; }
@@ -834,7 +819,6 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   .desc .fold:not(.open) .fold-rest { display: none; }
   .desc .more { display: inline; }
   .chips { order: 6; margin-top: 10px; }
-  .credits > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .factors-head { order: 7; }
   .factors { order: 8; }
 }

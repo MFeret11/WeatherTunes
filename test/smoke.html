@@ -73,9 +73,9 @@ try {
 
   // 2. Units toggle changes the words only.
   const bpm = bpmOf(d);
-  const before = text(d, "notes");
+  const before = text(d, "summary");
   d.getElementById("units").click();
-  const after = text(d, "notes");
+  const after = text(d, "summary");
   check(before !== after && /°F/.test(before + after) && /°C/.test(before + after), "units toggle switches °C/°F");
   check(bpmOf(d) === bpm && bpm > 0, "music unchanged by units");
 
