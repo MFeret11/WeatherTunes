@@ -28,7 +28,8 @@ export function rainAndBells(ctx) {
     }
     if (T.ice[b]) continue; // ice ticks instead (below)
     const hail = M.CODES.hail.includes(h.code);
-    let count = Math.round((h.pop / 100) * M.RAIN.maxHits);
+    let count = Math.max(Math.round((h.pop / 100) * M.RAIN.maxHits),
+      Math.round(M.RAIN.heavyHits * clamp(h.precip / M.RAIN.fullMm, 0, 1)));
     if (h.precip > 0) count = Math.max(1, count);
     if (hail) count = Math.min(8, count * M.HAIL.hits);
     // Off-beat sixteenths first, so shakers sit between the melody's strong beats.
@@ -57,7 +58,35 @@ export function rainAndBells(ctx) {
     }
   }
   bells.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
+  // Drips fill only the sixteenths the rain left free: one shaker can't hit twice at once.
+  const taken = new Set(rain.map((x) => `${x.bar}:${x.pos}`));
+  rain.push(...drips(H, seed).filter((x) => !taken.has(`${x.bar}:${x.pos}`)));
+  rain.sort((x, y) => x.bar - y.bar || x.pos - y.pos);
   return { rain, bells };
+}
+
+/** After heavy rain the dry hours that follow keep dripping (see RAIN.drip). */
+function drips(H, seed) {
+  const D = M.RAIN.drip;
+  const drng = mulberry32((seed ^ 0xd21) >>> 0);
+  const out = [];
+  let wet = 0; // how wet things are, 0–1, from the last heavy hour
+  let since = 0; // dry hours since then
+  for (let b = 0; b < M.BARS; b++) {
+    const h = H[b];
+    const falling = h.precip > 0 || h.code >= M.CODES.wetFrom;
+    if (h.precip >= D.fromMm && !M.CODES.snow.includes(h.code) && h.temp > 0) { wet = clamp(h.precip / D.fullMm, 0.3, 1); since = 0; continue; }
+    if (falling) continue; // still raining: the rain itself plays
+    if (!wet || since >= D.hits.length || h.temp <= 0) continue;
+    const count = Math.max(1, Math.round(D.hits[since] * wet));
+    since++;
+    const slots = shuffle([1, 2, 3, 5, 6, 7, 0, 4], drng).slice(0, count).sort((x, y) => x - y);
+    for (const pos of slots) {
+      const v = D.vel[0] + (D.vel[1] - D.vel[0]) * wet * (1 - since / (D.hits.length + 1));
+      out.push({ bar: b, pos, dur: 1, drip: true, vel: +clamp(v + (drng() - 0.5) * 0.06, 0.05, 1).toFixed(3) });
+    }
+  }
+  return out;
 }
 
 /**

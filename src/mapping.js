@@ -213,8 +213,10 @@ export const MELODY = {
   overcastFrom: 50, overcastDb: -6,
   // The melody is the daylight: it plays at nightDb between sunset and sunrise and
   // fades over fadeHours centred on each (on a day with both). Cloud and night
-  // together never take it below floorDb.
-  nightDb: -10, fadeHours: 3, floorDb: -12,
+  // together never take it below floorDb. Night is only colour: rough weather you'd
+  // notice (rain, gusts, thunder; DYNAMICS energy) lifts the night dimming, from none
+  // at stormLift[0] to all of it at stormLift[1]. An ordinary breezy night stays dim.
+  nightDb: -10, fadeHours: 3, floorDb: -12, stormLift: [0.35, 0.8],
 };
 
 // Notes per hour from wind gusts (km/h): first row whose maxGust exceeds the gust.
@@ -347,7 +349,16 @@ export const ARP = {
 // their high value at full carry.
 export const ECHO = { beats: 0.75, calmGust: 12, windyGust: 45, wet: [0.04, 0.24], feedback: [0.15, 0.38] };
 
-export const RAIN = { minPop: 10, maxHits: 5, velBase: 0.2, velPerMm: 0.15, velMax: 0.8 };
+// Rain shakers per hour: the chance of rain (pop) gives up to maxHits, and how hard it
+// actually rains gives up to heavyHits at fullMm/h; whichever is more. So a sudden
+// downpour sounds like one even when it was forecast as unlikely.
+// Drips: after an hour with at least drip.fromMm of rain, the next dry hours keep
+// dripping (drip.hits per hour, fewer each hour, louder after heavier rain), the way
+// streets and trees stay wet after a storm. They have their own random stream.
+export const RAIN = {
+  minPop: 10, maxHits: 5, heavyHits: 8, fullMm: 8, velBase: 0.2, velPerMm: 0.15, velMax: 0.8,
+  drip: { fromMm: 3, fullMm: 12, hits: [4, 3, 2, 1], vel: [0.12, 0.26] },
+};
 export const BELLS = { maxHits: 2, vel: 0.35, low: 79, high: 96 };
 
 // Rain beat: a skippy, shuffled 2-step pattern in hours when rain is falling

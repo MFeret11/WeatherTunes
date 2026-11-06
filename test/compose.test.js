@@ -533,6 +533,22 @@ test("deadly heat wobbles and thins the melody; mild days don't", () => {
   assert(hot.every((b) => s.automation.echoCarry[b] <= 0.5), "hot air smears the echo");
 });
 
+test("rain follows how hard it rains, and the streets drip after", () => {
+  const s = tweak("philadelphia-autumn", (h, b) => {
+    if (b === 20) { h.precip = 13; h.pop = 25; h.code = 82; }
+    else if (b > 20) { h.precip = 0; h.code = 3; h.temp = Math.max(h.temp, 5); }
+  });
+  equal(s.rain.filter((x) => x.bar === 20 && !x.drip).length, M.RAIN.heavyHits, "a downpour gets every hit, however unlikely it looked");
+  const drip = (b) => s.rain.filter((x) => x.bar === b && x.drip).length;
+  assert(drip(21) >= drip(22) && drip(22) >= drip(23) && drip(21) > 0, "drips thin out after the rain");
+  assert(s.rain.filter((x) => x.drip).every((x) => x.vel <= M.RAIN.drip.vel[1] + 0.03), "drips stay soft");
+  assert(s.automation.melodyDayDb[20] > -1, "a storm lifts the night dimming");
+  each((n, sc) => {
+    const at = sc.rain.map((x) => `${x.bar}:${x.pos}`);
+    equal(new Set(at).size, at.length, `${n}: one shaker never hits twice at once`);
+  });
+});
+
 test("freezing rain turns the shakers into glassy ticks", () => {
   const ice = (b) => b >= 6 && b < 12;
   const s = tweak("london-drizzle", (h, b) => { if (ice(b)) { h.code = 66; h.temp = -1; h.precip = 1; } });

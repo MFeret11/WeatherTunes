@@ -40,7 +40,9 @@ export function barAutomation(ctx) {
     ...(T.heat.some((x) => x > 0) ? { wobble: T.heat } : {}),
     windBaseHz: O.windBaseHz(T),
     // Moonlight keeps the night from dimming the melody as far.
-    melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])).toFixed(2)),
+    // A storm lifts it too: night is only colour when the weather is loud.
+    melodyDayDb: H.map((h, b) => +(melodyDaylightDb(f, b, h) * (1 - M.MOON.nightLift * SK.moonlight[b])
+      * (1 - clamp((A.feltEnergy[b] - M.MELODY.stormLift[0]) / (M.MELODY.stormLift[1] - M.MELODY.stormLift[0]), 0, 1))).toFixed(2)),
     padOpen: energy.map((e, b) => +(D.padOpenOctaves * e + C.padOpenOctaves * stir[b]).toFixed(3)),
     driveWet: energy.map((e) => +(M.DRIVE.wetMax * clamp((e - M.DRIVE.wetFrom) / (1 - M.DRIVE.wetFrom), 0, 1)).toFixed(3)),
     eqHigh: H.map((h, b) => +clamp(O.eqHighDb(T, b, M.TONE.cloudCutDb * (h.cloud / 100) + (M.CODES.fog.includes(h.code) ? M.TONE.fogCutDb : 0)
