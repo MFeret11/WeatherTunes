@@ -117,8 +117,8 @@ p { margin: 0 0 1em; }
 /* The player comes first so the record leads; the finder sits below it. */
 main.wrap { display: flex; flex-direction: column; }
 main.wrap > .card { margin: 10px 0; }
-.player { order: 1; scroll-margin-top: 76px; }
-.finder { order: 2; scroll-margin-top: 76px; }
+.player { order: 1; scroll-margin-top: calc(var(--head, 64px) + 12px); }
+.finder { order: 2; scroll-margin-top: calc(var(--head, 64px) + 12px); }
 .liner { order: 4; }
 .foot { order: 5; }
 .top { padding: 28px 0 4px; }
@@ -614,6 +614,18 @@ select, .btn {
 }
 .desc { margin: 16px 0 0; max-width: 62ch; line-height: 1.55; font-size: 0.95rem; }
 .desc:empty { display: none; }
+.desc p { margin: 0; }
+/* Folded text: the rest and its "More" button. The weather paragraph only folds on phones. */
+.fold:not(.open) .fold-rest { display: none; }
+.more {
+  margin: 2px 0 0; padding: 4px 0; border: 0; background: none;
+  font: 600 0.9rem var(--font-body); color: var(--accent); cursor: pointer;
+}
+.more:hover { text-decoration: underline; }
+.desc .fold .fold-rest { display: revert; }
+.desc .more { display: none; }
+.liner-text .fold:not(.open) p { margin-bottom: 2px; }
+.change-top { display: none; }
 /* ---------- Also today: moon, sky events, air ---------- */
 /* Plain text with an icon, so they don't look like buttons. */
 .chips { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 18px 0 0; padding: 0; list-style: none; }
@@ -707,13 +719,42 @@ select, .btn {
   .hour:not(.axis6) .lbl { display: none; }
   .hour .lbl { font-size: 0.65rem; }
   #geo { flex: 1 1 100%; justify-content: center; }
-  .now-playing { --cs: 172px; grid-template-columns: 1fr; justify-items: center; text-align: center; gap: 14px; }
-  .record { width: var(--cs); }
-  .vinyl { transform: translateX(6%); }
-  .player.playing .vinyl { transform: translateX(14%); }
-  .now-info { width: 100%; }
-  .now-info .desc { text-align: left; font-size: 1rem; }
-  .play { flex: 1 1 100%; justify-content: center; }
+  .lede-more { display: none; }
+  /* The player as one grid: the cover beside the place, then Play, then straight
+     into the hour-by-hour chart, so all three fit on one screen while it plays.
+     The weather paragraph and the extras move below the chart. */
+  .player { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; padding: 16px; }
+  .now-playing, .now-info { display: contents; }
+  .player > *, .now-info > * { grid-column: 1 / -1; }
+  .now-playing { --cs: 128px; }
+  .record { grid-column: 1; grid-row: 1 / span 4; width: calc(var(--cs) * 1.16); align-self: start; }
+  .vinyl { transform: translateX(10%); }
+  .player.playing .vinyl { transform: translateX(15%); }
+  .now-info > .eyebrow, .now-info > h2, .now-info > .summary, .now-info > .change-top { grid-column: 2; }
+  .now-info > .eyebrow { margin: 0; align-self: end; }
+  .now-info h2 { font-size: 1.45rem; margin: 0 0 2px; line-height: 1.15; }
+  .summary { margin: 0; font-size: 0.85rem; }
+  .change-top { display: block; justify-self: start; align-self: start; margin: 2px 0 0; padding: 4px 0; font-size: 0.85rem; }
+  .change-row { display: none; }
+  .movements { margin: 12px 0 0; }
+  .play-row { margin-top: 14px; gap: 8px; flex-wrap: nowrap; }
+  .play { flex: 1 1 auto; justify-content: center; min-height: 48px; padding: 0 18px; }
+  .play-row .btn.small { min-height: 44px; padding: 0 11px; flex: none; }
+  .download span, .suite span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .download, .suite { gap: 0; }
+  .nowhour { display: none; }
+  .player.playing .play-row { flex-wrap: wrap; }
+  .player.playing .nowhour { display: block; margin: 0; }
+  .fc-head { margin-top: 14px; }
+  .fc-key small { display: none; }
+  .fc-head .fc-key { display: flex; flex-wrap: nowrap; gap: 12px; font-size: 0.76rem; white-space: nowrap; align-items: center; }
+  .desc { order: 5; margin-top: 14px; font-size: 0.95rem; }
+  .desc .fold:not(.open) .fold-rest { display: none; }
+  .desc .more { display: inline; }
+  .chips { order: 6; margin-top: 10px; }
+  .credits > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .factors-head { order: 7; }
+  .factors { order: 8; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }

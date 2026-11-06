@@ -51,7 +51,7 @@
 	<main class="wrap">
 		<header class="top">
 			<h1>WeatherTunes</h1>
-			<p class="lede">A day's forecast, played as music. Every hour of weather becomes two beats of the song.</p>
+			<p class="lede">A day's forecast, played as music.<span class="lede-more"> Every hour of weather becomes two beats of the song.</span></p>
 		</header>
 
 		<section id="finder" class="finder card" aria-labelledby="finder-h">
@@ -85,6 +85,7 @@
 					<p id="place-kind" class="eyebrow">Loading…</p>
 					<h2 id="place-name">&nbsp;</h2>
 					<p id="summary" class="summary"></p>
+					<button class="change-place change-top" type="button">Change place</button>
 					<ol id="movements" class="movements" hidden aria-label="Season suite: the four movements"></ol>
 					<div class="play-row">
 						<button id="play" class="play" type="button" disabled><svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg><svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg><span>Play</span></button>
@@ -92,7 +93,7 @@
 						<button id="retro" class="btn small retro" type="button" aria-pressed="false" title="Simpler instruments, in the style of a 1990s game console. Easier on phones.">32-bit</button>
 						<button id="suite" class="btn small suite" type="button" aria-pressed="false" title="This place's year: a typical day from each season, played as one piece."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M3.5 12h17"/></svg><span>Season suite</span></button>
 						<p id="nowhour" class="nowhour" aria-live="off"></p>
-						<button id="change-place" class="change-place" type="button">Change place</button>
+						<button id="change-place" class="change-place change-row" type="button">Change place</button>
 					</div>
 					<p id="ios-hint" class="hint" hidden>No sound? Turn off silent mode.</p>
 					<p id="desc" class="desc"></p>
@@ -113,7 +114,7 @@
 			</div>
 			<div class="factors-head">
 				<h3 id="factors-h" class="fc-title">The factors</h3>
-				<span class="fc-hint">The weather behind each part. Tap one to mute it.</span>
+				<span class="fc-hint">Tap one to mute it.</span>
 			</div>
 			<div id="layers" class="factors" role="group" aria-labelledby="factors-h"></div>
 		</section>
@@ -130,7 +131,7 @@
 
 		<footer class="foot">
 			<p><a href="https://open-meteo.com/">Weather and air-quality data by Open-Meteo.com</a> (CC BY 4.0) · Aurora activity from <a href="https://www.swpc.noaa.gov/">NOAA SWPC</a> · Holidays from <a href="https://date.nager.at/">Nager.Date</a> · Sound by <a href="https://tonejs.github.io/">Tone.js</a> · <a href="https://github.com/MFeret11/WeatherTunes">Source on GitHub</a> · <a href="https://mferet.com/">mferet.com</a></p>
-			<p>Your location stays in your browser; only coordinates rounded to about 11&nbsp;km are sent for the forecast and air quality, and only the country code for holidays. The moon and the rest of the sky are worked out in your browser.</p>
+			<p>Your location stays in your browser: only coordinates rounded to about 11&nbsp;km (and the country code, for holidays) are sent.</p>
 		</footer>
 	</main>
 </body>

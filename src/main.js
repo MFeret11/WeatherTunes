@@ -205,7 +205,7 @@ function render() {
   $("rain-key").textContent = forecast.observed ? "Rain or snow" : "Chance of rain or snow";
 
   renderHours();
-  $("desc").textContent = describe(forecast, units);
+  fold($("desc"), [describe(forecast, units)], 1);
   renderChips();
 }
 
@@ -381,8 +381,35 @@ function renderNotes(m) {
     ["Pad", cap(m.voices.pad.label)],
   ];
   $("credits").innerHTML = credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("");
-  $("notes").innerHTML = (suite ? suiteNotes() : "") + m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("");
+  $("notes").innerHTML = suite ? suiteNotes() : "";
+  fold($("notes"), m.liner.paragraphs, 2, !!suite);
   $("notes-sub").textContent = suite ? `How a typical ${seasonWord(suite.movements[suite.index].season)} day wrote this movement` : "How today's weather wrote this song";
+}
+
+// ---- Folded text: the first sentences, then "More" for the rest ------------------
+
+const sentences = (t) => t.split(/(?<=[.!?])\s+(?=[A-Z"“])/);
+
+/**
+ * Fill `el` with paragraphs, showing only the first `keep` sentences until "More"
+ * is pressed. `append` keeps what's already in `el` (the suite's notes) above them.
+ */
+function fold(el, paragraphs, keep, append = false) {
+  const lead = sentences(paragraphs[0] ?? "");
+  const shown = lead.slice(0, keep).join(" ");
+  const rest = [lead.slice(keep).join(" "), ...paragraphs.slice(1)].filter(Boolean);
+  const box = document.createElement("div");
+  box.className = "fold";
+  box.innerHTML = `<p>${esc(shown)}${rest.length ? `<span class="fold-rest">${lead.length > keep ? " " + esc(lead.slice(keep).join(" ")) : ""}</span>` : ""}</p>` +
+    paragraphs.slice(1).map((t) => `<p class="fold-rest">${esc(t)}</p>`).join("") +
+    (rest.length ? `<button class="more" type="button" aria-expanded="false">More</button>` : "");
+  box.querySelector(".more")?.addEventListener("click", (e) => {
+    const open = box.classList.toggle("open");
+    e.currentTarget.setAttribute("aria-expanded", open);
+    e.currentTarget.textContent = open ? "Less" : "More";
+  });
+  if (!append) el.replaceChildren();
+  el.append(box);
 }
 
 // ---- Season suite ----------------------------------------------------------------
@@ -608,6 +635,7 @@ window.wtPlayer = player; // lets test/smoke.html follow playback
 
 function play() {
   playing = true;
+  showPlayer();
   setPlayState(true);
   if (suite) {
     const rest = suite.movements.slice(suite.index + 1).map((x) => x.score);
@@ -762,11 +790,31 @@ function locate(reveal = false) {
 $("geo").addEventListener("click", () => locate(true));
 
 // On phones the place finder sits below the player; this jumps down to it.
-$("change-place").addEventListener("click", () => {
+for (const b of document.querySelectorAll(".change-place")) b.addEventListener("click", () => {
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   $("finder").scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   $("q").focus({ preventScroll: true });
 });
+
+// The site header is sticky and wraps to two rows on phones; scrolling leaves room for it.
+const siteHeader = document.querySelector(".site-header");
+const headRoom = () => document.documentElement.style.setProperty("--head", `${siteHeader?.offsetHeight ?? 60}px`);
+headRoom();
+addEventListener("resize", headRoom);
+
+/**
+ * When a song starts and the hour-by-hour chart is off screen, scroll so the cover,
+ * the Stop button and the chart are all in view together.
+ */
+function showPlayer() {
+  const card = document.querySelector(".player");
+  const stage = card.querySelector(".stage");
+  const top = card.getBoundingClientRect().top;
+  const head = siteHeader?.offsetHeight ?? 0;
+  if (top >= head && stage.getBoundingClientRect().bottom <= innerHeight) return;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  scrollBy({ top: top - head - 8, behavior: reduce ? "auto" : "smooth" });
+}
 
 /** A search result was chosen: clear the box and the list, then load it. */
 function pickPlace(p) {
