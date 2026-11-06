@@ -517,6 +517,73 @@ select, .btn {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 .cover svg { display: block; }
+/* The cover is a button: it lifts slightly on hover, and a turn arrow says it has a back. */
+button.cover { display: block; padding: 0; border: 0; cursor: pointer; font: inherit; color: inherit; transition: transform 0.2s, box-shadow 0.2s; }
+button.cover:hover { transform: translateY(-2px) rotate(-0.6deg); }
+button.cover:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 3px; }
+button.cover::after {
+  content: ""; position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3'/%3E%3Cpath d='M18 3v4h-4M6 21v-4h4'/%3E%3C/svg%3E") center / 14px no-repeat;
+  opacity: 0; transition: opacity 0.2s;
+}
+button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
+@media (pointer: coarse) { button.cover::after { opacity: 0.85; } }
+
+/* ---------- The sleeve: the cover picked up and turned over ---------- */
+.sleeve {
+  --sz: min(460px, 92vw, calc(100dvh - 120px));
+  padding: 0; border: 0; background: none; overflow: visible; color: #2a2620;
+  max-width: none; max-height: none;
+}
+.sleeve::backdrop { background: rgba(10, 8, 20, 0.62); backdrop-filter: blur(3px); }
+.sleeve[open] { animation: sleeve-up 0.28s cubic-bezier(.2, .8, .2, 1); }
+@keyframes sleeve-up { from { transform: translateY(24px) scale(0.6); opacity: 0; } }
+.sleeve-card {
+  position: relative; width: var(--sz); height: var(--sz);
+  transform-style: preserve-3d; transition: transform 0.7s cubic-bezier(.3, .7, .2, 1);
+  cursor: pointer;
+}
+.sleeve.flipped .sleeve-card { transform: rotateY(180deg); }
+.sleeve-face {
+  position: absolute; inset: 0; border-radius: 6px; overflow: hidden;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+.sleeve-front svg { display: block; width: 100%; height: 100%; }
+/* The back: plain card stock, like an old LP sleeve. Light in both themes. */
+.sleeve-back {
+  transform: rotateY(180deg);
+  display: flex; flex-direction: column;
+  padding: calc(var(--sz) * 0.06);
+  background: #f3ecdf linear-gradient(135deg, rgba(255, 255, 255, 0.5), rgba(0, 0, 0, 0.04));
+  font-size: calc(var(--sz) * 0.029);
+  cursor: auto;
+}
+.sb-head { display: flex; justify-content: space-between; align-items: center; font: 600 0.85em var(--font-mono); letter-spacing: 0.08em; color: #6d6455; }
+.sb-head img { width: 2.2em; height: auto; border: 1px solid rgba(0, 0, 0, 0.15); }
+.sb-title { margin: 0.5em 0 0; font: 700 2.2em/1.05 var(--font-display); color: #1d1a15; }
+.sb-date { margin: 0.2em 0 0.8em; color: #6d6455; }
+.sb-credits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45em 1em; margin: 0 0 0.9em; padding: 0.7em 0; border-top: 1.5px solid #1d1a15; border-bottom: 1px solid rgba(0, 0, 0, 0.18); }
+.sb-credits dt { font: 600 0.72em var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: #8a7f6c; }
+.sb-credits dd { margin: 0; font-weight: 600; line-height: 1.25; }
+.sb-notes { flex: 1; min-height: 0; overflow-y: auto; line-height: 1.5; padding-right: 0.3em; }
+.sb-notes p { margin: 0 0 0.7em; }
+.sb-notes p:first-child::first-letter { font: 700 2.4em/0.8 var(--font-display); float: left; margin: 0.08em 0.1em 0 0; }
+.sb-foot { display: flex; align-items: flex-end; gap: 1em; margin-top: 0.7em; padding-top: 0.6em; border-top: 1px solid rgba(0, 0, 0, 0.18); }
+.sb-code { flex: none; display: grid; justify-items: center; background: #fff; padding: 0.35em 0.5em 0.2em; }
+.sb-code svg { width: 6.5em; height: 2.6em; fill: #111; }
+.sb-code span { font: 0.62em var(--font-mono); letter-spacing: 0.06em; }
+.sb-foot small { font-size: 0.72em; color: #8a7f6c; line-height: 1.35; }
+.sleeve-actions { display: flex; justify-content: center; gap: 10px; margin-top: 14px; }
+@media (max-width: 560px) {
+  /* Phones: a square is too small to read, so the back is taller than the cover;
+     the front stays square, centred on it. */
+  .sleeve { --h: min(calc(var(--sz) * 1.6), calc(100dvh - 110px)); }
+  .sleeve-card { height: var(--h); }
+  .sleeve-front { inset: auto 0; top: calc((var(--h) - var(--sz)) / 2); height: var(--sz); }
+  .sleeve-back { font-size: calc(var(--sz) * 0.037); }
+  .sb-credits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 /* The record: black most days; src/vinyl.js picks a special pressing for notable
    ones (--disc is its colour, --press a pattern that turns with it). */
 .vinyl {
@@ -776,4 +843,6 @@ select, .btn {
   .sky .rainfx, .sky .snowfx, .sky .snowfx::before, .sky .snowfx::after { animation: none; }
   .player.playing .vinyl::before, .player.playing .vinyl::after { animation: none; }
   .play.preparing::after { animation: none; }
+  .sleeve[open] { animation: none; }
+  .sleeve-card { transition: none; }
 }

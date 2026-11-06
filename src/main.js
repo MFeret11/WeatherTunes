@@ -386,6 +386,73 @@ function renderNotes(m) {
   $("notes-sub").textContent = suite ? `How a typical ${seasonWord(suite.movements[suite.index].season)} day wrote this movement` : "How today's weather wrote this song";
 }
 
+// ---- The back of the sleeve: liner notes, credits and a barcode ------------------
+
+/** A made-up barcode and catalogue number for the day, from the song's seed. */
+function barcode(seed) {
+  let h = (seed >>> 0) || 1;
+  const r = () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296;
+  let x = 0, bars = "";
+  for (let i = 0; i < 34; i++) {
+    const w = 0.6 + Math.floor(r() * 3) * 0.6;
+    if (i % 2 === 0) bars += `<rect x="${x.toFixed(1)}" width="${w.toFixed(1)}" height="${i < 2 || i > 31 ? 20 : 17}"/>`;
+    x += w + 0.4;
+  }
+  const digits = String(seed >>> 0).padStart(10, "0").slice(-10);
+  return { svg: `<svg viewBox="0 0 ${x.toFixed(1)} 20" preserveAspectRatio="none" aria-hidden="true">${bars}</svg>`, digits: `0 ${digits.slice(0, 5)} ${digits.slice(5)} 7` };
+}
+
+function renderSleeveBack() {
+  const m = score.meta;
+  const press = pressing(forecast, m);
+  const date = new Date(`${m.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const credits = [
+    ["Key", `${m.rootName} ${m.modeLabel}`],
+    ["Tempo", `${m.bpm} BPM`],
+    ["Chords", m.progression.join("–")],
+    ["Melody", cap(m.voices.melody.label)],
+    ["Pad", cap(m.voices.pad.label)],
+    ["Pressing", press.name.split(",")[0]],
+  ];
+  const code = barcode(m.seed ?? 0);
+  const cat = `WT-${((m.seed ?? 0) >>> 0).toString(16).toUpperCase().padStart(8, "0").slice(-6)}`;
+  const cc = /^[A-Za-z]{2}$/.test(forecast.country ?? "") ? forecast.country.toLowerCase() : null;
+  document.querySelector(".sleeve-back").innerHTML = `
+    <header class="sb-head"><span>WEATHERTUNES · ${cat}</span>${cc ? `<img src="vendor/flags/${cc}.svg" alt="" width="20" height="15">` : ""}</header>
+    <h2 id="sleeve-title" class="sb-title">${esc(m.name.split(",")[0])}</h2>
+    <p class="sb-date">${esc(date)}</p>
+    <dl class="sb-credits">${credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
+    <div class="sb-notes">${m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("")}</div>
+    <footer class="sb-foot">
+      <div class="sb-code">${code.svg}<span>${code.digits}</span></div>
+      <small>Played from the forecast. Weather data by Open-Meteo.com (CC BY 4.0).</small>
+    </footer>`;
+}
+
+const sleeve = $("sleeve");
+const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function turnSleeve(back) {
+  sleeve.classList.toggle("flipped", back);
+}
+$("cover").addEventListener("click", () => {
+  if (!score) return;
+  sleeve.querySelector(".sleeve-front").innerHTML = coverArt(forecast, score.meta).replace(/id="cv-/g, 'id="sl-').replace(/url\(#cv-/g, "url(#sl-");
+  renderSleeveBack();
+  turnSleeve(false);
+  sleeve.showModal();
+  $("sleeve-close").focus();
+  // Picked up face first, then turned over.
+  if (reduceMotion()) turnSleeve(true);
+  else setTimeout(() => turnSleeve(true), 280);
+});
+$("sleeve-turn").addEventListener("click", () => turnSleeve(!sleeve.classList.contains("flipped")));
+sleeve.querySelector(".sleeve-card").addEventListener("click", (e) => {
+  if (!e.target.closest(".sb-notes")) turnSleeve(!sleeve.classList.contains("flipped"));
+});
+$("sleeve-close").addEventListener("click", () => sleeve.close());
+// A click on the dimmed backdrop (outside the sleeve and its buttons) puts it down.
+sleeve.addEventListener("click", (e) => { if (e.target === sleeve) sleeve.close(); });
+
 // ---- Folded text: the first sentences, then "More" for the rest ------------------
 
 const sentences = (t) => t.split(/(?<=[.!?])\s+(?=[A-Z"“])/);

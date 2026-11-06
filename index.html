@@ -78,7 +78,7 @@
 		<section class="player card" aria-label="Player">
 			<div class="now-playing">
 				<div class="record">
-					<div id="cover" class="cover" aria-hidden="true"></div>
+					<button id="cover" class="cover" type="button" aria-haspopup="dialog" aria-label="Turn the cover over to read the back" title="Turn over for the liner notes"></button>
 					<div class="vinyl" aria-hidden="true"></div>
 				</div>
 				<div class="now-info">
@@ -128,6 +128,18 @@
 			<dl id="credits" class="credits"></dl>
 			<div id="notes" class="liner-text"></div>
 		</section>
+
+		<!-- The sleeve, picked up and turned over: liner notes on the back, as on a real record. -->
+		<dialog id="sleeve" class="sleeve" aria-labelledby="sleeve-title">
+			<div class="sleeve-card">
+				<div class="sleeve-face sleeve-front" aria-hidden="true"></div>
+				<div class="sleeve-face sleeve-back"></div>
+			</div>
+			<div class="sleeve-actions">
+				<button id="sleeve-turn" class="btn small" type="button">Turn over</button>
+				<button id="sleeve-close" class="btn small" type="button">Close</button>
+			</div>
+		</dialog>
 
 		<footer class="foot">
 			<p><a href="https://open-meteo.com/">Weather and air-quality data by Open-Meteo.com</a> (CC BY 4.0) · Aurora activity from <a href="https://www.swpc.noaa.gov/">NOAA SWPC</a> · Holidays from <a href="https://date.nager.at/">Nager.Date</a> · Sound by <a href="https://tonejs.github.io/">Tone.js</a> · <a href="https://github.com/MFeret11/WeatherTunes">Source on GitHub</a> · <a href="https://mferet.com/">mferet.com</a></p>
