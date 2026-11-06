@@ -583,7 +583,7 @@ const player = new Player({
   onBar: highlight,
   onEvent,
   onWait: (waiting) => {
-    if (playing) playBtn.querySelector("span").textContent = waiting ? "Starting…" : "Stop";
+    if (playing) playBtn.querySelector("span").textContent = waiting ? (player.t0 != null ? "Buffering…" : "Starting…") : "Stop";
   },
   onEnd: (error) => {
     playing = false;

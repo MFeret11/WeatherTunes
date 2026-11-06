@@ -6,7 +6,8 @@
 // audio over in blocks as it's made. A plain buffer player plays the blocks back
 // to back. Playback starts once enough is ready that the rest will stay ahead of
 // it: on a fast device that's almost at once, on a slow one after a short wait,
-// and never with a crackle.
+// and never with a crackle. If the render still falls behind (a phone slowing
+// down partway), playback pauses once, cleanly, until it can run to the end.
 //
 // Changing a mute or the 32-bit switch mid-song renders again from where the song
 // has got to, then crossfades over once the new audio is ready. That render starts
@@ -17,6 +18,9 @@ import { SUITE } from "./mapping.js";
 
 export const SAMPLE_RATE = 44100;
 const LEAD = 0.75; // seconds of audio ready before playback starts or a new render takes over
+const RESUME_LEAD = 2; // after the render falls behind mid-song, wait for this much before carrying on
+const RECENT = 3; // render speed is judged over the last few seconds too, so a slowdown shows quickly
+const SAFETY = 0.85; // plan as if the render will run this much slower than measured
 const MARGIN = 0.12; // how far past "now" the first block is scheduled, seconds
 const TAP = new URL("./tap.worklet.js", import.meta.url).href;
 const XFADE = 0.1; // crossfade when a new render takes over, seconds
@@ -61,6 +65,7 @@ export class Render {
     this.skip = Math.round(preRoll(score, offset) * sampleRate);
     this.skipped = 0;
     this.blocks = []; // { at, data: [left, right] }, back to back from frame 0
+    this.marks = []; // recent { wall, got } arrivals, for speed()
     this.got = 0; // frames arrived
     this.done = false;
     this.error = null;
@@ -82,22 +87,35 @@ export class Render {
     return this.began ? (this.began - this.created) / 1000 : null;
   }
 
-  /** Seconds of audio rendered per second of waiting, once there's enough to tell. */
+  /**
+   * Seconds of audio rendered per second of waiting, once there's enough to tell:
+   * the slower of the whole run so far and the last RECENT seconds, so a device
+   * that slows down partway is noticed rather than averaged away.
+   */
   speed() {
     if (!this.first) return null;
-    const secs = (performance.now() - this.first.wall) / 1000;
-    const audio = (this.got - this.first.got) / this.sampleRate;
-    return secs > 0.2 && audio > 0 ? audio / secs : null;
+    const now = performance.now();
+    const rate = (from) => {
+      const secs = (now - from.wall) / 1000;
+      const audio = (this.got - from.got) / this.sampleRate;
+      return secs > 0.2 && audio > 0 ? audio / secs : null;
+    };
+    const all = rate(this.first);
+    if (!all) return null;
+    // Measured up to now, so a render that has gone quiet slows down too.
+    const since = this.marks.find((m) => now - m.wall <= RECENT * 1000) ?? this.marks.at(-1);
+    if (!since || now - since.wall < 1000) return all;
+    return Math.min(all, (this.got - since.got) / this.sampleRate / ((now - since.wall) / 1000));
   }
 
-  /** Could playback from frame `from` start now and never catch up with the render? */
-  ready(from) {
+  /** Could playback from frame `from` start now, with `lead` seconds in hand, and never catch up with the render? */
+  ready(from, lead = LEAD) {
     if (this.done) return !this.error;
     const sr = this.sampleRate;
-    if ((this.got - from) / sr < LEAD) return false;
+    if ((this.got - from) / sr < lead) return false;
     const speed = this.speed();
     if (!speed) return false;
-    const renderLeft = (this.frames - this.got) / sr / (speed * 0.85);
+    const renderLeft = (this.frames - this.got) / sr / (speed * SAFETY);
     return renderLeft <= (this.frames - from) / sr - LEAD;
   }
 
@@ -123,6 +141,9 @@ export class Render {
     if (n <= 0) return;
     this.blocks.push({ at: this.got, data: n === left.length ? [left, right] : [left.subarray(0, n), right.subarray(0, n)] });
     this.got += n;
+    const now = performance.now();
+    this.marks.push({ wall: now, got: this.got });
+    while (this.marks.length > 2 && now - this.marks[1].wall > RECENT * 1000) this.marks.shift();
     if (this.got >= this.frames) this.done = true;
     this.emit();
   }
@@ -415,11 +436,19 @@ export class Player {
       const start = Math.max(b.at, st.scheduled);
       let when = (tail ? st.t0 : this.t0) + offF + start;
       const late = Math.round((this.ctx.currentTime + 0.02) * sr) - when;
-      if (late > 0) {
+      if (late > 0 || (st.stalled && st === this.active)) {
         if (tail) break; // too late to matter: it's fading out under the next song
-        // The render fell behind: leave a short gap rather than a glitch, and carry on from there.
-        this.t0 += late + Math.round(MARGIN * sr);
+        // The render fell behind. Pause here once, rather than stuttering block by
+        // block, and carry on when there's enough in hand to reach the end.
+        if (!st.stalled) {
+          st.stalled = true;
+          if (st === this.active) this.waiting(true);
+        }
+        if (!r.ready(start, RESUME_LEAD)) break;
+        st.stalled = false;
+        this.t0 = Math.round((this.ctx.currentTime + MARGIN) * sr) - offF - start;
         when = this.t0 + offF + start;
+        if (st === this.active) this.waiting(false);
       }
       const buf = this.ctx.createBuffer(2, end - start, sr);
       for (let c = 0; c < 2; c++) buf.getChannelData(c).set(b.data[c].subarray(start - b.at));
@@ -460,7 +489,17 @@ export class Player {
   loop() {
     if (!this.playing) return;
     if (this.next) this.pump(this.next);
-    if (this.t0 != null) {
+    const st = this.active;
+    if (st && st.live && !st.stalled && !st.render.done && this.t0 != null) {
+      // Played everything that has arrived and the render hasn't caught up: pause.
+      const at = Math.round(this.ctx.currentTime * st.render.sampleRate) - this.t0 - Math.round(st.render.offset * st.render.sampleRate);
+      if (at >= st.scheduled) {
+        st.stalled = true;
+        this.waiting(true);
+      }
+    }
+    if (st?.stalled) this.pump(st);
+    if (this.t0 != null && !this.active?.stalled) {
       const pos = this.position();
       const c = this.cues;
       let bar = null;
