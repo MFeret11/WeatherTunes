@@ -294,6 +294,10 @@ test("CAPE: unstable air raises intensity before it rains", () => {
   assert(Math.abs(charged.raw[12] - M.DYNAMICS.capeWeight) < 1e-9, "full CAPE → capeWeight");
   assert(charged.energy[10] > 0 && charged.energy[11] > charged.energy[10], "swell builds ahead of it");
   equal(capeLevel(undefined), 0, "missing CAPE counts as stable");
+  assert(charged.feltEnergy.every((v, b) => v === dynamicsCurve(f.hours).feltEnergy[b]), "CAPE isn't felt weather");
+  const H = f.hours.map((h) => ({ ...h, cape: M.DYNAMICS.capeFull, precip: 0, gust: 20, code: 1 }));
+  const c = dynamicsCurve(H);
+  assert(!bassFeels(H, c.energy, { tMean: 25 }, c.feltEnergy).includes("double"), "CAPE alone never doubles the bass");
 });
 
 test("bass feel follows the weather, never the clock", () => {

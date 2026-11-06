@@ -69,8 +69,8 @@ export function analyze(f) {
     -M.MELODY.registerMax, M.MELODY.registerMax,
   );
   const voices = pickVoices(stats, storm, snow);
-  const { raw: intensity, energy } = dynamicsCurve(H);
-  return { stats, storm, stormHour, snow, brightness, moodDark, moodFrom, dayHeat, harsh, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy };
+  const { raw: intensity, energy, felt, feltEnergy } = dynamicsCurve(H);
+  return { stats, storm, stormHour, snow, brightness, moodDark, moodFrom, dayHeat, harsh, mode, root, bpm, trend, progression, registerOffset, voices, intensity, energy, felt, feltEnergy };
 }
 
 /** Melody instrument from the mean temperature; pad instrument from sky and moisture. */
@@ -100,16 +100,24 @@ export function capeLevel(cape) {
 /**
  * Weather intensity per hour (raw) and the spread curve the music follows (energy).
  * Energy rises a couple of bars before rough weather and fades a few bars after.
+ * `felt` and `feltEnergy` leave out CAPE: storm fuel alone isn't weather you'd
+ * notice, so it adds tension but never the double-time bass or storm drums.
  */
 export function dynamicsCurve(H) {
   const D = M.DYNAMICS;
-  const raw = H.map((h) => Math.max(
+  const felt = H.map((h) => Math.max(
     clamp(h.precip / D.rainFullMm, 0, 1),
     clamp((h.gust - D.gustFrom) / (D.gustFull - D.gustFrom), 0, 1),
     M.CODES.thunder.includes(h.code) ? 1 : 0,
-    capeLevel(h.cape) * D.capeWeight,
   ));
-  const energy = raw.map((r, b) => {
+  const raw = H.map((h, b) => Math.max(felt[b], capeLevel(h.cape) * D.capeWeight));
+  return { raw, energy: spread(raw), felt, feltEnergy: spread(felt) };
+}
+
+/** Spread an hourly intensity: a lead-in before each event and a tail after it (DYNAMICS.lead/tail). */
+function spread(raw) {
+  const D = M.DYNAMICS;
+  return raw.map((r, b) => {
     let e = r;
     D.lead.forEach((w, i) => {
       const j = b + D.lead.length - i;
@@ -121,22 +129,23 @@ export function dynamicsCurve(H) {
     });
     return +e.toFixed(3);
   });
-  return { raw, energy };
 }
 
 /**
  * Bass feel per hour ("half", "normal" or "double"), decided once per chord from
- * the weather in its hours. The final chord is never half-time, so the last bar can hold the root.
+ * the weather in its hours. Double-time needs weather you'd notice (`felt`, no CAPE);
+ * a chord charged by CAPE alone stays "normal" rather than dropping to half-time.
+ * The final chord is never half-time, so the last bar can hold the root.
  */
-export function bassFeels(H, energy, stats) {
+export function bassFeels(H, energy, stats, felt = energy) {
   const F = M.BASS_FEEL;
   const out = [];
   for (let b = 0; b < M.BARS; b += M.BARS_PER_CHORD) {
     const hrs = H.slice(b, b + M.BARS_PER_CHORD);
-    const en = energy.slice(b, b + M.BARS_PER_CHORD);
+    const top = (curve) => Math.max(...curve.slice(b, b + M.BARS_PER_CHORD));
     let feel = "normal";
-    if (Math.max(...en) >= F.doubleEnergy) feel = "double";
-    else if (b + M.BARS_PER_CHORD < M.BARS && (stats.tMean < F.halfMeanTemp
+    if (top(felt) >= F.doubleEnergy) feel = "double";
+    else if (top(energy) < F.doubleEnergy && b + M.BARS_PER_CHORD < M.BARS && (stats.tMean < F.halfMeanTemp
       || hrs.some((h) => F.halfCodes.includes(h.code))
       || hrs.every((h) => h.gust < F.calmGust && h.precip === 0))) feel = "half";
     for (let i = 0; i < hrs.length; i++) out.push(feel);

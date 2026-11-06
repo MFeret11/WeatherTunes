@@ -98,7 +98,7 @@ export function dayArc(H, A) {
   phases.forEach((ph, b) => {
     if (b === 0 || ph !== phases[b - 1]) moments.push({ bar: b, phase: ph, breeze: breeze[b] });
   });
-  return { dramatic, stormy: top >= R.drumsMin, phases, breeze, moments, peakBar: dramatic ? raw.indexOf(top) : null };
+  return { dramatic, stormy: Math.max(...A.felt) >= R.drumsMin, phases, breeze, moments, peakBar: dramatic ? raw.indexOf(top) : null };
 }
 
 /** The chord (scale degree, in its own mode) for every bar, following the chapters. */

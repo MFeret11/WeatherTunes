@@ -280,7 +280,8 @@ export const BASS = {
   vel: 0.75,
 };
 // Bass feel, decided per chord (2 hours) from the weather only (not time of day):
-//   double  either hour's energy (DYNAMICS, includes CAPE) at least doubleEnergy
+//   double  either hour's energy at least doubleEnergy, counting only weather you'd
+//           notice (rain, gusts, thunder): CAPE alone (storm fuel) adds tension, not this
 //   half    a freezing day (mean below halfMeanTemp), a fog or snow hour, or both
 //           hours dead calm (gusts under calmGust km/h and no rain)
 //   normal  everything else: the wind-picked rows in BASS.patterns
@@ -453,7 +454,7 @@ export const DYNAMICS = {
 export const ARC = {
   dramaMin: 0.45, peakShare: 0.7, buildHours: 4, releaseHours: 4, coolDropC: 1.5,
   mergeGap: 3,         // peaks this many hours apart or closer are one long climax
-  drumsMin: 0.6,       // drums only on a day whose peak reaches this (a real storm)
+  drumsMin: 0.6,       // drums only on a day whose rain, gusts or thunder peak reaches this (CAPE alone doesn't count)
   liftSteps: 3,
   drums: [ // first row whose minEnergy the hour's energy reaches
     { minEnergy: 0.85, hits: [0, 1, 2, 3, 4, 5, 6, 7] },

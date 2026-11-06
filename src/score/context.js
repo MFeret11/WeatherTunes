@@ -102,7 +102,7 @@ export function scoreContext(f) {
   }
   const octave = melodyDegrees(mode, snow).length; // steps per octave
   const pitchAt = (b, r) => { const t = tables[keyAt(b)]; return t.p[t.base + r]; };
-  const bassFeel = bassFeels(H, energy, stats);
+  const bassFeel = bassFeels(H, energy, stats, A.feltEnergy);
   const pedal = pedalBars(H, barChords);
   return {
     f, H, A, stats, root, snow, energy, gateFor, swing, busierRow, T, SK, seed, rng, pick, day, stir, arc, lift, barChords, modeAt, mode, progression,
