@@ -100,17 +100,43 @@ function bendNewestVoice(synth, t, toMidi, seconds) {
   synth._activeVoices.at(-1)?.voice.frequency.exponentialRampToValueAtTime(440 * 2 ** ((toMidi - 69) / 12), t + seconds);
 }
 
+/**
+ * The parts of the engine a score actually uses. Every Tone.js node costs render
+ * time even when silent (synths keep their control signals running), so an engine
+ * built for one song leaves the rest out.
+ */
+export function partsFor(score) {
+  const has = (l) => (score[l]?.length ?? 0) > 0;
+  const kit = [...(score.garage ?? []), ...(score.beat ?? [])].map((n) => n.kind);
+  const A = score.automation;
+  const shimmer = score.shimmer ?? [];
+  return {
+    arp: has("arp"), drums: has("drums"), crackle: has("crackle"), shaker: has("rain"), bells: has("bells"), chimes: has("chimes"),
+    kick: kit.includes("kick"), rim: kit.includes("snare"), hat: kit.includes("hat") || kit.includes("ghost"),
+    noise: new Set(score.atmosphere.filter((a) => a.level > 0).map((a) => a.color)),
+    wind: score.atmosphere.some((a) => a.wind > 0),
+    thunder: score.fx.some((f) => f.type === "thunder"), swell: score.fx.some((f) => f.type === "swell"),
+    sparkle: shimmer.some((x) => x.kind !== "aurora"), aurora: shimmer.some((x) => x.kind === "aurora"),
+    drive: (A.driveWet ?? []).some((x) => x > 0),
+  };
+}
+
 export class Engine {
   /**
    * `retro`: build the lighter 32-bit instruments (see RETRO32).
    * `output`: where the finished mix goes (default: the context's speakers).
+   * `score`: the one song this engine will play, so it builds only what that song
+   * uses (see partsFor). Without it, everything is built.
    */
-  constructor({ retro = false, output } = {}) {
+  constructor({ retro = false, output, score } = {}) {
     const T = Tone();
     this.retro = retro;
     this.context = T.getContext();
     this.transport = T.getTransport();
     this.score = null;
+    const parts = score ? partsFor(score) : null;
+    this.needs = (k) => !parts || (k in parts && (parts[k] instanceof Set ? parts[k].size > 0 : parts[k]));
+    this.needsNoise = (c) => !parts || parts.noise.has(c);
     // The parts of the graph, built in signal order.
     this.buildMaster(output);
     this.buildChannels();
@@ -146,8 +172,8 @@ export class Engine {
     const T = Tone();
     // Melody, bass and pad share a "band" volume that swells with the weather.
     // Distortion between the band and the bus; its wet mix follows the weather.
-    this.drive = new T.Distortion({ distortion: 0.25, oversample: "2x", wet: 0 }).connect(this.bus);
-    this.band = new T.Volume(0).connect(this.drive);
+    this.drive = this.needs("drive") ? new T.Distortion({ distortion: 0.25, oversample: "2x", wet: 0 }).connect(this.bus) : null;
+    this.band = new T.Volume(0).connect(this.drive ?? this.bus);
     this.vol = {};
     for (const l of LAYERS) {
       this.vol[l] = new T.Volume(DEFAULT_LEVELS[l]).connect(BAND.includes(l) ? this.band : this.bus);
@@ -167,6 +193,7 @@ export class Engine {
     //   pad    → trim → tremolo → tone filter → compressor
     this.melodyPan = new T.Panner(0).connect(this.melodyComp);
     this.melodyTone = new T.Filter({ type: "lowpass", frequency: 8000, rolloff: -12 }).connect(this.melodyPan);
+    // The vibrato and tremolo stay in even at depth 0: they shape the level and timing the mix was tuned with.
     this.melodyVibrato = new T.Vibrato({ frequency: 5, depth: 0 }).connect(this.melodyTone);
     this.melodyTrim = new T.Volume(0).connect(this.melodyVibrato);
     this.padFilter = new T.Filter({ type: "lowpass", frequency: 1400, rolloff: -12 }).connect(this.padComp);
@@ -188,7 +215,7 @@ export class Engine {
     }).connect(this.vol.bass);
 
     // Arpeggio (ARP): a soft pulse wave, like an old game console's square channel.
-    this.arp = new T.Synth({
+    if (this.needs("arp")) this.arp = new T.Synth({
       oscillator: { type: "pulse", width: ARP_VOICE.width },
       envelope: { attack: 0.003, decay: 0.12, sustain: 0.3, release: 0.08 },
     }).connect(new T.Filter({ type: "lowpass", frequency: ARP_VOICE.tone, rolloff: -12 })
@@ -199,38 +226,47 @@ export class Engine {
   buildPercussion() {
     const T = Tone();
     // Storm drums: a low, timpani-like membrane.
-    this.drums = new T.MembraneSynth({
+    if (this.needs("drums")) this.drums = new T.MembraneSynth({
       pitchDecay: 0.06, octaves: 3,
       envelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
     }).connect(new T.Filter({ type: "lowpass", frequency: 900 }).connect(new T.Volume(STORM_DRUMS_DB).connect(this.vol.drums)));
 
     // Rain-beat kit: a short deep kick, a rimshot and hats.
-    this.kick = new T.MembraneSynth({
-      pitchDecay: 0.03, octaves: 5,
-      envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.1 },
-    }).connect(new T.Volume(2).connect(this.vol.drums));
-    this.rimFilter = new T.Filter({ type: "bandpass", frequency: 1800, Q: 1.2 }).connect(new T.Volume(4).connect(this.vol.drums));
-    this.rim = new T.NoiseSynth({
-      noise: { type: "white" },
-      envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.05 },
-    }).connect(this.rimFilter);
-    this.hatFilter = new T.Filter({ type: "highpass", frequency: 7500 }).connect(new T.Volume(-2).connect(this.vol.drums));
-    this.hat = new T.NoiseSynth({
-      noise: { type: "white" },
-      envelope: { attack: 0.001, decay: 0.035, sustain: 0, release: 0.02 },
-    }).connect(this.hatFilter);
+    if (this.needs("kick")) {
+      this.kick = new T.MembraneSynth({
+        pitchDecay: 0.03, octaves: 5,
+        envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.1 },
+      }).connect(new T.Volume(2).connect(this.vol.drums));
+    }
+    if (this.needs("rim")) {
+      this.rimFilter = new T.Filter({ type: "bandpass", frequency: 1800, Q: 1.2 }).connect(new T.Volume(4).connect(this.vol.drums));
+      this.rim = new T.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.05 },
+      }).connect(this.rimFilter);
+    }
+    if (this.needs("hat")) {
+      this.hatFilter = new T.Filter({ type: "highpass", frequency: 7500 }).connect(new T.Volume(-2).connect(this.vol.drums));
+      this.hat = new T.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.035, sustain: 0, release: 0.02 },
+      }).connect(this.hatFilter);
+    }
     // Vinyl crackle: tiny clicks of noise.
-    this.crackleFilter = new T.Filter({ type: "bandpass", frequency: 3000, Q: 0.6 }).connect(new T.Volume(-4).connect(this.vol.atmosphere));
-    this.crackle = new T.NoiseSynth({
-      noise: { type: "white" },
-      envelope: { attack: 0.0005, decay: 0.004, sustain: 0, release: 0.002 },
-    }).connect(this.crackleFilter);
-
-    this.shakerFilter = new T.Filter({ type: "highpass", frequency: 4000 }).connect(this.vol.rain);
-    this.shaker = new T.NoiseSynth({
-      noise: { type: "white" },
-      envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.03 },
-    }).connect(this.shakerFilter);
+    if (this.needs("crackle")) {
+      this.crackleFilter = new T.Filter({ type: "bandpass", frequency: 3000, Q: 0.6 }).connect(new T.Volume(-4).connect(this.vol.atmosphere));
+      this.crackle = new T.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.0005, decay: 0.004, sustain: 0, release: 0.002 },
+      }).connect(this.crackleFilter);
+    }
+    if (this.needs("shaker")) {
+      this.shakerFilter = new T.Filter({ type: "highpass", frequency: 4000 }).connect(this.vol.rain);
+      this.shaker = new T.NoiseSynth({
+        noise: { type: "white" },
+        envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.03 },
+      }).connect(this.shakerFilter);
+    }
   }
 
   /** Snow bells, the atmosphere and wind beds, one-shots (thunder, swell) and the sky's bells and shimmer. */
@@ -244,39 +280,48 @@ export class Engine {
         modulationEnvelope: { attack: 0.002, decay: 0.3, sustain: 0, release: 0.2 },
       },
     });
-    this.bells = new T.PolySynth(T[bellVoice.synth], bellVoice.options).connect(new T.Volume(bellVoice.gain).connect(this.vol.rain));
-    this.bells.maxPolyphony = 6;
+    if (this.needs("bells")) {
+      this.bells = new T.PolySynth(T[bellVoice.synth], bellVoice.options).connect(new T.Volume(bellVoice.gain).connect(this.vol.rain));
+      this.bells.maxPolyphony = 6;
+    }
 
     // Atmosphere: three noise colours, crossfaded per bar.
     this.atmosFilter = new T.Filter({ type: "lowpass", frequency: 6000, rolloff: -12 }).connect(this.vol.atmosphere);
     this.noise = {};
     this.noiseGain = {};
     for (const c of ["white", "pink", "brown"]) {
+      if (!this.needsNoise(c)) continue;
       this.noiseGain[c] = new T.Gain(0).connect(this.atmosFilter);
       this.noise[c] = new T.Noise(c).connect(this.noiseGain[c]);
     }
     // Wind: pink noise through a slowly sweeping band-pass.
-    this.windGain = new T.Gain(0).connect(this.vol.atmosphere);
-    this.windFilter = new T.AutoFilter({
-      frequency: 0.12, baseFrequency: 250, octaves: 3.5,
-      filter: { type: "bandpass", Q: 1.5, rolloff: -12 },
-    }).connect(this.windGain);
-    this.windNoise = new T.Noise("pink").connect(this.windFilter);
+    if (this.needs("wind")) {
+      this.windGain = new T.Gain(0).connect(this.vol.atmosphere);
+      this.windFilter = new T.AutoFilter({
+        frequency: 0.12, baseFrequency: 250, octaves: 3.5,
+        filter: { type: "bandpass", Q: 1.5, rolloff: -12 },
+      }).connect(this.windGain);
+      this.windNoise = new T.Noise("pink").connect(this.windFilter);
+    }
 
     // One-shots.
-    this.thunderFilter = new T.Filter({ type: "lowpass", frequency: 220, rolloff: -24 }).connect(this.vol.fx);
-    this.thunder = new T.NoiseSynth({
-      noise: { type: "brown" },
-      envelope: { attack: 0.08, decay: 3.5, sustain: 0, release: 1 },
-    }).connect(this.thunderFilter);
+    if (this.needs("thunder")) {
+      this.thunderFilter = new T.Filter({ type: "lowpass", frequency: 220, rolloff: -24 }).connect(this.vol.fx);
+      this.thunder = new T.NoiseSynth({
+        noise: { type: "brown" },
+        envelope: { attack: 0.08, decay: 3.5, sustain: 0, release: 1 },
+      }).connect(this.thunderFilter);
+    }
     // Swell (SWELL): noise band-passed between the highpass and lowpass.
-    this.swellFilter = new T.Filter({ type: "highpass", frequency: SWELL.highpass })
-      .connect(new T.Filter({ type: "lowpass", frequency: SWELL.lowpass, rolloff: -12 }).connect(this.vol.fx));
-    this.swellLevel = new T.Volume(SWELL.db).connect(this.swellFilter);
-    this.swell = new T.NoiseSynth({
-      noise: { type: "pink" },
-      envelope: { attack: SWELL.attack, decay: SWELL.decay, sustain: SWELL.sustain, release: SWELL.release, attackCurve: "sine" },
-    }).connect(this.swellLevel);
+    if (this.needs("swell")) {
+      this.swellFilter = new T.Filter({ type: "highpass", frequency: SWELL.highpass })
+        .connect(new T.Filter({ type: "lowpass", frequency: SWELL.lowpass, rolloff: -12 }).connect(this.vol.fx));
+      this.swellLevel = new T.Volume(SWELL.db).connect(this.swellFilter);
+      this.swell = new T.NoiseSynth({
+        noise: { type: "pink" },
+        envelope: { attack: SWELL.attack, decay: SWELL.decay, sustain: SWELL.sustain, release: SWELL.release, attackCurve: "sine" },
+      }).connect(this.swellLevel);
+    }
 
     // Sky bells: glassy FM bells, a little brighter and longer than the snow bells.
     const chimeVoice = this.asPlayed({
@@ -287,23 +332,29 @@ export class Engine {
         modulationEnvelope: { attack: 0.002, decay: 0.6, sustain: 0, release: 0.4 },
       },
     });
-    this.chimes = new T.PolySynth(T[chimeVoice.synth], chimeVoice.options).connect(new T.Volume(chimeVoice.gain).connect(this.vol.fx));
-    this.chimes.maxPolyphony = 8;
+    if (this.needs("chimes")) {
+      this.chimes = new T.PolySynth(T[chimeVoice.synth], chimeVoice.options).connect(new T.Volume(chimeVoice.gain).connect(this.vol.fx));
+      this.chimes.maxPolyphony = 8;
+    }
     // UV: a soft sine an octave over the melody.
-    this.sparkle = new T.PolySynth(T.Synth, {
-      oscillator: { type: "sine" },
-      envelope: { attack: 0.005, decay: 0.35, sustain: 0.15, release: 0.6 },
-    }).connect(new T.Volume(-2).connect(this.vol.fx));
-    this.sparkle.maxPolyphony = 6;
+    if (this.needs("sparkle")) {
+      this.sparkle = new T.PolySynth(T.Synth, {
+        oscillator: { type: "sine" },
+        envelope: { attack: 0.005, decay: 0.35, sustain: 0.15, release: 0.6 },
+      }).connect(new T.Volume(-2).connect(this.vol.fx));
+      this.sparkle.maxPolyphony = 6;
+    }
     // Aurora: a slow, wavering high chord.
-    this.auroraVibrato = new T.Vibrato({ frequency: 0.35, depth: 0.25 }).connect(new T.Volume(-4).connect(this.vol.fx));
-    this.aurora = new T.PolySynth(T.Synth, this.asPlayed({
-      id: "aurora", gain: 0, options: {
-        oscillator: { type: "fatsine", count: 3, spread: 22 },
-        envelope: { attack: 2.2, decay: 0.5, sustain: 0.9, release: 3 },
-      },
-    }).options).connect(this.auroraVibrato);
-    this.aurora.maxPolyphony = 6;
+    if (this.needs("aurora")) {
+      this.auroraVibrato = new T.Vibrato({ frequency: 0.35, depth: 0.25 }).connect(new T.Volume(-4).connect(this.vol.fx));
+      this.aurora = new T.PolySynth(T.Synth, this.asPlayed({
+        id: "aurora", gain: 0, options: {
+          oscillator: { type: "fatsine", count: 3, spread: 22 },
+          envelope: { attack: 2.2, decay: 0.5, sustain: 0.9, release: 3 },
+        },
+      }).options).connect(this.auroraVibrato);
+      this.aurora.maxPolyphony = 6;
+    }
   }
 
   /** A voice as this engine plays it: unchanged, or simplified in 32-bit mode. */
@@ -326,8 +377,10 @@ export class Engine {
       this.melody = build(melody, this.melodyTrim);
       this.melodyTrim.volume.value = melody.gain;
       this.melodyTone.frequency.value = melody.tone;
-      this.melodyVibrato.frequency.value = melody.vibrato[0];
-      this.melodyVibrato.depth.value = melody.vibrato[1];
+      if (this.melodyVibrato) {
+        this.melodyVibrato.frequency.value = melody.vibrato[0];
+        this.melodyVibrato.depth.value = melody.vibrato[1];
+      }
       this.voiceIds.melody = melody.id;
     }
     this.padBaseTone = pad.tone;
@@ -336,8 +389,10 @@ export class Engine {
       this.pad = build(pad, this.padTrim);
       this.padTrim.volume.value = pad.gain;
       this.padFilter.frequency.value = pad.tone;
-      this.padTremolo.frequency.value = pad.tremolo[0];
-      this.padTremolo.depth.value = pad.tremolo[1];
+      if (this.padTremolo) {
+        this.padTremolo.frequency.value = pad.tremolo[0];
+        this.padTremolo.depth.value = pad.tremolo[1];
+      }
       this.voiceIds.pad = pad.id;
     }
     // A reused voice may still have the last song's long ending release (ENDING).
@@ -361,12 +416,14 @@ export class Engine {
     // Tempo-synced delays, set now that the tempo is known.
     this.delay.delayTime.value = (60 / score.meta.bpm) * 0.75; // a dotted eighth
     this.melodyEcho.delayTime.value = (60 / score.meta.bpm) * ECHO.beats;
-    this.windFilter.baseFrequency = score.automation.windBaseHz ?? 250;
+    if (this.windFilter) this.windFilter.baseFrequency = score.automation.windBaseHz ?? 250;
     // The melody's own vibrato, which heat shimmer (HEAT) can take over hour by hour.
     this.baseVibrato = this.asPlayed(score.meta.voices.melody).vibrato;
     this.baseTremolo = this.asPlayed(score.meta.voices.pad).tremolo;
-    this.melodyVibrato.frequency.value = this.baseVibrato[0];
-    this.melodyVibrato.depth.value = this.baseVibrato[1];
+    if (this.melodyVibrato) {
+      this.melodyVibrato.frequency.value = this.baseVibrato[0];
+      this.melodyVibrato.depth.value = this.baseVibrato[1];
+    }
     tr.swing = score.meta.swing ?? 0;
     tr.swingSubdivision = "16n";
     tr.loop = false; // plays once; pressing Play again starts it over
@@ -374,7 +431,7 @@ export class Engine {
     const realBars = Math.ceil((score.meta.bars * steps) / 16);
 
     this.reverb.wet.value = score.automation.reverbWet;
-    this.drive.distortion = score.meta.drive ?? 0.25;
+    if (this.drive) this.drive.distortion = score.meta.drive ?? 0.25;
     // Cloud rounds the bass off (meta.bassSub 0–1): the saw's upper harmonics
     // fade out, leaving a sine with a touch of the second harmonic so small
     // speakers still carry it.
@@ -476,7 +533,7 @@ export class Engine {
     // Fade the beds out after the last bar.
     tr.schedule((t) => {
       for (const g of Object.values(this.noiseGain)) g.gain.rampTo(0, this.s16(8), t);
-      this.windGain.gain.rampTo(0, this.s16(8), t);
+      this.windGain?.gain.rampTo(0, this.s16(8), t);
     }, `${realBars}:0:0`);
   }
 
@@ -493,19 +550,17 @@ export class Engine {
     else this.melodyLevel.volume.rampTo(mDb, ramp * 2, t);
     this.padFilter.frequency.rampTo(this.padBaseTone * 2 ** A.padOpen[bar], ramp * 2, t);
     this.filter.frequency.rampTo(A.cutoff[bar], ramp * 2, t);
-    this.drive.wet.rampTo(A.driveWet[bar], ramp * 2, t);
+    this.drive?.wet.rampTo(A.driveWet[bar], ramp * 2, t);
     const carry = A.echoCarry?.[bar] ?? 0;
     this.melodyEcho.wet.rampTo(ECHO.wet[0] + (ECHO.wet[1] - ECHO.wet[0]) * carry, ramp * 2, t);
     this.melodyEcho.feedback.rampTo(ECHO.feedback[0] + (ECHO.feedback[1] - ECHO.feedback[0]) * carry, ramp * 2, t);
     this.reverb.wet.rampTo(Math.min(0.85, A.reverbWet + (A.reverbLift?.[bar] ?? 0)), ramp * 3, t);
     this.eq.high.rampTo(A.eqHigh[bar], ramp * 2, t);
     this.eq.low.rampTo(A.eqLow[bar], ramp * 2, t);
-    for (const c of ["white", "pink", "brown"]) {
-      this.noiseGain[c].gain.rampTo(a.color === c ? a.level : 0, ramp * 2, t);
-    }
+    for (const [c, g] of Object.entries(this.noiseGain)) g.gain.rampTo(a.color === c ? a.level : 0, ramp * 2, t);
     this.atmosFilter.frequency.rampTo(a.cutoff, ramp * 2, t);
-    this.windGain.gain.rampTo(a.wind, ramp * 2, t);
-    if (A.flutter) {
+    this.windGain?.gain.rampTo(a.wind, ramp * 2, t);
+    if (A.flutter && this.padTremolo) {
       // The pad's own tremolo, unless the gusts' flutter is stronger.
       const lerp = ([a, b], x) => a + (b - a) * x;
       const f = A.flutter[bar], own = this.baseTremolo;
@@ -513,7 +568,7 @@ export class Engine {
       this.padTremolo.frequency.rampTo(rate, ramp * 2, t);
       this.padTremolo.depth.rampTo(depth, ramp * 2, t);
     }
-    if (A.wobble) {
+    if (A.wobble && this.melodyVibrato) {
       const [rate, depth] = this.baseVibrato, w = A.wobble[bar];
       this.melodyVibrato.frequency.rampTo(w > 0 ? rate + (HEAT.wobble.rate - rate) * w : rate, ramp * 2, t);
       this.melodyVibrato.depth.rampTo(Math.max(depth, HEAT.wobble.depth * w), ramp * 2, t);
@@ -528,8 +583,8 @@ export class Engine {
    */
   start(when, offset = 0) {
     for (const n of Object.values(this.noise)) n.start(when);
-    this.windNoise.start(when);
-    this.windFilter.start(when);
+    this.windNoise?.start(when);
+    this.windFilter?.start(when);
     if (offset > 0) {
       const steps = this.score.meta.steps ?? 16;
       const bars = this.score.meta.bars;

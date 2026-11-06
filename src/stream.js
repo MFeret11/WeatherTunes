@@ -176,7 +176,7 @@ export class Render {
               tap = undefined;
             }
           }
-          const engine = new Engine({ retro: this.retro, output: tap });
+          const engine = new Engine({ retro: this.retro, output: tap, score: this.score });
           await engine.ready;
           for (const l of LAYERS) engine.setMute(l, !!this.muted[l]);
           engine.load(this.score);
