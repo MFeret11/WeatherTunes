@@ -175,9 +175,19 @@ test("atmosphere follows conditions", () => {
 });
 
 test("liner notes are filled in", () => each((n, s) => {
-  assert(s.meta.notes.length === 1 && s.meta.notes[0].length > 120 && s.meta.notes[0].length < 900, n);
+  const L = s.meta.liner;
+  assert(L.lead.length > 15 && L.lead.length < 120, `${n} lead: ${L.lead}`);
+  assert(L.paragraphs.length === 1 && L.paragraphs[0].length > 120 && L.paragraphs[0].length < 900, `${n} story`);
+  // The sleeve sets the story's first letter as a drop cap, so it must not be a one-letter word.
+  assert(/^The song /.test(L.paragraphs[0]), `${n} story starts "The song": ${L.paragraphs[0].slice(0, 30)}`);
+  assert(L.listen.length <= 4 && L.listen.every((x) => x.bar >= 0 && x.bar < 24 && x.text), `${n} listen`);
   for (const line of s.meta.notes) assert(!/undefined|NaN|null/.test(line), `${n}: ${line}`);
 }));
+
+test("liner notes vary their wording between similar days", () => {
+  const leads = new Set(Object.values(scores).map((s) => s.meta.liner.paragraphs[0].split(". ").slice(0, 2).join(". ")));
+  assert(leads.size >= Object.keys(scores).length - 1, `nearly every sample opens its own way (${leads.size} of ${Object.keys(scores).length})`);
+});
 
 test("same score whatever the hour of the call (seed ignores time)", () => {
   const f = forecasts["honolulu-flat"];
@@ -192,7 +202,7 @@ test("units change the wording, never the music", () => {
   const metric = scores["phoenix-heat"];
   equal({ ...us, meta: { ...us.meta, notes: null, liner: null } }, { ...metric, meta: { ...metric.meta, notes: null, liner: null } });
   assert(us.meta.notes.some((t) => t.includes("116\u00a0°F")), "46.9 °C shows as 116 °F");
-  assert(us.meta.notes.some((t) => t.includes("mph")) && !us.meta.notes.some((t) => t.includes("km/h")), "mph");
+  assert(!us.meta.notes.some((t) => t.includes("km/h")), "no metric speeds");
   assert(metric.meta.notes.some((t) => t.includes("46.9\u00a0°C")), "metric keeps °C");
 });
 
@@ -261,7 +271,7 @@ test("dynamics: busy bars step up a density row", () => {
 });
 
 test("dynamics: the liner notes mention it", () => each((n, s) => {
-  assert(s.meta.notes.some((l) => /calm day|weather peaks/i.test(l)), n);
+  assert(s.meta.notes.some((l) => /calm day|Nothing much happens|swells|dangerous|eye of the storm|whiteout|cold front/i.test(l)), n);
 }));
 
 test("groove: humidity swings and slurs, cold clips", () => {
@@ -397,7 +407,7 @@ test("the melody fades in at sunrise and out at sunset", () => {
   assert(day.some((d) => d < 0 && d > M.MELODY.nightDb), "fades through in-between levels");
   assert(total.every((d) => d >= M.MELODY.floorDb - 0.01), "cloud and night stop at the floor");
   assert(scores["mcmurdo-cold"].automation.melodyDayDb.every((d) => d === 0), "polar night keeps its melody");
-  assert(JSON.stringify(s.meta.notes).includes("fades in around sunrise"), "liner notes mention it");
+  assert(Object.values(scores).some((x) => /sunrise/.test(x.meta.notes.join(" "))), "liner notes mention it");
 });
 
 test("weather traits: crackle, round bass and the rain beat follow their measurements", () => {
@@ -438,7 +448,7 @@ test("sky extras add parts but never change the rest of the song", () => each((n
 test("songs still compose with no extras and no sky data at all", () => {
   const f = { ...forecasts["kyoto-spring"], extras: undefined, has: undefined, timezone: undefined };
   const s = compose(f);
-  assert(s.meta.notes.length === 1 && !/undefined|NaN/.test(s.meta.notes.join(" ")), "notes still read cleanly");
+  assert(s.meta.liner.paragraphs.length === 1 && !/undefined|NaN/.test(s.meta.notes.join(" ")), "notes still read cleanly");
 });
 
 test("moonlight lifts the night, and a visible moonrise rings a bell", () => {

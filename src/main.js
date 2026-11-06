@@ -7,6 +7,7 @@ import { compose } from "./compose.js";
 import { hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./util.js";
 import { describe } from "./describe.js";
 import { Player } from "./stream.js";
+import { cueTimes } from "./engine.js";
 import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor, moonDisc } from "./icons.js";
 import { coverArt } from "./cover.js";
@@ -366,6 +367,17 @@ function barcode(seed) {
   return { svg: `<svg viewBox="0 0 ${x.toFixed(1)} 20" preserveAspectRatio="none" aria-hidden="true">${bars}</svg>`, digits: `0 ${digits.slice(0, 5)} ${digits.slice(5)} 7` };
 }
 
+/** The liner notes as HTML: the day in a line, the story, then what to listen for and when. */
+function linerHtml(m) {
+  const L = m.liner;
+  const at = cueTimes(score).bars;
+  const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const listen = (L.listen ?? []).map((x) => `<li><time>${clock(at[x.bar] ?? 0)}</time> ${esc(x.text)}</li>`).join("");
+  return (L.lead ? `<p class="sb-lead">${esc(L.lead)}</p>` : "") +
+    L.paragraphs.map((t, i) => `<p${i === 0 ? ' class="sb-story"' : ""}>${esc(t)}</p>`).join("") +
+    (listen ? `<h3 class="sb-listen-h">Listen for</h3><ul class="sb-listen">${listen}</ul>` : "");
+}
+
 function renderSleeveBack() {
   const m = score.meta;
   const press = pressing(forecast, m);
@@ -386,7 +398,7 @@ function renderSleeveBack() {
     <h2 id="sleeve-title" class="sb-title">${esc(m.name.split(",")[0])}</h2>
     <p class="sb-date">${esc(date)}</p>
     <dl class="sb-credits">${credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
-    <div class="sb-notes">${suite ? suiteNotes() : ""}${m.liner.paragraphs.map((t) => `<p>${esc(t)}</p>`).join("")}</div>
+    <div class="sb-notes">${suite ? suiteNotes() : ""}${linerHtml(m)}</div>
     <footer class="sb-foot">
       <div class="sb-code">${code.svg}<span>${code.digits}</span></div>
       <small>Played from the forecast. Weather data by Open-Meteo.com (CC BY 4.0).</small>
