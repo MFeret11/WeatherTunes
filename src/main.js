@@ -798,6 +798,12 @@ for (const b of document.querySelectorAll(".change-place")) b.addEventListener("
 
 // The site header is sticky and wraps to two rows on phones; scrolling leaves room for it.
 const siteHeader = document.querySelector(".site-header");
+// Phones: the nav is a sideways strip (same as mferet.com's site.js); start it with this page's link in view.
+{
+  const nav = document.querySelector(".site-nav");
+  const here = nav?.querySelector('[aria-current="page"]');
+  if (here && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = here.offsetLeft - nav.offsetLeft - (nav.clientWidth - here.offsetWidth) / 2;
+}
 const headRoom = () => document.documentElement.style.setProperty("--head", `${siteHeader?.offsetHeight ?? 60}px`);
 headRoom();
 addEventListener("resize", headRoom);

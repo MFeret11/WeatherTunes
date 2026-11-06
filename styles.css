@@ -158,10 +158,25 @@ main.wrap > .card { margin: 10px 0; }
 .lights[aria-pressed="true"] .lights-track { background: #241c3d; }
 .lights[aria-pressed="true"] .lights-track::after { transform: translateX(12px); background: #a78bfa; box-shadow: 0 0 10px #7c4dff; }
 .lights:focus-visible, .brand:focus-visible, .site-nav a:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+/* Phones: one row. The links become a strip you can swipe sideways (the logo
+   already goes home), fading out at the right edge to show there's more. */
 @media (max-width: 640px) {
-  .site-nav { order: 3; width: 100%; margin-left: -10px; }
-  .lights { margin-left: auto; }
+  .header-inner { flex-wrap: nowrap; gap: 8px; min-height: 54px; padding-top: 6px; padding-bottom: 6px; }
+  .brand { flex: none; }
+  .site-nav {
+    flex: 1 1 auto; min-width: 0; margin-left: 0; flex-wrap: nowrap;
+    overflow-x: auto; scrollbar-width: none; padding: 0 20px 0 12px;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 24px), transparent);
+  }
+  .site-nav::-webkit-scrollbar { display: none; }
+  .site-nav a { flex: none; white-space: nowrap; padding: 6px 8px; }
+  .site-nav a:first-child { display: none; }
+  .lights { flex: none; margin-left: 0; }
   .lights-label { display: none; }
+}
+@media (max-width: 480px) {
+  .brand span { display: none; }
 }
 
 .lede { color: var(--muted); max-width: 60ch; font-size: 1.1rem; margin: 0; }
