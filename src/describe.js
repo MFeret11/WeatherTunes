@@ -1,5 +1,5 @@
-// describe(forecast, units) → a few plain sentences about the day's weather,
-// like a forecaster would say it. Weather only; no music here.
+// describe(forecast, units) → two or three easy sentences about the day's weather,
+// the way you'd tell a friend. Weather only; no music here.
 
 import { hourLabel, formatSpeed, aqiCategory, uvCategory } from "./util.js";
 import { daySky } from "./score/sky.js";
@@ -78,43 +78,53 @@ function skySentence(H) {
   return s[0].toUpperCase() + s.slice(1) + ".";
 }
 
-function tempSentence(H, units) {
+/** How much fell, as a clause for the sky sentence ("about 1.4 inches in all"), or "". */
+function amountClause(H, units) {
+  const total = H.reduce((a, h) => a + h.precip, 0);
+  if (total < 0.5) return "";
+  const snow = H.filter((h) => CODES.snow.includes(h.code)).length > H.filter((h) => h.precip > 0).length / 2;
+  const inches = total / 25.4;
+  const amount = units === "us" ? `${inches.toFixed(inches >= 1 ? 1 : 2)} ${inches >= 0.995 && inches < 1.05 ? "inch" : "inches"}` : `${Math.round(total)} mm`;
+  return snow ? `about ${amount} of melted snow in all` : `about ${amount} in all`;
+}
+
+/** A dry day's small chance of a shower, as its own short sentence. */
+function showerSentence(H) {
+  const total = H.reduce((a, h) => a + h.precip, 0);
+  const pop = Math.max(...H.map((h) => h.pop));
+  return total < 0.5 && pop >= 30 ? `There's a ${pop}% chance of a passing shower.` : "";
+}
+
+/** How the day feels: temperature, humidity, feels-like, the day's shape and the wind, in one sentence. */
+function feelSentence(H, units) {
   const temps = H.map((h) => h.temp);
   const lo = Math.min(...temps), hi = Math.max(...temps);
   const mean = temps.reduce((a, b) => a + b, 0) / temps.length;
   const dew = H.reduce((a, h) => a + (h.dew ?? 0), 0) / H.length;
-  const feel = mean < -10 ? "Bitterly cold" : mean < 0 ? "Freezing" : mean < 8 ? "Cold" : mean < 15 ? "Cool"
-    : mean < 22 ? "Mild" : mean < 28 ? "Warm" : mean < 34 ? "Hot" : "Scorching";
+  const feel = mean < -10 ? "bitterly cold" : mean < 0 ? "freezing" : mean < 8 ? "cold" : mean < 15 ? "cool"
+    : mean < 22 ? "mild" : mean < 28 ? "warm" : mean < 34 ? "hot" : "scorching";
   // The dew point says how sticky the air feels, whatever the temperature.
   const muggy = dew >= 21 ? " and oppressively humid" : dew >= 18 ? " and muggy" : mean >= 10 && dew <= 0 ? " and dry" : "";
   const t = (c) => (units === "us" ? `${Math.round((c * 9) / 5 + 32)} °F` : `${Math.round(c)} °C`);
   const loI = temps.indexOf(lo), hiI = temps.indexOf(hi);
-  const loAt = hourLabel(loI), hiAt = hourLabel(hiI);
   // Feels-like at the extremes: humidity at the warmest hour, wind at the coldest.
   const feelsHi = H[hiI].feels, feelsLo = H[loI].feels;
-  const hot = feelsHi != null && feelsHi - hi >= 3 ? `, feeling like ${t(feelsHi)}` : "";
-  const chill = feelsLo != null && lo - feelsLo >= 4 ? ` (feeling like ${t(feelsLo)} in the wind)` : "";
-  if (Math.round(hi) - Math.round(lo) <= 2) return `${feel}${muggy}, holding near ${t(mean)} all day${hot || chill}.`;
-  return `${feel}${muggy}, with a low of ${t(lo)} at ${loAt}${chill} and a high of ${t(hi)} at ${hiAt}${hot}.`;
-}
-
-function windSentence(H, units) {
+  const extra = [];
+  if (feelsHi != null && feelsHi - hi >= 3) extra.push(`feeling more like ${t(feelsHi)}`);
+  else if (feelsLo != null && lo - feelsLo >= 4) extra.push(`feeling like ${t(feelsLo)}`);
+  // The day's shape, only when it isn't the usual cool morning and warm afternoon.
+  if (Math.round(hi) - Math.round(lo) <= 2) extra.push(`holding near ${t(mean)} all day`);
+  else if (hiI <= 11 && loI >= 17) extra.push("cooling off as the day goes on");
+  else if (hiI <= 5 && loI >= 9) extra.push("getting colder through the day");
+  else if (hiI >= 20) extra.push("getting milder into the night");
+  // The wind.
   const wind = H.reduce((a, h) => a + h.wind, 0) / H.length;
   const gust = Math.max(...H.map((h) => h.gust));
   const at = hourLabel(H.findIndex((h) => h.gust === gust));
-  const base = wind < 8 ? "Light winds" : wind < 18 ? "A gentle breeze" : wind < 30 ? "Breezy" : wind < 45 ? "Windy" : "A gale";
-  return gust >= 45 ? `${base}, with gusts up to ${formatSpeed(gust, units)} around ${at}.` : `${base}.`;
-}
-
-function rainSentence(H, units) {
-  const total = H.reduce((a, h) => a + h.precip, 0);
-  if (total < 0.5) {
-    const pop = Math.max(...H.map((h) => h.pop));
-    return pop >= 30 ? `A ${pop}% chance of a passing shower, but little or nothing expected.` : "";
-  }
-  const snow = H.filter((h) => CODES.snow.includes(h.code)).length > H.filter((h) => h.precip > 0).length / 2;
-  const amount = units === "us" ? `${(total / 25.4).toFixed(total >= 25.4 ? 1 : 2)} in` : `${Math.round(total)} mm`;
-  return snow ? `About ${amount} of melted snow in all.` : `About ${amount} of rain in all.`;
+  const breeze = wind < 8 ? "with barely a breeze" : wind < 18 ? "with a gentle breeze" : wind < 30 ? "with a brisk wind" : wind < 45 ? "with a strong wind" : "with a gale blowing";
+  const gusts = gust >= 45 ? `, gusting to ${formatSpeed(gust, units)} around ${at}` : "";
+  const body = `It's ${feel}${muggy}${extra.length ? `, ${extra.join(", ")}` : ""}`;
+  return `${body}${extra.length ? "," : ""} ${breeze}${gusts}.`;
 }
 
 /** Air quality, UV, snow on the ground and frost: only when they're worth a mention. */
@@ -122,15 +132,24 @@ function airSentences(f, units) {
   let K;
   try { K = daySky(f); } catch { return []; }
   const out = [];
-  if (K.snowCm >= 1) out.push(`About ${units === "us" ? `${Math.round(K.snowCm / 2.54)}\u00a0in` : `${Math.round(K.snowCm)}\u00a0cm`} of snow on the ground.`);
-  if (K.firstFrost) out.push("The first frost of the season.");
-  else if (K.frostHours.length) out.push("Frost likely early.");
-  if (K.aqiMax != null && K.aqiMax > 100) out.push(`Air quality is ${aqiCategory(K.aqiMax)} (AQI ${Math.round(K.aqiMax)}) around ${hourLabel(K.aqiMaxHour)}.`);
-  if (K.uvMax != null && K.uvMax >= 8) out.push(`UV is ${uvCategory(K.uvMax)} around ${hourLabel(K.uvMaxHour)}.`);
-  return out;
+  if (K.snowCm >= 1) out.push(`there's ${units === "us" ? `${Math.round(K.snowCm / 2.54)}\u00a0in` : `${Math.round(K.snowCm)}\u00a0cm`} of snow on the ground`);
+  if (K.firstFrost) out.push("it's the first frost of the season");
+  else if (K.frostHours.length) out.push("frost is likely early on");
+  if (K.aqiMax != null && K.aqiMax > 100) out.push(`air quality is ${aqiCategory(K.aqiMax)} (AQI ${Math.round(K.aqiMax)}) around ${hourLabel(K.aqiMaxHour)}`);
+  if (K.uvMax != null && K.uvMax >= 8) out.push(`UV is ${uvCategory(K.uvMax)} around ${hourLabel(K.uvMaxHour)}`);
+  if (!out.length) return [];
+  const list = out.length > 1 ? `${out.slice(0, -1).join(", ")} and ${out[out.length - 1]}` : out[0];
+  return [`${list[0].toUpperCase()}${list.slice(1)}.`];
 }
 
+/**
+ * The day's weather in two or three easy sentences: the sky (and how much fell),
+ * how it feels, then anything worth a heads-up. The high and low are already in
+ * the line under the place name, so they aren't repeated here.
+ */
 export function describe(f, units = "metric") {
   const H = f.hours;
-  return [skySentence(H), tempSentence(H, units), windSentence(H, units), rainSentence(H, units), ...airSentences(f, units)].filter(Boolean).join(" ");
+  const amount = amountClause(H, units);
+  const sky = amount ? skySentence(H).replace(/\.$/, `, ${amount}.`) : skySentence(H);
+  return [sky, showerSentence(H), feelSentence(H, units), ...airSentences(f, units)].filter(Boolean).join(" ");
 }

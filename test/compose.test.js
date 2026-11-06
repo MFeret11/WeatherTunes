@@ -509,9 +509,10 @@ test("swing follows the dew point", () => {
 test("the forecast paragraph mentions feels-like, air, UV, snow and frost when they matter", async () => {
   const { describe } = await import("../src/describe.js");
   const ph = describe(forecasts["phoenix-heat"]);
-  assert(/Air quality is unhealthy for sensitive groups \(AQI 108\)/.test(ph) && /UV is very high/.test(ph), ph);
+  assert(/[Aa]ir quality is unhealthy for sensitive groups \(AQI 108\)/.test(ph) && /UV is very high/.test(ph), ph);
+  assert(ph.split(". ").length <= 4, "a few sentences, not a report");
   const mc = describe(forecasts["mcmurdo-cold"]);
-  assert(/feeling like −?-?\d+ °C in the wind/.test(mc) && /103 cm of snow on the ground/.test(mc), mc);
+  assert(/feeling like −?-?\d+ °C/.test(mc) && /103 cm of snow on the ground/.test(mc), mc);
   const mu = describe(forecasts["mumbai-monsoon"]);
   assert(/oppressively humid/.test(mu), mu);
   assert(!/Air quality|UV is/.test(describe(forecasts["london-drizzle"])), "nothing extra on an ordinary grey day");
