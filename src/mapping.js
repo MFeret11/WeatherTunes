@@ -883,6 +883,21 @@ export const STRETCH = {
   greyHours: 4, greyCloud: 80, clearCloud: 40,
   min: 0.6, maxChords: 4, maxQuiet: 1,
   answerSteps: 2,
+  // The second pass follows where the weather is heading (never a plain repeat):
+  //   build   (the storm still coming or at its peak) drums and rain fill the free
+  //           sixteenths, a drum fill runs into the next chord, the bass jumps
+  //           octaves, and the band plays gainDb louder
+  //   ease    (the weather falling away) every other drum hit, half the rain, the kit
+  //           keeps only its kick, the bass only its downbeats, gainDb quieter
+  //   breath  (a quiet moment) the chords an octave up and softer, one held bass note
+  //           per hour, gentler rain, gainDb quieter
+  // A chord eases when the next chord's felt energy is below easeBelow × its own.
+  second: {
+    easeBelow: 0.8,
+    build: { gainDb: 1.5, vel: 1.12, fillSteps: 4, fillVel: [0.5, 0.95], rainExtra: 0.5 },
+    ease: { gainDb: -3, vel: 0.75, rainKeep: 0.5 },
+    breath: { gainDb: -2, padVel: 0.75, bassVel: 0.7, rainVel: 0.7 },
+  },
   coda: { from: 0.6, long: 0.9, bars: [1, 2], melodyNotes: 3, vel: 0.8, drips: 3, dripVel: 0.14 },
 };
 

@@ -12,6 +12,7 @@ const CHORD = M.STEPS * M.BARS_PER_CHORD; // sixteenths per chord
 const NOTE_LAYERS = ["melody", "bass", "pad", "arp", "drums", "garage", "beat", "crackle", "rain", "bells", "chimes", "shimmer", "fx"];
 // What a breath keeps: the sustained sounds and the weather's own texture.
 const BREATH_KEEPS = new Set(["bass", "pad", "arp", "rain", "bells", "chimes", "shimmer"]);
+const vel = (v, k) => +Math.min(1, Math.max(0.03, v * k)).toFixed(3);
 
 const wet = (h) => h.precip >= 0.2 || h.code >= M.CODES.wetFrom;
 
@@ -80,6 +81,79 @@ function answer(ctx, notes, c, up) {
 }
 
 /**
+ * Reshape a chord's second-pass copies (already in `layers`, marked `again`) so the
+ * pass moves with the weather: build, ease or breath (see STRETCH.second).
+ */
+function secondPass(layers, c, mode, start) {
+  const P = M.STRETCH.second[mode];
+  const mine = (l) => (layers[l] ?? []).filter((e) => e.again && Math.floor(e.bar / M.BARS_PER_CHORD) === c);
+  const drop = (l, keep) => { // in place: compose() holds these same arrays
+    const kept = layers[l].filter((e) => !(e.again && Math.floor(e.bar / M.BARS_PER_CHORD) === c) || keep(e));
+    layers[l].length = 0;
+    layers[l].push(...kept);
+  };
+  const at = (e) => e.t - start; // 0..15 within the pass
+  const free = (l, k) => !mine(l).some((e) => e.t === start + k);
+  const hourOf = (k) => c * M.BARS_PER_CHORD + Math.floor(k / HOUR);
+  if (mode === "build") {
+    for (const l of ["drums", "rain", "garage", "beat", "bass", "pad", "arp"]) for (const e of mine(l)) e.vel = vel(e.vel, P.vel);
+    // Rain fills free sixteenths (louder after heavier rain), up to rainExtra more hits.
+    const rain = mine("rain");
+    if (rain.length) {
+      const v = Math.max(...rain.map((e) => e.vel));
+      const add = Math.round(rain.length * P.rainExtra);
+      for (let k = 1, made = 0; k < CHORD && made < add; k += 2) {
+        if (free("rain", k)) { layers.rain.push({ bar: hourOf(k), pos: k % HOUR, t: start + k, dur: 1, vel: vel(v, 0.8), again: true }); made++; }
+      }
+    }
+    // A fill into the next chord: the storm drums if they play here, else the rim.
+    const drums = mine("drums");
+    const last = CHORD - P.fillSteps;
+    if (drums.length) {
+      const d = drums[0];
+      drop("drums", (e) => at(e) < last);
+      for (let i = 0; i < P.fillSteps; i++) {
+        const k = last + i;
+        layers.drums.push({ ...d, bar: hourOf(k), pos: k % HOUR, t: start + k, dur: 1,
+          vel: +(P.fillVel[0] + ((P.fillVel[1] - P.fillVel[0]) * i) / (P.fillSteps - 1)).toFixed(3), again: true });
+      }
+    } else if (mine("garage").length || mine("beat").length) {
+      const kit = layers.garage.some((e) => e.again && Math.floor(e.bar / M.BARS_PER_CHORD) === c) ? "garage" : "beat";
+      drop(kit, (e) => at(e) < last || e.kind === "kick");
+      for (let i = 0; i < P.fillSteps; i++) {
+        const k = last + i;
+        layers[kit].push({ bar: hourOf(k), pos: k % HOUR, t: start + k, kind: "snare",
+          vel: +((P.fillVel[0] + ((P.fillVel[1] - P.fillVel[0]) * i) / (P.fillSteps - 1)) * 0.7).toFixed(3), again: true });
+      }
+    }
+    // The bass jumps octaves: every other note up twelve.
+    mine("bass").forEach((e, i) => { if (i % 2 === 1 && e.midi + 12 <= 60) { e.midi += 12; e.note = midiToNote(e.midi); } });
+  } else if (mode === "ease") {
+    let i = 0;
+    drop("drums", () => i++ % 2 === 0);
+    i = 0;
+    drop("rain", () => (i++ % Math.round(1 / P.rainKeep)) === 0);
+    drop("garage", (e) => e.kind === "kick");
+    drop("beat", (e) => e.kind === "kick");
+    drop("bass", (e) => e.pos % 4 === 0);
+    for (const e of mine("bass")) e.dur = Math.min(e.dur * 2, HOUR - e.pos);
+    for (const l of ["drums", "rain", "garage", "beat", "bass", "pad", "arp"]) for (const e of mine(l)) e.vel = vel(e.vel, P.vel);
+  } else {
+    for (const e of mine("pad")) {
+      e.midis = e.midis.map((m) => m + 12);
+      e.notes = e.midis.map(midiToNote);
+      e.vel = vel(e.vel, P.padVel);
+      e.colour = e.colour?.map((x) => ({ ...x, midi: x.midi + 12, note: midiToNote(x.midi + 12), vel: vel(x.vel, P.padVel) }));
+    }
+    // One held bass note per hour.
+    const seen = new Set();
+    drop("bass", (e) => { const h = e.bar; if (seen.has(h)) return false; seen.add(h); return true; });
+    for (const e of mine("bass")) { e.pos = 0; e.t = start + (e.bar % M.BARS_PER_CHORD) * HOUR; e.dur = HOUR; e.vel = vel(e.vel, P.bassVel); }
+    for (const e of mine("rain")) e.vel = vel(e.vel, P.rainVel);
+  }
+}
+
+/**
  * Stretch the score in place: second passes for eventful chords and a wind-down.
  * `layers` is { melody, bass, pad, ... } as compose() returns them.
  */
@@ -93,6 +167,11 @@ export function stretch(ctx, layers) {
     .sort((x, y) => y.score - x.score || x.chord - y.chord)
     .filter((x) => x.kind !== "quiet" || quiet++ < S.maxQuiet)
     .slice(0, S.maxChords);
+  // Where the weather is heading decides what the second pass does (STRETCH.second).
+  const feltOf = (c) => Math.max(...[0, 1].map((i) => A.feltEnergy[Math.min(M.BARS - 1, c * M.BARS_PER_CHORD + i)]));
+  for (const x of picked) {
+    x.mode = x.kind === "quiet" ? "breath" : feltOf(x.chord + 1) < S.second.easeBelow * feltOf(x.chord) ? "ease" : "build";
+  }
   const again = new Map(picked.map((x) => [x.chord, x]));
   const feltPeak = Math.max(...A.felt);
   const codaBars = feltPeak >= S.coda.long ? S.coda.bars[1] : feltPeak >= S.coda.from ? S.coda.bars[0] : 0;
@@ -120,11 +199,12 @@ export function stretch(ctx, layers) {
       e.t = first[c] + within(e);
       const x = again.get(c);
       if (!x || l === "melody" || l === "fx") continue;
-      if (x.kind === "quiet" && !BREATH_KEEPS.has(l)) continue;
+      if (x.mode === "breath" && !BREATH_KEEPS.has(l)) continue;
       copies.push({ ...e, t: second[c] + within(e), again: true });
     }
     list.push(...copies);
   }
+  for (const [c, x] of again) secondPass(layers, c, x.mode, second[c]);
   // Thunder rolls again in a storm's second pass; the melody answers.
   for (const [c, x] of again) {
     if (x.kind !== "weather") continue;
@@ -172,13 +252,16 @@ export function stretch(ctx, layers) {
   for (let c = 0; c < n; c++) {
     for (const s of [first[c], second[c]]) {
       if (s == null) continue;
-      for (let i = 0; i < M.BARS_PER_CHORD; i++) slots.push({ bar: c * M.BARS_PER_CHORD + i, t: s + i * HOUR });
+      const gainDb = s === second[c] ? S.second[again.get(c).mode].gainDb : 0;
+      for (let i = 0; i < M.BARS_PER_CHORD; i++) {
+        slots.push({ bar: c * M.BARS_PER_CHORD + i, t: s + i * HOUR, ...(gainDb ? { gainDb } : {}) });
+      }
     }
   }
   return {
     length, slots,
     barAt: Array.from({ length: M.BARS }, (_, b) => first[chordOf(b)] + (b % M.BARS_PER_CHORD) * HOUR),
-    again: picked.map((x) => ({ chord: x.chord, bar: x.chord * M.BARS_PER_CHORD, kind: x.kind, why: x.why, score: +x.score.toFixed(2) })).sort((x, y) => x.chord - y.chord),
+    again: picked.map((x) => ({ chord: x.chord, bar: x.chord * M.BARS_PER_CHORD, kind: x.kind, mode: x.mode, why: x.why, score: +x.score.toFixed(2) })).sort((x, y) => x.chord - y.chord),
     coda: codaBars ? { at: codaAt, bars: codaBars } : null,
   };
 }

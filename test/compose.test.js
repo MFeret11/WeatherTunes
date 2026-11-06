@@ -912,6 +912,36 @@ test("what fills a second pass follows what happened", () => {
   assert(!stretched["kyoto-spring"].meta.timeline || stretched["kyoto-spring"].meta.timeline.again.length <= 1, "a gentle spring day barely stretches");
 });
 
+test("a second pass moves with the weather, never a plain repeat", () => {
+  let modes = new Set();
+  each((n) => {
+    const x = stretched[n];
+    for (const a of x.meta.timeline?.again ?? []) {
+      modes.add(a.mode);
+      const inChord = (e) => Math.floor(e.bar / M.BARS_PER_CHORD) === a.chord;
+      const count = (l, again) => (x[l] ?? []).filter((e) => inChord(e) && !!e.again === again && !e.coda).length;
+      const hits = (again) => count("drums", again) + count("rain", again) + count("garage", again) + count("beat", again);
+      const slot = x.meta.timeline.slots.find((s) => s.bar === a.bar && s.gainDb);
+      if (a.mode === "build") {
+        assert(hits(true) >= hits(false), `${n} chord ${a.chord}: a building storm gets busier`);
+        assert(slot && slot.gainDb > 0, `${n} and louder`);
+      } else if (a.mode === "ease") {
+        assert(hits(true) <= hits(false), `${n} chord ${a.chord}: an easing storm thins out`);
+        assert(slot && slot.gainDb < 0, `${n} and quieter`);
+      } else {
+        const pad = x.pad.filter((e) => inChord(e) && e.again), orig = x.pad.filter((e) => inChord(e) && !e.again && !e.coda);
+        assert(pad.length && pad.every((p, i) => p.midis[0] === orig[i].midis[0] + 12), `${n} a breath lifts the chords an octave`);
+      }
+      // No instrument plays twice at once.
+      for (const l of ["drums", "rain", "bass"]) {
+        const t = x[l].map((e) => e.t);
+        equal(new Set(t).size, t.length, `${n} ${l} hits stay apart`);
+      }
+    }
+  });
+  assert(modes.has("build") && modes.has("ease"), `samples build and ease: ${[...modes]}`);
+});
+
 test("the melody's answer keeps strong beats on the chord", () => each((n) => {
   const x = stretched[n];
   for (const m of x.melody.filter((e) => e.again)) {

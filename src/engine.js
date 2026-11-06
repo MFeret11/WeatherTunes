@@ -539,7 +539,7 @@ export class Engine {
     }
 
     // Per-hour automation.
-    for (const slot of tl.slots) tr.schedule((t) => this.applyBar(slot.bar, t), pos16(slot.t));
+    for (const slot of tl.slots) tr.schedule((t) => this.applyBar(slot.bar, t, false, slot.gainDb ?? 0), pos16(slot.t));
     // Fade in at the top of every pass; fade out across the last hour into the gap.
     const g = this.fade.gain;
     tr.schedule((t) => {
@@ -558,14 +558,17 @@ export class Engine {
     }, `${realBars}:0:0`);
   }
 
-  /** One hour slot's settings, gliding from the last hour's (or set at once when `instant`). */
-  applyBar(bar, t, instant = false) {
+  /**
+   * One hour slot's settings, gliding from the last hour's (or set at once when `instant`).
+   * `extraDb` moves the band for this pass only (a stretched chord's second pass).
+   */
+  applyBar(bar, t, instant = false, extraDb = 0) {
     const A = this.score.automation;
     const a = this.score.atmosphere[bar];
     const ramp = instant ? 0.005 : this.s16(2); // an hour is 8 sixteenths
     this.melodyPan.pan.rampTo(A.pan[bar], ramp, t);
-    if (bar === 0 || instant) this.band.volume.setValueAtTime(A.gainDb[bar], t);
-    else this.band.volume.rampTo(A.gainDb[bar], ramp * 2, t);
+    if (bar === 0 || instant) this.band.volume.setValueAtTime(A.gainDb[bar] + extraDb, t);
+    else this.band.volume.rampTo(A.gainDb[bar] + extraDb, ramp * 2, t);
     const mDb = (A.melodyDb?.[bar] ?? 0) + (A.melodyDayDb?.[bar] ?? 0);
     if (bar === 0 || instant) this.melodyLevel.volume.setValueAtTime(mDb, t);
     else this.melodyLevel.volume.rampTo(mDb, ramp * 2, t);
@@ -610,7 +613,7 @@ export class Engine {
       const steps = this.score.meta.steps ?? 16;
       const tl = timeline(this.score);
       const slot = tl.slots.filter((x) => this.s16(x.t) <= offset).at(-1) ?? tl.slots[0];
-      this.applyBar(slot.bar, when, true);
+      this.applyBar(slot.bar, when, true, slot.gainDb ?? 0);
       const outStart = this.s16(tl.length - FADE.outHours * steps);
       const outEnd = outStart + this.s16(FADE.outHours * steps + outGap(this.score.meta.bpm));
       const g = this.fade.gain;
