@@ -820,7 +820,11 @@ export const SWELL = { attack: 1.2, decay: 0.6, sustain: 0.3, hold: 1.4, release
 // `trim` (dB, by voice id) brings each simplified voice back to the loudness of
 // the one it replaces, measured with test/render.html solos (&retro=1); chimes
 // never came up in a fixture, so they borrow the glass bells' trim.
+// `sampleRate`: 32-bit songs render at this rate (Hz), about twice as fast as
+// 44.1/48 kHz (Baltimore on the Pi: 76 s → 41 s). Everything above half of it (12 kHz)
+// is gone, the duller top of an N64-era sample rate. The browser resamples on playback.
 export const RETRO32 = {
+  sampleRate: 24000,
   fm: "triangle",
   reverb: { decay: 1.5, preDelay: 0.01, wet: 0.25 },
   trim: { glass: -4, mallet: -2.5, bells: -8, chimes: -4 },

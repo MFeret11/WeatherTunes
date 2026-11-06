@@ -14,7 +14,7 @@
 // a little earlier (see preRoll), so notes still ringing carry on through the switch.
 
 import { Engine, LAYERS, FADE, songSeconds, cueTimes, timeline } from "./engine.js";
-import { SUITE } from "./mapping.js";
+import { SUITE, RETRO32 } from "./mapping.js";
 
 export const SAMPLE_RATE = 44100;
 const LEAD = 0.75; // seconds of audio ready before playback starts or a new render takes over
@@ -273,9 +273,18 @@ export class Player {
     return this.ctx;
   }
 
+  /**
+   * The rate a render is made at: the speakers' own, or in 32-bit mode a lower one
+   * (RETRO32.sampleRate) that renders about twice as fast, like the old consoles it
+   * imitates. The browser resamples it as it plays.
+   */
+  rateFor(retro) {
+    return retro ? RETRO32.sampleRate : (this.ctx?.sampleRate ?? SAMPLE_RATE);
+  }
+
   /** A full render of the song with these settings: a recent one if it matches, else a new one. */
   render(score, retro, muted) {
-    const rate = this.ctx?.sampleRate ?? SAMPLE_RATE;
+    const rate = this.rateFor(retro);
     let r = this.renders.find((x) => x.matches(score, retro, muted, rate));
     if (!r) {
       r = this.makeRender(score, { retro, muted, sampleRate: rate });
@@ -317,7 +326,7 @@ export class Player {
     this.retro = retro;
     this.muted = { ...muted };
     this.cues = cueTimes(score);
-    this.t0 = null; // the context frame where the song's first frame plays
+    this.t0 = null; // the context time (seconds) where the song's first frame plays
     this.bar = undefined;
     this.fx = 0;
     this.playing = true;
@@ -372,7 +381,7 @@ export class Player {
     const offset = soon + preRoll(this.score, soon) / Math.max(0.5, this.speed);
     if (offset > this.cues.end - 1) return; // nearly over anyway
     if (this.next) this.drop(this.next);
-    this.next = this.stream(this.makeRender(this.score, { retro: this.retro, muted: this.muted, offset, sampleRate: this.ctx.sampleRate }));
+    this.next = this.stream(this.makeRender(this.score, { retro: this.retro, muted: this.muted, offset, sampleRate: this.rateFor(this.retro) }));
   }
 
   makeRender(score, options) {
@@ -382,7 +391,7 @@ export class Player {
   /** Seconds into the song that are reaching the speakers now. */
   position() {
     const latency = this.ctx.outputLatency || this.ctx.baseLatency || 0;
-    return (this.ctx.currentTime - latency) - this.t0 / this.ctx.sampleRate;
+    return (this.ctx.currentTime - latency) - this.t0;
   }
 
   stream(render) {
@@ -412,17 +421,18 @@ export class Player {
         this.finish(r.error);
         return;
       }
-      const nowF = Math.round((this.ctx.currentTime + MARGIN) * sr);
+      const now = this.ctx.currentTime + MARGIN;
       if (st === this.active) {
         if (!r.ready(0)) return;
-        this.t0 = nowF;
+        this.t0 = now;
         this.waiting(false);
       } else {
         // A new render taking over: as soon as it can, but not before it begins.
-        const from = Math.max(nowF - this.t0, offF) - offF;
+        // Frames here are this render's own, which may differ from the playing one's.
+        const from = Math.max(Math.round((now - this.t0) * sr), offF) - offF;
         if (!r.ready(from)) return;
         st.from = from;
-        this.splice(st, (this.t0 + offF + from) / sr);
+        this.splice(st, this.t0 + (offF + from) / sr);
       }
       st.live = true;
       st.scheduled = st.from;
@@ -434,8 +444,8 @@ export class Player {
       const end = b.at + b.data[0].length;
       if (end <= st.scheduled) continue;
       const start = Math.max(b.at, st.scheduled);
-      let when = (tail ? st.t0 : this.t0) + offF + start;
-      const late = Math.round((this.ctx.currentTime + 0.02) * sr) - when;
+      let when = (tail ? st.t0 : this.t0) + (offF + start) / sr; // seconds
+      const late = this.ctx.currentTime + 0.02 - when;
       if (late > 0 || (st.stalled && st === this.active)) {
         if (tail) break; // too late to matter: it's fading out under the next song
         // The render fell behind. Pause here once, rather than stuttering block by
@@ -446,8 +456,8 @@ export class Player {
         }
         if (!r.ready(start, RESUME_LEAD)) break;
         st.stalled = false;
-        this.t0 = Math.round((this.ctx.currentTime + MARGIN) * sr) - offF - start;
-        when = this.t0 + offF + start;
+        this.t0 = this.ctx.currentTime + MARGIN - (offF + start) / sr;
+        when = this.t0 + (offF + start) / sr;
         if (st === this.active) this.waiting(false);
       }
       const buf = this.ctx.createBuffer(2, end - start, sr);
@@ -456,7 +466,7 @@ export class Player {
       src.buffer = buf;
       src.connect(st.gain);
       src.onended = () => { st.sources.delete(src); src.disconnect(); };
-      src.start(when / sr);
+      src.start(when);
       st.sources.add(src);
       st.scheduled = end;
     }
@@ -492,7 +502,7 @@ export class Player {
     const st = this.active;
     if (st && st.live && !st.stalled && !st.render.done && this.t0 != null) {
       // Played everything that has arrived and the render hasn't caught up: pause.
-      const at = Math.round(this.ctx.currentTime * st.render.sampleRate) - this.t0 - Math.round(st.render.offset * st.render.sampleRate);
+      const at = Math.round((this.ctx.currentTime - this.t0 - st.render.offset) * st.render.sampleRate);
       if (at >= st.scheduled) {
         st.stalled = true;
         this.waiting(true);
