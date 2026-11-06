@@ -119,6 +119,22 @@ export class Render {
     return renderLeft <= (this.frames - from) / sr - LEAD;
   }
 
+  /**
+   * About how many seconds until ready(from, lead) comes true, or null before there's
+   * a speed. For a countdown, so it uses the steadier speed over the whole render
+   * (ready() itself is more cautious, so the last second or two may run over).
+   */
+  waitFor(from, lead = LEAD) {
+    if (this.done) return 0;
+    if (!this.first || !this.speed()) return null;
+    const speed = (this.got - this.first.got) / this.sampleRate / ((performance.now() - this.first.wall) / 1000);
+    if (!(speed > 0)) return null;
+    const sr = this.sampleRate, total = this.frames / sr, f = from / sr, got = this.got / sr;
+    const room = total - f - LEAD;
+    const need = room > 0 ? Math.max(f + lead, total - speed * SAFETY * room) : total;
+    return Math.max(0, (need - got) / speed);
+  }
+
   /** The whole render as an AudioBuffer-like object (for the WAV download). */
   audio() {
     const ch = [new Float32Array(this.frames), new Float32Array(this.frames)];
@@ -572,8 +588,21 @@ export class Player {
     this.onEnd?.(error);
   }
 
+  /**
+   * While waiting to start or resume: { seconds, fraction } for a countdown and a
+   * progress fill, either null until the render's speed is known. Null when not waiting.
+   */
+  waitInfo() {
+    const st = this.active;
+    if (!this.isWaiting || !st) return null;
+    const secs = st.render.waitFor(st.stalled ? st.scheduled : 0, st.stalled ? RESUME_LEAD : LEAD);
+    const waited = (performance.now() - this.waitSince) / 1000;
+    return { seconds: secs, fraction: secs == null ? null : Math.min(1, waited / Math.max(0.001, waited + secs)) };
+  }
+
   waiting(on) {
     if (this.isWaiting === on) return;
+    if (on) this.waitSince = performance.now();
     this.isWaiting = on;
     this.onWait?.(on);
   }

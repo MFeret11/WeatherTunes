@@ -542,6 +542,22 @@ select, .btn {
 .play svg { width: 22px; height: 22px; fill: currentColor; }
 .play .i-stop, .player.playing .play .i-play { display: none; }
 .player.playing .play .i-stop { display: block; }
+/* Getting ready to play: a fill grows left to right with the render (--prep, 0–1);
+   before there's an estimate, a soft shimmer moves across instead. */
+.play { position: relative; overflow: hidden; isolation: isolate; }
+.play.preparing::before {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: color-mix(in srgb, #fff 28%, transparent);
+  transform-origin: left; transform: scaleX(var(--prep, 0));
+  transition: transform 0.25s linear;
+}
+.play.preparing:not([style*="--prep"])::after {
+  content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, #fff 30%, transparent) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: prep-shimmer 1.4s linear infinite;
+}
+@keyframes prep-shimmer { from { background-position: 125% 0; } to { background-position: -125% 0; } }
 .download { display: inline-flex; align-items: center; gap: 6px; padding-left: 10px; }
 .download svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* 32-bit mode switch: a pressed button, in the accent colour when on. */
@@ -691,4 +707,5 @@ select, .btn {
   * { transition: none !important; }
   .sky .rainfx, .sky .snowfx, .sky .snowfx::before, .sky .snowfx::after { animation: none; }
   .player.playing .vinyl::after { animation: none; }
+  .play.preparing::after { animation: none; }
 }

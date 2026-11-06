@@ -583,7 +583,8 @@ const player = new Player({
   onBar: highlight,
   onEvent,
   onWait: (waiting) => {
-    if (playing) playBtn.querySelector("span").textContent = waiting ? (player.t0 != null ? "Buffering…" : "Starting…") : "Stop";
+    if (playing) playBtn.querySelector("span").textContent = waiting ? waitLabel() : "Stop";
+    showWait(playing && waiting);
   },
   onEnd: (error) => {
     playing = false;
@@ -614,8 +615,35 @@ function stop() {
 }
 
 function setPlayState(on) {
-  playBtn.querySelector("span").textContent = on ? (player.isWaiting ? "Starting…" : "Stop") : "Play";
+  playBtn.querySelector("span").textContent = on ? (player.isWaiting ? waitLabel() : "Stop") : "Play";
   document.querySelector(".player").classList.toggle("playing", on);
+  showWait(on && player.isWaiting);
+}
+
+// While a song gets ready (or catches up mid-song), the button counts down and fills
+// from left to right; until the render's speed is known, a soft shimmer moves across it.
+let waitTimer = null;
+let shownSecs = null; // the countdown only ticks down, unless the estimate grows a lot
+function waitLabel() {
+  const word = player.t0 != null ? "Buffering…" : "Starting…";
+  const info = player.waitInfo();
+  if (!info || info.seconds == null) { shownSecs = null; return word; }
+  const est = Math.ceil(info.seconds);
+  shownSecs = shownSecs == null || est < shownSecs || est > shownSecs + 3 ? est : shownSecs;
+  return shownSecs >= 2 ? `${word} ${shownSecs} s` : word;
+}
+function showWait(on) {
+  playBtn.classList.toggle("preparing", on);
+  clearInterval(waitTimer);
+  if (!on) { playBtn.style.removeProperty("--prep"); shownSecs = null; return; }
+  const tick = () => {
+    const info = player.waitInfo();
+    if (info?.fraction != null) playBtn.style.setProperty("--prep", info.fraction.toFixed(3));
+    else playBtn.style.removeProperty("--prep");
+    playBtn.querySelector("span").textContent = waitLabel();
+  };
+  tick();
+  waitTimer = setInterval(tick, 250);
 }
 
 playBtn.addEventListener("click", () => (playing ? stop() : play()));
