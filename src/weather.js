@@ -112,6 +112,7 @@ export function normalizeForecast(raw, name) {
     timezone: raw.timezone,
     utcOffset: Number.isFinite(raw.utc_offset_seconds) ? raw.utc_offset_seconds / 60 : 0,
     country: raw.country_code || null,
+    elevation: Number.isFinite(raw.elevation) ? raw.elevation : null, // metres; null when unknown
     date,
     sunrise,
     sunset,

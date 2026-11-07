@@ -164,6 +164,7 @@ def main():
             "hourly": best_h,
             "daily": {k: [v[best_i]] for k, v in d["daily"].items()},
             "country_code": cc,
+            "elevation": d.get("elevation"),
         }
         fixture["extras"] = extras(fixture, cc)
         path = OUT / f"{fname}.json"

@@ -3,8 +3,9 @@
 //   storm     a dark, grainy sleeve with big lightning and slanting rain
 //   clock     the day as a ring of 24 hours around tonight's moon (aurora, eclipse,
 //             meteor or full-moon nights, and days with no sunrise at all)
-//   stripes   the day's temperature as a band of colour under its sky (big swings)
-//   horizon   the day's temperature drawn as a line of hills under the sky
+//   stripes   one stripe per hour in its temperature's colour, under the day's sky (big swings)
+//   horizon   the day's temperature drawn as mountains (highland towns) or
+//             rolling plains (low-lying ones) under the sky
 //   sky       the sky changing from midnight (left) to 11 pm (right)
 //   poster    flat colour from the day's temperature and one big sun
 // Plain days rotate between horizon, sky and poster. Every design shares the same
@@ -47,6 +48,8 @@ function flag(cc) {
   return `<g><rect x="${x - 0.8}" y="${y - 0.8}" width="${w + 1.6}" height="${h + 1.6}" rx=".6" fill="#fff" opacity=".95"/>` +
     `<image href="${FLAGS}${cc.toLowerCase()}.svg" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"/></g>`;
 }
+
+const HIGHLAND_M = 500; // towns at least this high (metres) get mountains on the horizon cover
 
 // ---- Which design ----------------------------------------------------------
 
@@ -344,8 +347,10 @@ function horizonDesign(c) {
   const lo = Math.min(...temps), hi = Math.max(...temps);
   const amp = Math.min(1, (hi - lo) / 8); // calm days roll gently, big swings climb
   const norm = (t) => (hi > lo ? (t - lo) / (hi - lo) : 0.5) * amp;
-  const far = H.map((h, i) => [x(i), 66 - norm(h.temp) * 14 - rand() * 4]);
-  const near = H.map((h, i) => [x(i), 80 - norm(h.temp) * 20]);
+  // Highland towns get mountains; low-lying ones get gentle rolling plains.
+  const high = (c.forecast.elevation ?? 0) >= HIGHLAND_M;
+  const far = H.map((h, i) => high ? [x(i), 66 - norm(h.temp) * 14 - rand() * 4] : [x(i), 73 - norm(h.temp) * 4 - rand() * 0.6]);
+  const near = H.map((h, i) => high ? [x(i), 80 - norm(h.temp) * 20] : [x(i), 82 - norm(h.temp) * 7]);
   const avg = cols.reduce((a, v) => a.map((s, j) => s + v[j] / cols.length), [0, 0, 0]).map(Math.round);
   const tint = parse(tempColor(mean(temps)));
   const farCol = mix(avg, NIGHT, 0.45), nearCol = mix([16, 15, 28], tint, 0.22);
@@ -364,30 +369,33 @@ function horizonDesign(c) {
     wind(H, rand, x, 12, 34) + wet(H, rand, x, 40, 26) +
     `<path d="${ridge(far)}" fill="${rgb(farCol)}" opacity=".92"/>` +
     (snowy ? `<path d="${ridge(far).split("L101")[0]}" stroke="#fff" stroke-width="1.6" fill="none" opacity=".85"/>` : "") +
-    fog(H, x, [58, 64, 70]) +
+    fog(H, x, high ? [58, 64, 70] : [70, 75, 79]) +
     `<path d="${ridge(near)}" fill="${rgb(nearCol)}"/>` +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
 
 function stripesDesign(c) {
   const { H, meta, x, rand, cols } = c;
-  // The day's temperature as a band of colour per hour, left to right. Each hour
-  // is solid in the middle and blends into the next only at its edges.
-  const w = 100 / H.length, edge = w * 0.12;
-  const bands = (colour) => H.map((h, i) =>
-    `<stop offset="${f1(i * w + edge)}%" ${colour(h, i)}/><stop offset="${f1((i + 1) * w - edge)}%" ${colour(h, i)}/>`).join("");
-  const temp = `<linearGradient id="cv-temp">${bands((h) => `stop-color="${tempColor(h.temp)}"`)}</linearGradient>`;
-  // Night hours are shaded, so daylight reads as the bright middle.
-  const night = `<linearGradient id="cv-night">${bands((h) => `stop-color="#0b0a1e" stop-opacity="${h.isDay ? 0 : 0.38}"`)}</linearGradient>`;
-  // The sky sits above it, meeting the colour along a soft horizon.
-  const fall = `<linearGradient id="cv-melt" x1="0" y1="0" x2="0" y2="1"><stop offset=".38" stop-color="#fff"/><stop offset=".52" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+  const w = 100 / H.length;
+  // One crisp stripe per hour in the colour of its temperature, drawn as a single
+  // gradient with hard edges (separate shapes leave hairline gaps when scaled).
+  const hard = `<linearGradient id="cv-temp">${H.map((h, i) =>
+    `<stop offset="${f1(i * w)}%" stop-color="${tempColor(h.temp)}"/><stop offset="${f1((i + 1) * w)}%" stop-color="${tempColor(h.temp)}"/>`).join("")}</linearGradient>`;
+  const bands = `<rect width="100" height="100" fill="url(#cv-temp)"/>`;
+  // Night: one shadow over each stretch of dark hours (so there are no seams
+  // between them), deepest at the top where it meets the night sky.
+  let night = "";
+  for (const [a, b] of runs(H, (h) => !h.isDay)) {
+    night += `<rect x="${f1(a * w)}" width="${f1((b - a + 1) * w)}" height="100" fill="url(#cv-night)"/>`;
+  }
+  // The sky sits above the stripes and melts into them about halfway down.
+  const defs = `<linearGradient id="cv-night" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b0a1e" stop-opacity=".62"/><stop offset=".5" stop-color="#0b0a1e" stop-opacity=".42"/><stop offset="1" stop-color="#0b0a1e" stop-opacity=".3"/></linearGradient>` +
+    `<linearGradient id="cv-melt" x1="0" y1="0" x2="0" y2="1"><stop offset=".4" stop-color="#fff"/><stop offset=".46" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
     `<mask id="cv-skymask"><rect width="100" height="100" fill="url(#cv-melt)"/></mask>`;
   const s = sun(H, meta, x, 26, 0.75);
-  return `<defs>${temp}${night}${gradient("cv-sky", cols, x)}${fall}${fadeDown}</defs>` +
-    `<rect width="100" height="100" fill="url(#cv-temp)"/>` +
-    `<rect width="100" height="100" fill="url(#cv-sky)" mask="url(#cv-skymask)"/>` +
-    `<rect width="100" height="100" fill="url(#cv-night)"/>` +
-    stars(H, meta, rand, x, 14, 40) + (s?.svg ?? "") + clouds(H, rand, 18, 16) +
+  return `<defs>${hard}${gradient("cv-sky", cols, x)}${defs}${fadeDown}</defs>` + bands +
+    `<rect width="100" height="100" fill="url(#cv-sky)" mask="url(#cv-skymask)"/>` + night +
+    stars(H, meta, rand, x, 6, 40) + (s?.svg ?? "") + clouds(H, rand, 18, 16) +
     wind(H, rand, x, 46, 26) + wet(H, rand, x, 50, 22) +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
