@@ -346,6 +346,38 @@ export const RANDOM_CITIES = [
   { name: "Rio de Janeiro, Brazil", lat: -22.9, lon: -43.2, cc: "BR" },
   { name: "Santiago, Chile", lat: -33.4, lon: -70.7, cc: "CL" },
   { name: "Ushuaia, Argentina", lat: -54.8, lon: -68.3, cc: "AR" },
+  // Places known for their weather: the wettest, hottest, coldest, windiest,
+  // foggiest and stormiest towns on Earth.
+  { name: "Sohra, India", lat: 25.3, lon: 91.7, cc: "IN" }, // among the wettest places on Earth
+  { name: "Hilo, United States", lat: 19.7, lon: -155.1, cc: "US" }, // wettest US city
+  { name: "Bogor, Indonesia", lat: -6.6, lon: 106.8, cc: "ID" }, // thunder most days of the year
+  { name: "Maracaibo, Venezuela", lat: 10.7, lon: -71.6, cc: "VE" }, // Catatumbo lightning nearby
+  { name: "Kuwait City, Kuwait", lat: 29.4, lon: 48.0, cc: "KW" }, // summer highs near 50 °C
+  { name: "Jacobabad, Pakistan", lat: 28.3, lon: 68.4, cc: "PK" }, // heat and humidity at the limit
+  { name: "Ahvaz, Iran", lat: 31.3, lon: 48.7, cc: "IR" },
+  { name: "Timbuktu, Mali", lat: 16.8, lon: -3.0, cc: "ML" }, // Saharan heat and dust
+  { name: "Death Valley, United States", lat: 36.5, lon: -116.9, cc: "US" }, // the hottest air ever measured
+  { name: "Yuma, United States", lat: 32.7, lon: -114.6, cc: "US" }, // the sunniest city
+  { name: "Arica, Chile", lat: -18.5, lon: -70.3, cc: "CL" }, // the driest city: years without rain
+  { name: "Oymyakon, Russia", lat: 63.5, lon: 142.8, cc: "RU" }, // the coldest town people live in
+  { name: "Norilsk, Russia", lat: 69.3, lon: 88.2, cc: "RU" }, // polar night and blizzards
+  { name: "Harbin, China", lat: 45.8, lon: 126.6, cc: "CN" }, // the ice city
+  { name: "Fairbanks, United States", lat: 64.8, lon: -147.7, cc: "US" },
+  { name: "Utqiaġvik, United States", lat: 71.3, lon: -156.8, cc: "US" }, // two months without sunrise
+  { name: "Longyearbyen, Svalbard", lat: 78.2, lon: 15.6, cc: "SJ" }, // the northernmost town
+  { name: "Iqaluit, Canada", lat: 63.7, lon: -68.5, cc: "CA" },
+  { name: "Mount Washington, United States", lat: 44.3, lon: -71.3, cc: "US" }, // home of the world's worst weather
+  { name: "Buffalo, United States", lat: 42.9, lon: -78.9, cc: "US" }, // lake-effect snow
+  { name: "Aomori, Japan", lat: 40.8, lon: 140.7, cc: "JP" }, // the snowiest city
+  { name: "Oklahoma City, United States", lat: 35.5, lon: -97.5, cc: "US" }, // tornado alley
+  { name: "San Juan, Puerto Rico", lat: 18.5, lon: -66.1, cc: "PR" }, // hurricane season
+  { name: "Hong Kong", lat: 22.3, lon: 114.2, cc: "HK" }, // typhoons
+  { name: "Naha, Japan", lat: 26.2, lon: 127.7, cc: "JP" }, // typhoon alley
+  { name: "San Francisco, United States", lat: 37.8, lon: -122.4, cc: "US" }, // summer fog
+  { name: "Tórshavn, Faroe Islands", lat: 62.0, lon: -6.8, cc: "FO" }, // the cloudiest capital
+  { name: "Punta Arenas, Chile", lat: -53.2, lon: -70.9, cc: "CL" }, // relentless wind
+  { name: "La Paz, Bolivia", lat: -16.5, lon: -68.1, cc: "BO" }, // thin air, fierce sun
+  { name: "Lhasa, Tibet", lat: 29.7, lon: 91.1, cc: "CN" }, // high, dry and sunny
 ];
 
 /** A random city, never the one already playing. */
