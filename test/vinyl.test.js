@@ -3,7 +3,7 @@ import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
 import { compose } from "../src/compose.js";
 import { pressing, pressingKind, keyColour } from "../src/vinyl.js";
-import { coverArt } from "../src/cover.js";
+import { coverArt, coverStyle } from "../src/cover.js";
 
 const load = async (n) => normalizeForecast(await (await fetch(`../samples/${n}.json`)).json());
 const day = {};
@@ -42,4 +42,17 @@ test("cover: flag sticker only with a country code, aurora only when the lights 
   assert(!coverArt({ ...f, country: null }, meta).includes("flags/"), "no country, no flag");
   assert(!coverArt({ ...f, country: "../x" }, meta).includes("flags/"), "codes are checked");
   assert(!coverArt(day["kyoto-spring"].f, day["kyoto-spring"].meta).includes("cv-aur"), "no aurora in Kyoto");
+});
+
+test("cover design follows the weather", () => {
+  const design = (n) => coverStyle(day[n].f, day[n].meta);
+  equal(design("houston-storms"), "storm", "a stormy day");
+  equal(design("mcmurdo-cold"), "clock", "polar night under the aurora");
+  equal(design("phoenix-heat"), "stripes", "a big swing between night and afternoon");
+  for (const n of Object.keys(day)) {
+    const svg = coverArt(day[n].f, day[n].meta);
+    assert(svg.includes(`data-design="${design(n)}"`), `${n} draws its design`);
+    assert(!/NaN|undefined/.test(svg), `${n} has no broken numbers`);
+    equal(svg, coverArt(day[n].f, day[n].meta), `${n} is the same every time`);
+  }
 });
