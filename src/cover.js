@@ -8,7 +8,7 @@
 //   sky       the sky changing from midnight (left) to 11 pm (right)
 //   poster    flat colour from the day's temperature and one big sun
 // Plain days rotate between horizon, sky and poster. Every design shares the same
-// details: stars on clear nights, the real phase of the moon, fog, wind, frost,
+// details: stars on clear nights, fog, wind, frost,
 // and the country's flag in the corner.
 
 import { tempColor, moonDisc } from "./icons.js";
@@ -85,6 +85,7 @@ function skyColours(H, meta) {
     const day = thundery(h) ? STORM : mix(CLEAR, GREY, h.cloud / 100);
     let c = mix(mix(NIGHT, day, Math.max(0.05, meta.hourBrightness[i])),
       h.isDay ? ICE_DAY : ICE_NIGHT, 0.9 * (meta.deepCold?.[i] ?? 0));
+    if (!h.isDay) c = mix(c, NIGHT, 0.55); // night is dark, whatever the mood
     if (O) {
       if (h.isDay) c = mix(c, GLARE, 0.6 * O.heat[i]);
       c = mix(c, h.isDay ? WHITEOUT : mix(WHITEOUT, ICE_NIGHT, 0.6), 0.85 * O.whiteout[i]);
@@ -99,8 +100,6 @@ function skyColours(H, meta) {
   });
 }
 
-/** True when the sky colour is dark enough for the moon and stars to show. */
-const darkSky = (c) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2] < 95;
 
 const gradient = (id, cols, x) =>
   `<linearGradient id="${id}">${cols.map((c, i) => `<stop offset="${f1(x(i))}%" stop-color="${rgb(c)}"/>`).join("")}</linearGradient>`;
@@ -122,19 +121,8 @@ function sun(H, meta, x, cy = 36, scale = 1) {
 
 /** Tonight's moon in its real phase. */
 function moonShape(cx, cy, r, m, south, fill = MOON) {
-  return moonDisc(f1(cx), f1(cy), r, { illum: m.illum, waxing: m.waxing, south }).replaceAll("var(--moon)", fill);
-}
-
-/** The night hour when the moon is highest in a fairly clear sky, or -1. */
-function moonHour(H, meta, cols) {
-  const m = meta.sky?.moon;
-  if (!m || m.illum < 0.04) return -1;
-  let best = -1;
-  H.forEach((h, i) => {
-    if (h.isDay || !darkSky(cols[i]) || !((m.alt?.[i] ?? 0) > 5) || h.cloud > 75) return;
-    if (best < 0 || m.alt[i] > m.alt[best]) best = i;
-  });
-  return best;
+  return moonDisc(f1(cx), f1(cy), r, { illum: m.illum, waxing: m.waxing, south })
+    .replace('opacity=".22"', 'opacity=".1"').replaceAll("var(--moon)", fill);
 }
 
 /** Stars over the clear night hours. */
@@ -154,11 +142,11 @@ function stars(H, meta, rand, x, top = 4, bottom = 44) {
 }
 
 /** Clouds drift across the sun on grey days. */
-function clouds(H, rand) {
+function clouds(H, rand, top = 30, depth = 18) {
   const cloud = mean(H.map((h) => h.cloud)) / 100;
   let out = "";
   for (let k = 0; k < Math.round(cloud * 4); k++) {
-    const cx = 10 + rand() * 80, cy = 30 + rand() * 18, w = 16 + rand() * 14;
+    const cx = 10 + rand() * 80, cy = top + rand() * depth, w = 16 + rand() * 14;
     out += `<ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(w)}" ry="${f1(w * 0.32)}" fill="#fff" opacity="${(0.12 + cloud * 0.25).toFixed(2)}"/>`;
   }
   return out;
@@ -225,25 +213,35 @@ function wind(H, rand, x, top = 18, depth = 50) {
   return out;
 }
 
-/** Frost creeping in from the top corners on frosty mornings. */
+/** A small six-pointed ice crystal. */
+function crystal(cx, cy, r, rot) {
+  let d = "";
+  for (let k = 0; k < 6; k++) {
+    const a = rot + (k * Math.PI) / 3, ex = cx + Math.cos(a) * r, ey = cy + Math.sin(a) * r;
+    const mx = cx + Math.cos(a) * r * 0.55, my = cy + Math.sin(a) * r * 0.55, b = r * 0.32;
+    d += `M${f1(cx)} ${f1(cy)}L${f1(ex)} ${f1(ey)}` +
+      `M${f1(mx)} ${f1(my)}l${f1(Math.cos(a + 0.8) * b)} ${f1(Math.sin(a + 0.8) * b)}` +
+      `M${f1(mx)} ${f1(my)}l${f1(Math.cos(a - 0.8) * b)} ${f1(Math.sin(a - 0.8) * b)}`;
+  }
+  return d;
+}
+
+/** Frost on the top corners on frosty mornings: a frosted haze and a few ice crystals. */
 function frost(meta, rand) {
   if (!meta.sky?.frostHours?.length) return "";
-  let out = `<radialGradient id="cv-frost"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>`;
-  for (const [cx, dir] of [[0, 1], [100, -1]]) {
-    out += `<circle cx="${cx}" cy="0" r="24" fill="url(#cv-frost)"/>`;
-    // A few fern-like crystals growing out of the corner.
-    for (let k = 0; k < 4; k++) {
-      const a = (0.15 + (k / 4) * 1.2 + rand() * 0.15), len = 10 + rand() * 9;
-      const ex = cx + dir * Math.cos(a) * len, ey = Math.sin(a) * len;
-      let d = `M${cx} 0L${f1(ex)} ${f1(ey)}`;
-      for (let s = 1; s <= 3; s++) {
-        const t = s / 4, px = cx + (ex - cx) * t, py = ey * t, b = 2.4 * (1 - t) + 0.8;
-        d += `M${f1(px)} ${f1(py)}l${f1(dir * b)} ${f1(-b * 0.4)}M${f1(px)} ${f1(py)}l${f1(-dir * b * 0.3)} ${f1(b)}`;
-      }
-      out += `<path d="${d}" stroke="#fff" stroke-width=".35" fill="none" stroke-linecap="round" opacity=".7"/>`;
+  let out = `<radialGradient id="cv-frost"><stop offset="0" stop-color="#eef6ff" stop-opacity=".6"/><stop offset=".6" stop-color="#eef6ff" stop-opacity=".18"/><stop offset="1" stop-color="#eef6ff" stop-opacity="0"/></radialGradient>`;
+  let d = "";
+  for (const cx of [0, 100]) {
+    out += `<circle cx="${cx}" cy="0" r="26" fill="url(#cv-frost)"/>`;
+    for (let k = 0; k < 5; k++) {
+      const a = rand() * Math.PI / 2, dist = 4 + Math.sqrt(rand()) * 17;
+      // On the left, crystals hug the edge below the WEATHERTUNES label.
+      const px = cx === 0 ? 1.5 + rand() * 3.5 : 100 - Math.cos(a) * dist;
+      const py = cx === 0 ? 14 + rand() * 12 : Math.sin(a) * dist;
+      d += crystal(px, py, 1.2 + rand() * 1.4 * (1 - dist / 26), rand());
     }
   }
-  return out;
+  return out + `<path d="${d}" stroke="#fff" stroke-width=".3" fill="none" stroke-linecap="round" opacity=".85"/>`;
 }
 
 /**
@@ -282,10 +280,10 @@ function lettering(design, city, date) {
   const n = Math.max(city.length, 1);
   const dateText = (y, size = 4.4, x = 7) => `<text x="${x}" y="${y}" fill="#fff" opacity=".85" font-family="Inter, sans-serif" font-size="${size}">${esc(date)}</text>`;
   if (design === "stripes") {
-    // A big title across the top of the stripes.
-    const size = Math.min(15, 150 / n);
-    return `<text x="6" y="${f1(8 + size * 0.92)}" fill="#fff" ${DISPLAY} font-size="${f1(size)}" letter-spacing="-.3">${esc(city)}</text>` +
-      dateText(f1(14 + size * 0.92), 4.4, 6.4) + LABEL(93);
+    // A big title low on the colour bands, leaving the sky clear above.
+    const size = Math.min(14, 124 / n);
+    return LABEL(11) + `<text x="6" y="80" fill="#fff" ${DISPLAY} font-size="${f1(size)}" letter-spacing="-.3">${esc(city)}</text>` +
+      dateText(87.5, 4.4, 6.4);
   }
   if (design === "storm") {
     // Heavy capitals at the top, under the storm clouds.
@@ -312,14 +310,9 @@ const fadeUp = `<linearGradient id="cv-fade" x1="0" y1="1" x2="0" y2="0"><stop o
 function skyDesign(c) {
   const { H, meta, x, rand, cols } = c;
   const s = sun(H, meta, x);
-  const mh = moonHour(H, meta, cols);
-  let moon = "";
-  if (mh >= 0 && (!s || Math.abs(x(mh) - s.cx) > 22)) {
-    moon = moonShape(Math.min(88, Math.max(12, x(mh))), 40 - (meta.sky.moon.alt[mh] / 90) * 24, s ? 7 : 9, meta.sky.moon, c.south);
-  }
   return `<defs>${gradient("cv-sky", cols, x)}${fadeDown}</defs>` +
     `<rect width="100" height="100" fill="url(#cv-sky)"/>` +
-    stars(H, meta, rand, x) + (s?.svg ?? "") + moon + aurora(c.forecast, meta, rand) + clouds(H, rand) +
+    stars(H, meta, rand, x) + (s?.svg ?? "") + aurora(c.forecast, meta, rand) + clouds(H, rand) +
     fog(H, x) + wind(H, rand, x) + wet(H, rand, x) +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
@@ -348,9 +341,6 @@ function horizonDesign(c) {
   const farCol = mix(avg, NIGHT, 0.45), nearCol = mix([16, 15, 28], tint, 0.22);
   const snowy = (meta.sky?.snowCm ?? 0) >= 1 || H.filter((h) => CODES.snow.includes(h.code)).length >= 3;
   const s = sun(H, meta, x, 32);
-  const mh = moonHour(H, meta, cols);
-  const moon = mh >= 0 && (!s || Math.abs(x(mh) - s.cx) > 22)
-    ? moonShape(Math.min(88, Math.max(12, x(mh))), 36 - (meta.sky.moon.alt[mh] / 90) * 22, s ? 7 : 8, meta.sky.moon, c.south) : "";
   // A painted sky: deep overhead, glowing warm along the hills when the day is clear.
   const dayCols = cols.filter((_, i) => H[i].isDay);
   const base = dayCols.length ? dayCols.reduce((a, v) => a.map((s2, j) => s2 + v[j] / dayCols.length), [0, 0, 0]).map(Math.round) : avg;
@@ -360,7 +350,7 @@ function horizonDesign(c) {
     `<stop offset=".45" stop-color="${rgb(base)}"/><stop offset=".72" stop-color="${rgb(glow)}"/></linearGradient>`;
   return `<defs>${vsky}${fadeDown}</defs>` +
     `<rect width="100" height="100" fill="url(#cv-vsky)"/>` +
-    stars(H, meta, rand, x, 4, 40) + (s?.svg ?? "") + moon + aurora(c.forecast, meta, rand) + clouds(H, rand) +
+    stars(H, meta, rand, x, 4, 40) + (s?.svg ?? "") + aurora(c.forecast, meta, rand) + clouds(H, rand) +
     wind(H, rand, x, 12, 34) + wet(H, rand, x, 40, 26) +
     `<path d="${ridge(far)}" fill="${rgb(farCol)}" opacity=".92"/>` +
     (snowy ? `<path d="${ridge(far).split("L101")[0]}" stroke="#fff" stroke-width="1.6" fill="none" opacity=".85"/>` : "") +
@@ -371,24 +361,24 @@ function horizonDesign(c) {
 
 function stripesDesign(c) {
   const { H, meta, x, rand, cols } = c;
-  // The day's temperature as one smooth band of colour, left to right, with the
-  // night hours softly shaded so daylight reads as the bright middle.
-  const temp = `<linearGradient id="cv-temp">${H.map((h, i) => `<stop offset="${f1(x(i))}%" stop-color="${tempColor(h.temp)}"/>`).join("")}</linearGradient>`;
-  const shade = H.map((h) => (h.isDay ? 0 : 0.4));
-  const night = `<linearGradient id="cv-night">${H.map((_, i) => {
-    const k = (shade[Math.max(0, i - 1)] + 2 * shade[i] + shade[Math.min(H.length - 1, i + 1)]) / 4;
-    return `<stop offset="${f1(x(i))}%" stop-color="#0b0a1e" stop-opacity="${k.toFixed(2)}"/>`;
-  }).join("")}</linearGradient>`;
-  // The sky sits above it and melts into the colour about halfway down.
-  const fall = `<linearGradient id="cv-melt" x1="0" y1="0" x2="0" y2="1"><stop offset=".08" stop-color="#fff"/><stop offset=".58" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+  // The day's temperature as a band of colour per hour, left to right. Each hour
+  // is solid in the middle and blends into the next only at its edges.
+  const w = 100 / H.length, edge = w * 0.12;
+  const bands = (colour) => H.map((h, i) =>
+    `<stop offset="${f1(i * w + edge)}%" ${colour(h, i)}/><stop offset="${f1((i + 1) * w - edge)}%" ${colour(h, i)}/>`).join("");
+  const temp = `<linearGradient id="cv-temp">${bands((h) => `stop-color="${tempColor(h.temp)}"`)}</linearGradient>`;
+  // Night hours are shaded, so daylight reads as the bright middle.
+  const night = `<linearGradient id="cv-night">${bands((h) => `stop-color="#0b0a1e" stop-opacity="${h.isDay ? 0 : 0.38}"`)}</linearGradient>`;
+  // The sky sits above it, meeting the colour along a soft horizon.
+  const fall = `<linearGradient id="cv-melt" x1="0" y1="0" x2="0" y2="1"><stop offset=".38" stop-color="#fff"/><stop offset=".52" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
     `<mask id="cv-skymask"><rect width="100" height="100" fill="url(#cv-melt)"/></mask>`;
-  const s = sun(H, meta, x, 34, 0.85);
-  return `<defs>${temp}${night}${gradient("cv-sky", cols, x)}${fall}${fadeUp}</defs>` +
+  const s = sun(H, meta, x, 26, 0.75);
+  return `<defs>${temp}${night}${gradient("cv-sky", cols, x)}${fall}${fadeDown}</defs>` +
     `<rect width="100" height="100" fill="url(#cv-temp)"/>` +
     `<rect width="100" height="100" fill="url(#cv-sky)" mask="url(#cv-skymask)"/>` +
     `<rect width="100" height="100" fill="url(#cv-night)"/>` +
-    stars(H, meta, rand, x, 6, 40) + (s?.svg ?? "") + clouds(H, rand) +
-    wind(H, rand, x, 40, 30) + wet(H, rand, x, 52, 30) +
+    stars(H, meta, rand, x, 14, 40) + (s?.svg ?? "") + clouds(H, rand, 18, 16) +
+    wind(H, rand, x, 46, 26) + wet(H, rand, x, 50, 22) +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
 
