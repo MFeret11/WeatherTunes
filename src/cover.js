@@ -274,33 +274,43 @@ function aurora(forecast, meta, rand) {
 // ---- Lettering ---------------------------------------------------------------
 
 const LABEL = (y, x = 7) => `<text x="${x}" y="${y}" fill="#fff" opacity=".8" font-family="JetBrains Mono, monospace" font-size="4" letter-spacing=".6">WEATHERTUNES</text>`;
-const DISPLAY = `font-family="Space Grotesk, sans-serif" font-weight="700"`;
+// Each design has its own title face. `w` is roughly how wide a letter is (in
+// ems), so long names can shrink to fit.
+const FACES = {
+  sky: { family: "Space Grotesk, sans-serif", weight: 700, w: 0.6 },
+  horizon: { family: "Fraunces, Georgia, serif", weight: 600, w: 0.62 },
+  poster: { family: "Righteous, sans-serif", weight: 400, w: 0.62 },
+  stripes: { family: "Archivo Black, sans-serif", weight: 400, w: 0.72 },
+  storm: { family: "Bebas Neue, Impact, sans-serif", weight: 400, w: 0.42 },
+  clock: { family: "Playfair Display, Georgia, serif", weight: 600, w: 0.5, style: "italic" },
+};
 
 function lettering(design, city, date) {
+  const F = FACES[design] ?? FACES.sky;
   const n = Math.max(city.length, 1);
+  const fit = (room, cap) => Math.min(cap, room / (n * F.w));
+  const title = (x, y, size, text, extra = "") =>
+    `<text x="${x}" y="${f1(y)}" fill="#fff" font-family="${F.family}" font-weight="${F.weight}"${F.style ? ` font-style="${F.style}"` : ""} font-size="${f1(size)}"${extra}>${esc(text)}</text>`;
   const dateText = (y, size = 4.4, x = 7) => `<text x="${x}" y="${y}" fill="#fff" opacity=".85" font-family="Inter, sans-serif" font-size="${size}">${esc(date)}</text>`;
   if (design === "stripes") {
     // A big title low on the colour bands, leaving the sky clear above.
-    const size = Math.min(14, 124 / n);
-    return LABEL(11) + `<text x="6" y="80" fill="#fff" ${DISPLAY} font-size="${f1(size)}" letter-spacing="-.3">${esc(city)}</text>` +
-      dateText(87.5, 4.4, 6.4);
+    return LABEL(11) + title(6, 80, fit(76, 13), city, ' letter-spacing="-.2"') + dateText(87.5, 4.4, 6.4);
   }
   if (design === "storm") {
-    // Heavy capitals at the top, under the storm clouds.
-    const size = Math.min(12, 104 / n);
-    return `<text x="7" y="${f1(8 + size * 0.9)}" fill="#fff" ${DISPLAY} font-size="${f1(size)}" letter-spacing=".4">${esc(city.toUpperCase())}</text>` +
-      dateText(f1(14 + size * 0.9)) + LABEL(93);
+    // Tall capitals at the top, under the storm clouds.
+    const size = fit(84, 17);
+    return title(7, 8 + size * 0.85, size, city.toUpperCase(), ' letter-spacing=".5"') + dateText(f1(13 + size * 0.85)) + LABEL(93);
   }
   if (design === "clock") {
     // A quiet band along the bottom, under the ring.
-    const size = Math.min(7.5, 80 / n);
     return `<rect y="80" width="100" height="20" fill="#05040f" opacity=".55"/>` +
-      `<text x="7" y="89.5" fill="#fff" ${DISPLAY} font-size="${f1(size)}">${esc(city)}</text>` + dateText(95, 3.8) + LABEL(11);
+      title(7, 89.5, fit(68, 8.5), city) + dateText(95, 3.8) + LABEL(11);
   }
-  // Sky and horizon: the name at the bottom left (long names shrink to leave room for the flag).
-  const size = Math.min(11, 118 / n);
-  return LABEL(11) + `<text x="7" y="86" fill="#fff" ${DISPLAY} font-size="${f1(size)}">${esc(city)}</text>` + dateText(93);
+  // Sky, horizon and poster: the name at the bottom left, leaving room for the flag.
+  return LABEL(11) + title(7, 86, fit(72, 12), city) + dateText(93);
 }
+
+
 
 const fadeDown = `<linearGradient id="cv-fade" x1="0" y1="0" x2="0" y2="1"><stop offset=".45" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></linearGradient>`;
 const fadeUp = `<linearGradient id="cv-fade" x1="0" y1="1" x2="0" y2="0"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".5"/></linearGradient>`;
