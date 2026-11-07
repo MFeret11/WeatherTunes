@@ -4,8 +4,8 @@
 //   clock     the day as a ring of 24 hours around tonight's moon (aurora, eclipse,
 //             meteor or full-moon nights, and days with no sunrise at all)
 //   stripes   hour columns: the sky's colour above, the temperature's below (big swings)
-//   horizon   the day's temperature drawn as mountains (highland towns) or
-//             rolling plains (low-lying ones) under the sky
+//   horizon   the day's temperature drawn as mountains (highland towns), a far
+//             coast over open water (towns at sea level) or rolling plains
 //   sky       the sky changing from midnight (left) to 11 pm (right)
 //   poster    flat colour from the day's temperature and one big sun
 // Plain days rotate between horizon, sky and poster. Every design shares the same
@@ -50,6 +50,20 @@ function flag(cc) {
 }
 
 const HIGHLAND_M = 500; // towns at least this high (metres) get mountains on the horizon cover
+const SHORE_M = 20; // towns lower than this get a shoreline: nearly all sit on a coast or a big river
+
+/**
+ * The land on the horizon cover, from the town's elevation alone (it comes with
+ * the forecast, so it costs no extra request). The elevation map gives open
+ * water exactly 0 m, so a point that rounds onto a bay or estuary reads 0.
+ * Land below sea level (Death Valley) reads negative and stays plains.
+ */
+export function landform(elevation) {
+  if (!Number.isFinite(elevation)) return "plains";
+  if (elevation >= HIGHLAND_M) return "mountains";
+  if (elevation === 0 || (elevation > 0 && elevation < SHORE_M)) return "shore";
+  return "plains";
+}
 
 // ---- Which design ----------------------------------------------------------
 
@@ -119,7 +133,7 @@ function sun(H, meta, x, cy = 36, scale = 1) {
   const wetDay = dayHours.filter((i) => H[i].precip >= 0.2 || H[i].pop >= 60).length / dayHours.length;
   const seen = (1 - 0.9 * cloudDay) * (1 - 0.85 * wetDay);
   const haze = Math.min(1, Math.max(0.1, 0.1 + 0.9 * seen)).toFixed(2);
-  return { cx, hot, col, svg: `<g opacity="${haze}"><circle cx="${f1(cx)}" cy="${cy}" r="${20 * scale}" fill="${col}" opacity=".22"/><circle cx="${f1(cx)}" cy="${cy}" r="${12 * scale}" fill="${col}"/></g>` };
+  return { cx, hot, col, haze: Number(haze), svg: `<g opacity="${haze}"><circle cx="${f1(cx)}" cy="${cy}" r="${20 * scale}" fill="${col}" opacity=".22"/><circle cx="${f1(cx)}" cy="${cy}" r="${12 * scale}" fill="${col}"/></g>` };
 }
 
 /** Tonight's moon in its real phase. */
@@ -395,9 +409,12 @@ function horizonDesign(c) {
   const lo = Math.min(...temps), hi = Math.max(...temps);
   const amp = Math.min(1, (hi - lo) / 8); // calm days roll gently, big swings climb
   const norm = (t) => (hi > lo ? (t - lo) / (hi - lo) : 0.5) * amp;
-  // Highland towns get mountains; low-lying ones get gentle rolling plains.
-  const high = (c.forecast.elevation ?? 0) >= HIGHLAND_M;
-  const far = H.map((h, i) => high ? [x(i), 66 - norm(h.temp) * 14 - rand() * 4] : [x(i), 73 - norm(h.temp) * 4 - rand() * 0.6]);
+  // Highland towns get mountains, sea-level ones a low far coast over water, the rest rolling plains.
+  const land = landform(c.forecast.elevation);
+  const high = land === "mountains", shore = land === "shore";
+  const far = H.map((h, i) => high ? [x(i), 66 - norm(h.temp) * 14 - rand() * 4]
+    : shore ? [x(i), 67 - norm(h.temp) * 6 - rand() * 0.8]
+      : [x(i), 73 - norm(h.temp) * 4 - rand() * 0.6]);
   const near = H.map((h, i) => high ? [x(i), 80 - norm(h.temp) * 20] : [x(i), 82 - norm(h.temp) * 7]);
   const avg = cols.reduce((a, v) => a.map((s, j) => s + v[j] / cols.length), [0, 0, 0]).map(Math.round);
   const tint = parse(tempColor(mean(temps)));
@@ -419,10 +436,43 @@ function horizonDesign(c) {
     `<path d="${ridge(far)}" fill="${rgb(farCol)}" opacity=".92"/>` +
     (snowy ? `<path d="${ridge(far).split("L101")[0]}" stroke="#fff" stroke-width="1.6" fill="none" opacity=".85"/>` : "") +
     fog(H, x, high ? [58, 64, 70] : [70, 75, 79]) +
-    `<path d="${ridge(near)}" fill="${rgb(ground ? mix(nearCol, [205, 216, 232], 0.4 * ground) : nearCol)}"/>` +
-    // Lying snow: a white crest along the near hills (the fade keeps the title readable).
-    (ground ? `<path d="${ridge(near).split("L101")[0]}" stroke="#eef3fa" stroke-width="${f1(1 + 1.4 * ground)}" fill="none" stroke-linejoin="round"/>` : "") +
+    (shore ? water(H, rand, x, s, base, glow, nearCol) :
+      `<path d="${ridge(near)}" fill="${rgb(ground ? mix(nearCol, [205, 216, 232], 0.4 * ground) : nearCol)}"/>` +
+      // Lying snow: a white crest along the near hills (the fade keeps the title readable).
+      (ground ? `<path d="${ridge(near).split("L101")[0]}" stroke="#eef3fa" stroke-width="${f1(1 + 1.4 * ground)}" fill="none" stroke-linejoin="round"/>` : "")) +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
+}
+
+const WATER_TOP = 72; // where the sea meets the far coast on the horizon cover
+
+/**
+ * Open water in front of the far coast: the sky's colour mirrored and darkening
+ * toward the viewer, ripples that grow with the wind, and the sun's glint.
+ */
+function water(H, rand, x, s, base, glow, nearCol) {
+  const top = WATER_TOP;
+  const grad = `<linearGradient id="cv-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${rgb(mix(glow, base, 0.2))}"/>` +
+    `<stop offset="1" stop-color="${rgb(mix(nearCol, base, 0.45))}"/></linearGradient>`;
+  let out = `<defs>${grad}</defs><rect y="${top}" width="100" height="${100 - top}" fill="url(#cv-water)"/>` +
+    `<rect y="${top}" width="100" height=".5" fill="#fff" opacity=".35"/>`;
+  // Ripples: short strokes, longer and brighter in a breeze, wider apart toward the viewer.
+  const breeze = Math.min(1, mean(H.map((h) => h.wind)) / 30);
+  for (let k = 0; k < 14; k++) {
+    const d = (k + rand()) / 14; // 0 at the horizon, 1 at the bottom
+    const y = top + 2 + d * d * (100 - top - 3);
+    const len = (2 + 6 * breeze) * (0.5 + d);
+    const cx = rand() * 100;
+    out += `<path d="M${f1(cx - len / 2)} ${f1(y)}h${f1(len)}" stroke="#fff" stroke-width="${f1(0.3 + 0.5 * d)}" opacity="${f1(0.12 + 0.18 * breeze)}" stroke-linecap="round"/>`;
+  }
+  // The sun's glint: a broken column of light under the sun.
+  if (s && s.haze > 0.3) { // hidden behind thick cloud: no glint
+    for (let k = 0; k < 7; k++) {
+      const y = top + 1.5 + k * 3.4 + rand();
+      const len = 2 + k * 1.3 + rand() * 2;
+      out += `<path d="M${f1(s.cx - len / 2 + (rand() - 0.5) * 2)} ${f1(y)}h${f1(len)}" stroke="${s.col}" stroke-width="${f1(0.5 + k * 0.12)}" opacity="${f1((0.55 - k * 0.05) * s.haze)}" stroke-linecap="round"/>`;
+    }
+  }
+  return out;
 }
 
 function stripesDesign(c) {

@@ -3,7 +3,7 @@ import { test, assert, equal } from "./harness.js";
 import { normalizeForecast } from "../src/weather.js";
 import { compose } from "../src/compose.js";
 import { pressing, pressingKind, keyColour } from "../src/vinyl.js";
-import { coverArt, coverStyle } from "../src/cover.js";
+import { coverArt, coverStyle, landform } from "../src/cover.js";
 
 const load = async (n) => normalizeForecast(await (await fetch(`../samples/${n}.json`)).json());
 const day = {};
@@ -54,5 +54,24 @@ test("cover design follows the weather", () => {
     assert(svg.includes(`data-design="${design(n)}"`), `${n} draws its design`);
     assert(!/NaN|undefined/.test(svg), `${n} has no broken numbers`);
     equal(svg, coverArt(day[n].f, day[n].meta), `${n} is the same every time`);
+  }
+});
+
+test("horizon land from elevation: mountains, a shoreline at sea level, plains between", () => {
+  equal(landform(2230), "mountains", "Mexico City");
+  equal(landform(0), "shore", "a point that rounds onto open water");
+  equal(landform(6), "shore", "Miami");
+  equal(landform(-82), "plains", "Death Valley is land below sea level, not water");
+  equal(landform(174), "plains", "Chicago");
+  equal(landform(null), "plains", "unknown");
+  // Find a name that gets the horizon design on a calm sample day, then draw it three ways.
+  const { f, meta } = day["honolulu-flat"];
+  let m = meta;
+  for (let k = 0; coverStyle(f, m) !== "horizon" && k < 200; k++) m = { ...meta, name: `Town ${k}` };
+  equal(coverStyle(f, m), "horizon");
+  for (const elevation of [0, 6, 120, 2000]) {
+    const svg = coverArt({ ...f, elevation }, m);
+    assert(!/NaN|undefined/.test(svg), `${elevation} m has no broken numbers`);
+    equal(svg.includes("cv-water"), landform(elevation) === "shore", `${elevation} m: water only on the shore`);
   }
 });
