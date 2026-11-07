@@ -754,7 +754,6 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   .hour:not(.axis6) .lbl { display: none; }
   .hour .lbl { font-size: 0.65rem; }
   #geo { flex: 1 1 100%; justify-content: center; }
-  .lede-more { display: none; }
   /* The player as one grid: the cover beside the place, then Play, then straight
      into the hour-by-hour chart, so all three fit on one screen while it plays.
      The weather paragraph and the extras move below the chart. */
