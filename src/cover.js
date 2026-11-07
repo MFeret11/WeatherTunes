@@ -9,11 +9,11 @@
 //   sky       the sky changing from midnight (left) to 11 pm (right)
 //   poster    flat colour from the day's temperature and one big sun
 // Plain days rotate between horizon, sky and poster. Every design shares the same
-// details: stars on clear nights, fog, wind, frost,
-// and the country's flag in the corner.
+// details: stars on clear nights, fog, wind, frost, heat shimmer, smoggy air,
+// lying snow, and the country's flag in the corner.
 
 import { tempColor, moonDisc } from "./icons.js";
-import { CODES, AURORA, STORM as STORM_AT } from "./mapping.js";
+import { CODES, AURORA, STORM as STORM_AT, COVER_FX } from "./mapping.js";
 
 const NIGHT = [24, 22, 52];
 const CLEAR = [104, 170, 228];
@@ -274,6 +274,49 @@ function aurora(forecast, meta, rand) {
   return out + "</g>";
 }
 
+/** How hot the day gets at its peak (0–1), from the heat outlier. */
+const dayHeat = (meta) => Math.max(0, ...(meta.outliers?.heat ?? [0]));
+
+/**
+ * Heat shimmer: the artwork ripples sideways in thin bands, like air over a hot
+ * road, more as the day gets hotter. Slightly enlarged so the edges stay covered.
+ */
+function shimmer(art, heat) {
+  if (heat < COVER_FX.heatFrom) return art;
+  const k = (heat - COVER_FX.heatFrom) / (1 - COVER_FX.heatFrom);
+  const scale = COVER_FX.shimmerMin + (COVER_FX.shimmerMax - COVER_FX.shimmerMin) * k;
+  return `<filter id="cv-heat" x="0" y="0" width="100" height="100" filterUnits="userSpaceOnUse">` +
+    `<feTurbulence type="fractalNoise" baseFrequency=".015 .35" numOctaves="2" seed="7"/>` +
+    `<feDisplacementMap in="SourceGraphic" scale="${f1(scale)}" xChannelSelector="R" yChannelSelector="G"/></filter>` +
+    `<g filter="url(#cv-heat)"><g transform="translate(50 50) scale(1.05) translate(-50 -50)">${art}</g></g>`;
+}
+
+/** Poor air: a dusty brown wash, thickest low down where the smog sits. */
+function smog(meta) {
+  const aqi = meta.sky?.aqiMax ?? 0;
+  if (aqi <= COVER_FX.smogFrom) return "";
+  const h = Math.min(1, (aqi - COVER_FX.smogFrom) / (COVER_FX.smogFull - COVER_FX.smogFrom));
+  return `<linearGradient id="cv-smog" x1="0" y1="0" x2="0" y2="1">` +
+    `<stop offset="0" stop-color="${COVER_FX.smog}" stop-opacity="${(0.3 * h).toFixed(2)}"/>` +
+    `<stop offset=".7" stop-color="${COVER_FX.smog}" stop-opacity="${(0.72 * h).toFixed(2)}"/></linearGradient>` +
+    `<rect width="100" height="100" fill="url(#cv-smog)"/>`;
+}
+
+/** How much snow lies on the ground (0 = none, else 0.35–1 by depth). */
+const snowGround = (meta) => {
+  const cm = meta.sky?.snowCm ?? 0;
+  return cm < COVER_FX.snowFromCm ? 0 : 0.35 + 0.65 * (meta.sky?.cover ?? 0);
+};
+
+/** Lying snow as a soft drift along the bottom edge, under the title and flag. */
+function drift(snow, rand) {
+  if (!snow) return "";
+  const top = 100 - (1.6 + 2.6 * snow); // never above 95.4, clear of the date and flag
+  let d = `M-1 101L-1 ${f1(top + 1)}`;
+  for (let px = 0; px <= 100; px += 12.5) d += `Q${f1(px + 6)} ${f1(top - 0.6 - rand() * 1.4)} ${f1(px + 12.5)} ${f1(top + rand())}`;
+  return `<path d="${d}L101 101Z" fill="#eef3fa" opacity=".92"/>`;
+}
+
 // ---- Lettering ---------------------------------------------------------------
 
 const LABEL = (y, x = 7) => `<text x="${x}" y="${y}" fill="#fff" opacity=".8" font-family="JetBrains Mono, monospace" font-size="4" letter-spacing=".6">WEATHERTUNES</text>`;
@@ -354,7 +397,8 @@ function horizonDesign(c) {
   const avg = cols.reduce((a, v) => a.map((s, j) => s + v[j] / cols.length), [0, 0, 0]).map(Math.round);
   const tint = parse(tempColor(mean(temps)));
   const farCol = mix(avg, NIGHT, 0.45), nearCol = mix([16, 15, 28], tint, 0.22);
-  const snowy = (meta.sky?.snowCm ?? 0) >= 1 || H.filter((h) => CODES.snow.includes(h.code)).length >= 3;
+  const ground = snowGround(meta);
+  const snowy = ground > 0 || H.filter((h) => CODES.snow.includes(h.code)).length >= 3;
   const s = sun(H, meta, x, 32);
   // A painted sky: deep overhead, glowing warm along the hills when the day is clear.
   const dayCols = cols.filter((_, i) => H[i].isDay);
@@ -370,7 +414,9 @@ function horizonDesign(c) {
     `<path d="${ridge(far)}" fill="${rgb(farCol)}" opacity=".92"/>` +
     (snowy ? `<path d="${ridge(far).split("L101")[0]}" stroke="#fff" stroke-width="1.6" fill="none" opacity=".85"/>` : "") +
     fog(H, x, high ? [58, 64, 70] : [70, 75, 79]) +
-    `<path d="${ridge(near)}" fill="${rgb(nearCol)}"/>` +
+    `<path d="${ridge(near)}" fill="${rgb(ground ? mix(nearCol, [205, 216, 232], 0.4 * ground) : nearCol)}"/>` +
+    // Lying snow: a white crest along the near hills (the fade keeps the title readable).
+    (ground ? `<path d="${ridge(near).split("L101")[0]}" stroke="#eef3fa" stroke-width="${f1(1 + 1.4 * ground)}" fill="none" stroke-linejoin="round"/>` : "") +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
 
@@ -587,7 +633,8 @@ export function coverArt(forecast, meta) {
     cols: skyColours(H, meta),
     south: forecast.lat < 0,
   };
-  const art = DESIGNS[design](c) + (design === "clock" ? "" : frost(meta, c.rand));
+  let art = DESIGNS[design](c) + (design === "clock" ? "" : frost(meta, c.rand));
+  art = shimmer(art, dayHeat(meta)) + smog(meta) + (design === "horizon" ? "" : drift(snowGround(meta), c.rand));
   const city = meta.name.split(",")[0];
   const date = new Date(`${meta.date}T12:00:00`).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
   return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" width="100%" height="100%" data-design="${design}">

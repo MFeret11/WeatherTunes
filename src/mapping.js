@@ -11,7 +11,7 @@
 //   7. Atmosphere and dynamics  ATMOSPHERE, WIND_NOISE, DYNAMICS, ARC, CALM_DETAIL,
 //                               FILTER, REVERB, PAN_WIDTH, DRIVE, TONE
 //   8. Day mood and outliers    MOOD, HEAT, DEEP_COLD, ICE_STORM, EYE, WHITEOUT, FRONT, HAIL
-//   9. Sky and air              DARK, MOON, AURORA, METEORS, AIR, UV, SNOW_COVER, FROST,
+//   9. Sky and air              DARK, MOON, AURORA, METEORS, AIR, UV, SNOW_COVER, COVER_FX, FROST,
 //                               CALENDAR, CHIMES
 //  10. Instruments              MELODY_VOICES, PAD_VOICES, ARP_VOICE, SWELL, RETRO32
 //  11. Mix and master           MIX, STORM_DRUMS_DB, SOFT_CLIP, ENDING, SUITE
@@ -666,6 +666,12 @@ export const UV = { from: 3, full: 9, vel: 0.3 };
 // Snow on the ground (cm) soaks up sound: from 0 to fullCm it takes away up to
 // reverbCut of the reverb and highCutDb of the top end.
 export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
+
+// Cover art: heat shimmer from the day's peak heat outlier (heatFrom, 0–1) with a
+// ripple of shimmerMin→shimmerMax cover units; the day's worst US AQI tints the
+// cover `smog` from smogFrom (unhealthy for sensitive groups) to full at smogFull;
+// lying snow shows from snowFromCm.
+export const COVER_FX = { heatFrom: 0.05, shimmerMin: 1.2, shimmerMax: 3.2, smog: "#a08560", smogFrom: 100, smogFull: 175, snowFromCm: 1 };
 
 // Frost: clear, still hours at or below maxTemp °C (cloud under maxCloud %,
 // wind under maxWind km/h, nothing falling) between midnight and `until`
