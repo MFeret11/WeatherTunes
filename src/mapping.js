@@ -670,8 +670,9 @@ export const SNOW_COVER = { fullCm: 15, reverbCut: 0.45, highCutDb: -2 };
 // Cover art: heat shimmer from the day's peak heat outlier (heatFrom, 0–1) with a
 // ripple of shimmerMin→shimmerMax cover units; the day's worst US AQI tints the
 // cover `smog` from smogFrom (unhealthy for sensitive groups) to full at smogFull;
+// past that, wildfire-smoke air warms a little towards `smoke` (full at smokeFull);
 // lying snow shows from snowFromCm.
-export const COVER_FX = { heatFrom: 0.05, shimmerMin: 1.2, shimmerMax: 3.2, smog: "#a08560", smogFrom: 100, smogFull: 175, snowFromCm: 1 };
+export const COVER_FX = { heatFrom: 0.05, shimmerMin: 1.2, shimmerMax: 3.2, smog: "rgb(160,133,96)", smoke: "rgb(184,120,64)", smogFrom: 100, smogFull: 175, smokeFull: 300, snowFromCm: 1 };
 
 // Frost: clear, still hours at or below maxTemp °C (cloud under maxCloud %,
 // wind under maxWind km/h, nothing falling) between midnight and `until`

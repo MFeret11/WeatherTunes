@@ -291,14 +291,19 @@ function shimmer(art, heat) {
     `<g filter="url(#cv-heat)"><g transform="translate(50 50) scale(1.05) translate(-50 -50)">${art}</g></g>`;
 }
 
-/** Poor air: a dusty brown wash, thickest low down where the smog sits. */
+/**
+ * Poor air: a dusty brown wash, thickest low down where the smog sits. Past
+ * smogFull (wildfire smoke) it thickens a little more and warms towards amber.
+ */
 function smog(meta) {
   const aqi = meta.sky?.aqiMax ?? 0;
   if (aqi <= COVER_FX.smogFrom) return "";
   const h = Math.min(1, (aqi - COVER_FX.smogFrom) / (COVER_FX.smogFull - COVER_FX.smogFrom));
+  const smoke = Math.min(1, Math.max(0, (aqi - COVER_FX.smogFull) / (COVER_FX.smokeFull - COVER_FX.smogFull)));
+  const col = rgb(mix(parse(COVER_FX.smog), parse(COVER_FX.smoke), smoke));
   return `<linearGradient id="cv-smog" x1="0" y1="0" x2="0" y2="1">` +
-    `<stop offset="0" stop-color="${COVER_FX.smog}" stop-opacity="${(0.3 * h).toFixed(2)}"/>` +
-    `<stop offset=".7" stop-color="${COVER_FX.smog}" stop-opacity="${(0.72 * h).toFixed(2)}"/></linearGradient>` +
+    `<stop offset="0" stop-color="${col}" stop-opacity="${(0.3 * h + 0.1 * smoke).toFixed(2)}"/>` +
+    `<stop offset=".7" stop-color="${col}" stop-opacity="${(0.72 * h + 0.08 * smoke).toFixed(2)}"/></linearGradient>` +
     `<rect width="100" height="100" fill="url(#cv-smog)"/>`;
 }
 
