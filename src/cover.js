@@ -3,7 +3,7 @@
 //   storm     a dark, grainy sleeve with big lightning and slanting rain
 //   clock     the day as a ring of 24 hours around tonight's moon (aurora, eclipse,
 //             meteor or full-moon nights, and days with no sunrise at all)
-//   stripes   one bold stripe per hour in the colour of its temperature (big swings)
+//   stripes   the day's temperature as a band of colour under its sky (big swings)
 //   horizon   the day's temperature drawn as a line of hills under the sky
 //   sky       the sky changing from midnight (left) to 11 pm (right)
 //   poster    flat colour from the day's temperature and one big sun
@@ -370,17 +370,25 @@ function horizonDesign(c) {
 }
 
 function stripesDesign(c) {
-  const { H, meta, x, rand } = c;
-  const w = 100 / H.length;
-  let out = `<defs>${fadeUp}</defs>`;
-  H.forEach((h, i) => {
-    out += `<rect x="${f1(i * w)}" width="${f1(w + 0.3)}" height="100" fill="${tempColor(h.temp)}"/>`;
-  });
-  // Night hours sit in shadow, so the day reads as a bright band in the middle.
-  H.forEach((h, i) => {
-    if (!h.isDay) out += `<rect x="${f1(i * w)}" width="${f1(w + 0.3)}" height="100" fill="#0b0a1e" opacity=".42"/>`;
-  });
-  return out + stars(H, meta, rand, x, 36, 70) + wind(H, rand, x, 40, 30) + wet(H, rand, x, 52, 30) +
+  const { H, meta, x, rand, cols } = c;
+  // The day's temperature as one smooth band of colour, left to right, with the
+  // night hours softly shaded so daylight reads as the bright middle.
+  const temp = `<linearGradient id="cv-temp">${H.map((h, i) => `<stop offset="${f1(x(i))}%" stop-color="${tempColor(h.temp)}"/>`).join("")}</linearGradient>`;
+  const shade = H.map((h) => (h.isDay ? 0 : 0.4));
+  const night = `<linearGradient id="cv-night">${H.map((_, i) => {
+    const k = (shade[Math.max(0, i - 1)] + 2 * shade[i] + shade[Math.min(H.length - 1, i + 1)]) / 4;
+    return `<stop offset="${f1(x(i))}%" stop-color="#0b0a1e" stop-opacity="${k.toFixed(2)}"/>`;
+  }).join("")}</linearGradient>`;
+  // The sky sits above it and melts into the colour about halfway down.
+  const fall = `<linearGradient id="cv-melt" x1="0" y1="0" x2="0" y2="1"><stop offset=".08" stop-color="#fff"/><stop offset=".58" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+    `<mask id="cv-skymask"><rect width="100" height="100" fill="url(#cv-melt)"/></mask>`;
+  const s = sun(H, meta, x, 34, 0.85);
+  return `<defs>${temp}${night}${gradient("cv-sky", cols, x)}${fall}${fadeUp}</defs>` +
+    `<rect width="100" height="100" fill="url(#cv-temp)"/>` +
+    `<rect width="100" height="100" fill="url(#cv-sky)" mask="url(#cv-skymask)"/>` +
+    `<rect width="100" height="100" fill="url(#cv-night)"/>` +
+    stars(H, meta, rand, x, 6, 40) + (s?.svg ?? "") + clouds(H, rand) +
+    wind(H, rand, x, 40, 30) + wet(H, rand, x, 52, 30) +
     `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
 
