@@ -518,6 +518,9 @@ function stormDesign(c) {
   return out + `<rect width="100" height="100" fill="url(#cv-fade)"/>`;
 }
 
+// Fewer rain marks than this on the poster design gather into one small shower.
+const POSTER_FIELD = 20;
+
 function posterDesign(c) {
   const { H, meta, x, rand } = c;
   const temps = H.map((h) => h.temp);
@@ -542,12 +545,26 @@ function posterDesign(c) {
   // Rain as a field of short dashes, snow as dots, wind as long lines across.
   const wetHours = H.filter((h) => h.precip > 0 || h.pop >= 40);
   const snow = wetHours.filter((h) => CODES.snow.includes(h.code)).length > wetHours.length / 2;
-  const marks = Math.min(70, Math.round(wetHours.length * 2.5 + mean(wetHours.map((h) => h.precip)) * 12));
-  for (let k = 0; k < marks; k++) {
-    const px = 8 + rand() * 84, py = 22 + rand() * 50;
-    out += snow
-      ? `<circle cx="${f1(px)}" cy="${f1(py)}" r=".8" fill="#fff" opacity=".8"/>`
-      : `<path d="M${f1(px)} ${f1(py)}l-1 4" stroke="#fff" stroke-width=".6" stroke-linecap="round" opacity=".7"/>`;
+  const mm = wetHours.reduce((a, h) => a + h.precip, 0);
+  // A passing sprinkle gets no marks: the dimmed sun says enough.
+  const barely = wetHours.length <= 2 && mm < 0.5;
+  const marks = barely ? 0 : Math.min(70, Math.round(wetHours.length * 2.5 + mean(wetHours.map((h) => h.precip)) * 12));
+  const mark = (px, py) => snow
+    ? `<circle cx="${f1(px)}" cy="${f1(py)}" r=".8" fill="#fff" opacity=".8"/>`
+    : `<path d="M${f1(px)} ${f1(py)}l-1 4" stroke="#fff" stroke-width=".6" stroke-linecap="round" opacity=".7"/>`;
+  if (marks >= POSTER_FIELD) {
+    // A wet day: rain across the whole sleeve.
+    for (let k = 0; k < marks; k++) out += mark(8 + rand() * 84, 22 + rand() * 50);
+  } else if (marks > 0) {
+    // A light spell: one small shower falling across a lower corner of the disc,
+    // in staggered rows so a few marks still read as rain, not scratches.
+    const n = Math.max(12, marks), cols = 4;
+    const left = rand() < 0.5;
+    const x0 = cx + (left ? -r * 0.75 : r * 0.35), y0 = cy + 6;
+    for (let k = 0; k < n; k++) {
+      const col = k % cols, row = Math.floor(k / cols);
+      out += mark(x0 + col * 4 - row * 1.2 + rand() * 1.5, y0 + row * 5.5 + rand() * 2);
+    }
   }
   const windy = Math.max(...H.map((h) => h.wind));
   for (let k = 0; k < (windy >= 40 ? 3 : windy >= 28 ? 2 : 0); k++) {

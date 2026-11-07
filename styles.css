@@ -516,6 +516,8 @@ select, .btn {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12), 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 .cover svg { display: block; }
+/* Cover art is a picture: a long-press shouldn't select its lettering. */
+.cover svg, .sleeve-front { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 /* The cover is a button: it lifts slightly on hover, and a turn arrow says it has a back. */
 button.cover { display: block; padding: 0; border: 0; cursor: pointer; font: inherit; color: inherit; transition: transform 0.2s, box-shadow 0.2s; }
 button.cover:hover { transform: translateY(-2px) rotate(-0.6deg); }
