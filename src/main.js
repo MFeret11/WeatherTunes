@@ -412,9 +412,17 @@ function renderSleeveBack() {
 
 const sleeve = $("sleeve");
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-function turnSleeve(back) {
+// How long the front stays up before the sleeve turns itself over (ms).
+const SLEEVE_HOLD = 2600;
+let sleeveTimer = 0;
+function turnSleeve(back, slow = false) {
+  clearTimeout(sleeveTimer);
+  sleeve.classList.toggle("turning", slow && back);
   sleeve.classList.toggle("flipped", back);
 }
+sleeve.querySelector(".sleeve-card").addEventListener("animationend", (e) => {
+  if (e.animationName === "sleeve-turn") sleeve.classList.remove("turning");
+});
 $("cover").addEventListener("click", () => {
   if (!score) return;
   sleeve.querySelector(".sleeve-front").innerHTML = coverArt(forecast, score.meta).replace(/id="cv-/g, 'id="sl-').replace(/url\(#cv-/g, "url(#sl-");
@@ -422,15 +430,16 @@ $("cover").addEventListener("click", () => {
   turnSleeve(false);
   sleeve.showModal();
   $("sleeve-close").focus();
-  // Picked up face first, then turned over.
+  // Picked up face first, held a moment to look at, then slowly turned over.
   if (reduceMotion()) turnSleeve(true);
-  else setTimeout(() => turnSleeve(true), 280);
+  else sleeveTimer = setTimeout(() => turnSleeve(true, true), SLEEVE_HOLD);
 });
 $("sleeve-turn").addEventListener("click", () => turnSleeve(!sleeve.classList.contains("flipped")));
 sleeve.querySelector(".sleeve-card").addEventListener("click", (e) => {
   if (!e.target.closest(".sb-notes")) turnSleeve(!sleeve.classList.contains("flipped"));
 });
 $("sleeve-close").addEventListener("click", () => sleeve.close());
+sleeve.addEventListener("close", () => clearTimeout(sleeveTimer));
 // A click on the dimmed backdrop (outside the sleeve and its buttons) puts it down.
 sleeve.addEventListener("click", (e) => { if (e.target === sleeve) sleeve.close(); });
 

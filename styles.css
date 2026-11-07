@@ -545,6 +545,28 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   cursor: pointer;
 }
 .sleeve.flipped .sleeve-card { transform: rotateY(180deg); }
+/* The automatic turn: a small wind-up, lifted toward you as it rolls over, then set down. */
+.sleeve { perspective: 1800px; }
+.sleeve.turning .sleeve-card { animation: sleeve-turn 1.9s cubic-bezier(.45, 0, .25, 1); }
+@keyframes sleeve-turn {
+  0%   { transform: rotateY(0deg); }
+  14%  { transform: rotateY(-9deg) rotateX(2deg) scale(1.01); }
+  50%  { transform: translateZ(70px) rotateY(90deg) rotateX(4deg) scale(1.04); }
+  85%  { transform: translateZ(14px) rotateY(176deg) rotateX(1deg); }
+  100% { transform: rotateY(180deg); }
+}
+/* Light catches the cover as it starts to turn. */
+.sleeve-front::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.35) 48%, transparent 66%) no-repeat;
+  background-size: 250% 100%; background-position: 100% 0;
+}
+.sleeve.turning .sleeve-front::after { animation: sleeve-sheen 1s ease-in; }
+@keyframes sleeve-sheen {
+  0% { opacity: 0; background-position: 100% 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0.6; background-position: 0% 0; }
+}
 .sleeve-face {
   position: absolute; inset: 0; border-radius: 6px; overflow: hidden;
   backface-visibility: hidden; -webkit-backface-visibility: hidden;
@@ -812,4 +834,5 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   .play.preparing::after { animation: none; }
   .sleeve[open] { animation: none; }
   .sleeve-card { transition: none; }
+  .sleeve.turning .sleeve-card, .sleeve.turning .sleeve-front::after { animation: none; }
 }
