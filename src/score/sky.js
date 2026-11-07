@@ -34,7 +34,10 @@ export function daySky(f) {
   const aurora = H.map((h, b) => +(auroraReachH[b] * deepDark[b] * (1 - h.cloud / 100) ** M.AURORA.clearPower).toFixed(3));
 
   const aqi = X.aqi ?? null;
-  const haze = H.map((_, b) => (aqi ? +clamp((aqi[b] - M.AIR.from) / (M.AIR.full - M.AIR.from), 0, 1).toFixed(3) : 0));
+  const A = M.AIR;
+  const hazeAt = (v) => clamp((v - A.from) / (A.full - A.from), 0, 1)
+    + (A.smokeMax - 1) * clamp((v - A.full) / (A.smokeFull - A.full), 0, 1);
+  const haze = H.map((_, b) => (aqi ? +hazeAt(aqi[b]).toFixed(3) : 0));
   const uvShine = H.map((h) => +clamp((h.uv - M.UV.from) / (M.UV.full - M.UV.from), 0, 1).toFixed(3));
   const snowCm = mean(H.map((h) => h.snowDepth ?? 0));
   const cover = clamp(snowCm / M.SNOW_COVER.fullCm, 0, 1);

@@ -656,8 +656,9 @@ export const METEORS = { maxCloud: 50, perHour: 1.6, offPeak: 0.6, moonDim: 0.6,
 // Air quality (US AQI): haze from `from` (well into "moderate") to full at `full` (unhealthy).
 // Haze dulls the top end (hazeCutDb), lowers the master filter by cutoffCut,
 // and adds dusty crackle (as much as crackle × the CRACKLE amount at full haze).
-// The liner notes mention it from `mention` haze up.
-export const AIR = { from: 75, full: 175, hazeCutDb: -4, cutoffCut: 0.3, crackle: 0.7, mention: 0.15 };
+// The liner notes mention it from `mention` haze up. Wildfire smoke goes further:
+// from `full` to smokeFull the haze keeps growing, gently, to smokeMax.
+export const AIR = { from: 75, full: 175, smokeFull: 300, smokeMax: 1.35, hazeCutDb: -4, cutoffCut: 0.3, crackle: 0.7, mention: 0.15 };
 
 // UV index: from `from` (moderate), sunny hours double the melody an octave up
 // on a soft sine, reaching vel at `full` (very high).
