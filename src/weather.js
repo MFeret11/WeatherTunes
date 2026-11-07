@@ -141,11 +141,37 @@ export function forecastUrl(lat, lon) {
     latitude: roundCoord(lat).toFixed(1),
     longitude: roundCoord(lon).toFixed(1),
     hourly: Object.values(FIELDS).join(","),
-    daily: "sunrise,sunset",
+    // The daily lows reach back FROST_DAYS for "first frost". Hourly is kept to
+    // the three days around now (always covering all of today there), then
+    // todayOnly() trims both to today.
+    daily: "sunrise,sunset,temperature_2m_min",
     timezone: "auto",
     forecast_days: "1",
+    past_days: String(FROST_DAYS),
+    past_hours: "24",
+    forecast_hours: "48",
   });
   return `${FORECAST_API}?${q}`;
+}
+
+/**
+ * The combined forecast cut back to the place's own today: 24 hourly steps from
+ * midnight and today's sunrise and sunset. The earlier daily lows move to
+ * extras.minTemps, oldest first.
+ */
+export function todayOnly(raw) {
+  const d = raw.daily || {}, h = raw.hourly || {};
+  const days = d.time || [];
+  if (days.length <= 1) return raw; // already one day (older cache or a sample)
+  const today = days.length - 1;
+  const date = days[today];
+  const keep = (h.time || []).map((t, i) => (String(t).startsWith(date) ? i : -1)).filter((i) => i >= 0);
+  const hourly = {};
+  for (const [k, v] of Object.entries(h)) hourly[k] = Array.isArray(v) ? keep.map((i) => v[i]) : v;
+  const daily = {};
+  for (const [k, v] of Object.entries(d)) if (k !== "temperature_2m_min") daily[k] = Array.isArray(v) ? [v[today]] : v;
+  const mins = d.temperature_2m_min;
+  return { ...raw, hourly, daily, minTemps: Array.isArray(mins) ? mins.slice(0, today) : null };
 }
 
 export function airUrl(lat, lon) {
@@ -154,14 +180,6 @@ export function airUrl(lat, lon) {
     hourly: "us_aqi", timezone: "auto", forecast_days: "1",
   });
   return `${AIR_API}?${q}`;
-}
-
-export function frostUrl(lat, lon) {
-  const q = new URLSearchParams({
-    latitude: roundCoord(lat).toFixed(1), longitude: roundCoord(lon).toFixed(1),
-    daily: "temperature_2m_min", timezone: "auto", past_days: String(FROST_DAYS), forecast_days: "1",
-  });
-  return `${FORECAST_API}?${q}`;
 }
 
 export async function getJson(url, fetchFn, ms = TIMEOUT_MS) {
@@ -195,9 +213,10 @@ export async function fetchForecast(place, { fetchFn = fetch, storage = session(
   } catch { /* bad or blocked cache: fetch instead */ }
   if (!raw) {
     const extras = fetchExtras(lat, lon, place.cc, { fetchFn, now });
-    raw = await getJson(forecastUrl(lat, lon), fetchFn);
+    const { minTemps, ...day } = todayOnly(await getJson(forecastUrl(lat, lon), fetchFn));
+    raw = day;
     if (!raw.hourly || !raw.hourly.temperature_2m) throw new Error("forecast had no hourly data");
-    raw.extras = await extras;
+    raw.extras = { ...(await extras), minTemps: minTemps ?? null };
     try { storage && storage.setItem(key, JSON.stringify({ savedAt: now, raw })); } catch { /* full or blocked */ }
   }
   raw.country_code = place.cc || null;
@@ -208,25 +227,22 @@ export async function fetchForecast(place, { fetchFn = fetch, storage = session(
 }
 
 /**
- * Air quality, geomagnetic activity, holidays and recent lows, fetched alongside
- * the forecast. Each is optional: a slow or failed one is left out after a few
+ * Air quality, geomagnetic activity and holidays, fetched alongside the forecast
+ * (the recent lows come with the forecast itself). Each is optional: a slow or failed one is left out after a few
  * seconds, so it never holds up the song.
  */
 export async function fetchExtras(lat, lon, cc, { fetchFn = fetch, now = Date.now(), ms = 4000 } = {}) {
   const quiet = (p) => p.catch(() => null);
   const year = new Date(now).getUTCFullYear();
-  const [air, kp, holidays, frost] = await Promise.all([
+  const [air, kp, holidays] = await Promise.all([
     quiet(getJson(airUrl(lat, lon), fetchFn, ms)),
     quiet(getJson(KP_API, fetchFn, ms)),
     cc ? quiet(holidaysFor(year, cc, fetchFn, ms)) : null,
-    quiet(getJson(frostUrl(lat, lon), fetchFn, ms)),
   ]);
-  const mins = frost?.daily?.temperature_2m_min;
   return {
     aqi: air?.hourly?.us_aqi ?? null,
     kp: Array.isArray(kp) ? kp.map((k) => ({ time: k.time_tag, kp: k.kp })) : null,
     holidays,
-    minTemps: Array.isArray(mins) ? mins.slice(0, -1) : null,
   };
 }
 

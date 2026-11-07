@@ -10,7 +10,6 @@ import { HOURLY_FIELDS, normalizeForecast, roundCoord, getJson, holidaysFor } fr
 
 const CLIMATE_API = "https://archive-api.open-meteo.com/v1/archive";
 const DAY_API = "https://historical-forecast-api.open-meteo.com/v1/forecast";
-const AIR_API = "https://air-quality-api.open-meteo.com/v1/air-quality";
 export const CLIMATE_YEARS = 30;
 export const HOURLY_SINCE = "2022-01-01"; // full hourly forecasts are kept from here on
 const CACHE_DAYS = 30; // a place's typical days barely change, so keep them a month
@@ -155,8 +154,7 @@ export async function fetchSuite(place, { fetchFn = fetch, storage = local(), no
       const raw = await getJson(dayUrl(lat, lon, p.date), fetchFn);
       if (!raw.hourly?.temperature_2m) throw new Error(`no hourly weather for ${p.date}`);
       const observed = rainFromRecord(raw);
-      const air = await getJson(`${AIR_API}?${new URLSearchParams({ ...coords(lat, lon), start_date: p.date, end_date: p.date, hourly: "us_aqi", timezone: "auto" })}`, fetchFn, 4000).catch(() => null);
-      raw.extras = { aqi: air?.hourly?.us_aqi ?? null, kp: null, holidays: null, minTemps: null };
+      raw.extras = { aqi: null, kp: null, holidays: null, minTemps: null }; // past air quality isn't worth a request per day
       return { season: p.season, date: p.date, climate: p.climate, observed, raw };
     }));
     try { storage && storage.setItem(key, JSON.stringify({ savedAt: now, days: saved })); } catch { /* full */ }

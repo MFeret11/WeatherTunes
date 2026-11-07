@@ -81,9 +81,8 @@ test("fetchSuite builds four movements and keeps them for a month", async () => 
   const fetchFn = async (url) => {
     calls.push(url);
     const body = url.includes("archive-api") ? { daily }
-      : url.includes("air-quality") ? { hourly: { us_aqi: Array(24).fill(40) } }
-        : url.includes("nager") ? []
-          : { ...sample, hourly: { ...sample.hourly, precipitation_probability: Array(24).fill(null) } };
+      : url.includes("nager") ? []
+        : { ...sample, hourly: { ...sample.hourly, precipitation_probability: Array(24).fill(null) } };
     return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(body)) };
   };
   const m = new Map();
@@ -94,6 +93,7 @@ test("fetchSuite builds four movements and keeps them for a month", async () => 
   equal(a.map((x) => x.season.name), ["Winter", "Spring", "Summer", "Autumn"]);
   assert(a.every((x) => x.forecast.hours.length === 24 && x.forecast.observed), "ready to compose, rain from the record");
   equal(a[0].forecast.lat, 40);
+  equal(calls.filter((u) => !u.includes("nager")).length, 5, "the archive and four days, no air quality");
   const before = calls.filter((u) => !u.includes("nager")).length;
   const b = await fetchSuite(place, { fetchFn, storage, now: Date.UTC(2025, 0, 20) });
   equal(calls.filter((u) => !u.includes("nager")).length, before, "second time from the browser's copy");

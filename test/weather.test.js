@@ -1,5 +1,5 @@
 import { test, assert, equal } from "./harness.js";
-import { forecastUrl, fetchForecast, fetchExtras, searchPlaces, featuredPlace, randomPlace, RANDOM_CITIES, roundCoord, FEATURED, normalizeForecast, dewPoint, feelsLike } from "../src/weather.js";
+import { forecastUrl, todayOnly, fetchForecast, fetchExtras, searchPlaces, featuredPlace, randomPlace, RANDOM_CITIES, roundCoord, FEATURED, normalizeForecast, dewPoint, feelsLike } from "../src/weather.js";
 
 const sample = await (await fetch("../samples/kyoto-spring.json")).json();
 
@@ -110,18 +110,44 @@ test("extras: air quality, Kp, holidays and recent lows come back in one shape",
     if (url.includes("air-quality")) return { body: { hourly: { us_aqi: Array(24).fill(80) } } };
     if (url.includes("swpc")) return { body: [{ time_tag: "2025-04-26T00:00:00", kp: 5.33 }] };
     if (url.includes("nager")) return { body: [{ date: "2025-04-29", name: "Shōwa Day", localName: "昭和の日", global: true, counties: null }] };
-    if (url.includes("past_days")) return { body: { daily: { temperature_2m_min: [3, 2, 1, 4] } } };
     return { status: 404, body: {} };
   });
   const x = await fetchExtras(35, 135.8, "JP", { fetchFn: f, now: Date.UTC(2025, 3, 26) });
   equal(x.aqi.length, 24);
   equal(x.kp, [{ time: "2025-04-26T00:00:00", kp: 5.33 }]);
   equal(x.holidays[0].name, "Shōwa Day");
-  equal(x.minTemps, [3, 2, 1], "today's own low is left out");
+  equal(f.calls.length, 3, "air, Kp and holidays only: the lows come with the forecast");
   for (const u of f.calls) {
     const q = new URL(u).searchParams;
     if (q.has("latitude")) assert(q.get("latitude") === "35.0" && q.get("longitude") === "135.8", `rounded: ${u}`);
   }
+});
+
+test("one forecast request brings today's hours and the recent lows", async () => {
+  const u = new URL(forecastUrl(35, 135.8));
+  equal(u.searchParams.get("past_days"), "60");
+  assert(u.searchParams.get("daily").includes("temperature_2m_min"));
+  // Three days of hours around now, 61 days of lows ending today.
+  const times = Array.from({ length: 72 }, (_, i) => `2025-04-${25 + Math.floor((i + 10) / 24)}T${String((i + 10) % 24).padStart(2, "0")}:00`);
+  const days = Array.from({ length: 61 }, (_, i) => new Date(Date.UTC(2025, 1, 25 + i)).toISOString().slice(0, 10));
+  const combined = {
+    ...sample,
+    hourly: { ...sample.hourly, time: times, temperature_2m: times.map((_, i) => i) },
+    daily: { time: days, sunrise: days.map((d) => `${d}T05:00`), sunset: days.map((d) => `${d}T18:30`), temperature_2m_min: days.map((_, i) => i % 2 ? 4 : 1) },
+  };
+  equal(days.at(-1), "2025-04-26");
+  const t = todayOnly(combined);
+  equal(t.hourly.time.length, 24);
+  equal(t.hourly.time[0], "2025-04-26T00:00");
+  equal(t.hourly.temperature_2m[0], 14, "the hour values follow their times");
+  equal(t.daily.sunrise, ["2025-04-26T05:00"]);
+  equal(t.minTemps.length, 60, "today's own low is left out");
+  const f = fakeFetch((url) => (url.includes("api.open-meteo.com/v1/forecast") ? { body: combined } : { status: 503, body: {} }));
+  const day = await fetchForecast({ name: "Kyoto", lat: 35, lon: 135.8, cc: "JP" }, { fetchFn: f, storage: null });
+  equal(day.date, "2025-04-26");
+  equal(day.hours.length, 24);
+  equal(day.extras.minTemps.length, 60);
+  equal(f.calls.filter((c) => c.includes("/v1/forecast")).length, 1, "no separate request for the lows");
 });
 
 test("extras: a failing service is simply left out", async () => {

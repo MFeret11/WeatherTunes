@@ -59,7 +59,7 @@ All optional: each is fetched alongside the forecast with a 4-second limit, and 
 - **Air quality:** Open-Meteo's air-quality API (`air-quality-api.open-meteo.com/v1/air-quality?hourly=us_aqi`), same terms and rounded coordinates as the forecast.
 - **Aurora activity:** NOAA SWPC's planetary Kp forecast (`services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json`), 3-hourly, public domain. No location is sent. Sample days use GFZ Potsdam's definitive Kp (CC BY 4.0).
 - **Public holidays:** Nager.Date (`date.nager.at/api/v3/PublicHolidays/{year}/{cc}`). Only the country code is sent; it comes from the city search, the featured-city list, a `cc` link parameter, or (for your own location) the browser's language region. Cached a week per country.
-- **Recent lows** for "first frost": the forecast API's daily minimum with `past_days=60`.
+- **Recent lows** for "first frost": the daily minimum with `past_days=60`, in the same request as the forecast (`past_hours=24&forecast_hours=48` keeps the hourly part short; the browser keeps only today's hours).
 - **UV index and snow depth** join the main forecast request. **Dew point and feels-like** are calculated from temperature, humidity and wind (Magnus formula; the Australian apparent temperature, as Open-Meteo uses).
 - **The moon and the calendar need no service:** `src/sky.js` works out the moon's phase, rise and set, lunar eclipses, solstices and equinoxes, meteor showers (a table of the eight major ones) and magnetic latitude in the browser. Times use the browser's time-zone rules, because Open-Meteo reports today's UTC offset even for past dates.
 
@@ -250,7 +250,7 @@ A place's year as four movements, for anyone who wants more than one 20-second d
 - **Rain chance:** past days often lack `precipitation_probability`. When the whole column is missing, an hour with ≥ 0.1 mm counts as 100% and the chart's key says "Rain or snow".
 - **Seasons:** December–February first; winter leads in both hemispheres (south: June–August). Within 23.5° of the equator, seasons are named by months ("Dec–Feb"), since summer and winter don't mean much there.
 - **Playing:** the Player takes a queue. The next movement renders once the current one has finished rendering, and starts `SUITE.overlapSec` before the current one's tail ends; the old one rings out under it. Each movement keeps its own key, tempo and ending. The page follows: chart, cover, notes and a strip of the four seasons.
-- **Kept:** the chosen days are saved in the browser for 30 days per place. Holidays are looked up for each day's year. Air quality comes from the archive when it exists; aurora (Kp) and first frost are left out.
+- **Kept:** the chosen days are saved in the browser for 30 days per place. Holidays are looked up for each day's year. Air quality, aurora (Kp) and first frost are left out, so a suite costs five requests (the archive and four days).
 - **Shareable:** `&suite=1` on a place or sample link opens the suite.
 
 ### 6.7 Right now (planned, 2026-11-05)
