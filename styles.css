@@ -703,6 +703,16 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   font-family: var(--font-mono); font-size: 0.88rem; color: var(--muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.player:not(.playing) .nowhour { display: none; }
+.sum-short { display: none; }
+@media (min-width: 561px) {
+  /* "Change place" sits on the label's line, top right, instead of a row of its own. */
+  .now-info { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; }
+  .now-info > * { grid-column: 1 / -1; }
+  .now-info > .eyebrow { grid-column: 1; grid-row: 1; }
+  .now-info > .change-top { display: block; grid-column: 2; grid-row: 1; min-height: 0; padding: 0 4px; }
+  .change-row { display: none; }
+}
 .desc { margin: 16px 0 0; max-width: 62ch; line-height: 1.55; font-size: 0.95rem; }
 .desc:empty { display: none; }
 .desc p { margin: 0; }
@@ -774,6 +784,8 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   .now-info > .eyebrow { margin: 0; align-self: end; }
   .now-info h2 { font-size: 1.45rem; margin: 0 0 2px; line-height: 1.15; }
   .summary { margin: 0; font-size: 0.85rem; }
+  .sum-short { display: inline; }
+  .sum-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .change-top { display: block; justify-self: start; align-self: start; margin: 2px 0 0; padding: 4px 0; font-size: 0.85rem; }
   .change-row { display: none; }
   .movements { margin: 12px 0 0; }

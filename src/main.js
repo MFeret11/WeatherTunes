@@ -30,10 +30,10 @@ const SAMPLES = [
 // Your own location has no place name, so holidays use your browser's region.
 const BROWSER_CC = (navigator.language || "").split("-")[1]?.toUpperCase() || null;
 const KIND_LABELS = {
-  featured: "Today's featured city",
+  featured: "Featured city",
   search: "Today in",
   link: "Today in",
-  geo: "Today where you are",
+  geo: "Where you are",
   sample: "Sample day",
 };
 
@@ -171,8 +171,13 @@ function render() {
   // The header line is the weather; the music theory lives in the liner notes.
   const whole = (c) => (units === "us" ? `${Math.round((c * 9) / 5 + 32)}\u00a0°F` : `${Math.round(c)}\u00a0°C`);
   const wetWord = weatherIcon(forecast.hours[wetI].code, 1).label === "Snow" ? "Snow" : "Rain";
-  $("summary").textContent = (mv ? `Typical ${seasonWord(mv.season)} day · ` : "") + `${date} · High\u00a0${whole(forecast.hours[hiI].temp)} · Low\u00a0${whole(forecast.hours[loI].temp)} · ` +
-    (wet >= 10 ? `${wetWord}\u00a0${wet}%` : "Dry");
+  const wetText = wet >= 10 ? `${wetWord}\u00a0${wet}%` : "Dry";
+  const full = (mv ? `Typical ${seasonWord(mv.season)} day · ` : "") + `${date} · High\u00a0${whole(forecast.hours[hiI].temp)} · Low\u00a0${whole(forecast.hours[loI].temp)} · ${wetText}`;
+  // Phones get a compact line: no year, high and low as arrows, no units.
+  const deg0 = (c) => `${Math.round(units === "us" ? (c * 9) / 5 + 32 : c)}°`;
+  const shortDate = mv ? cap(seasonWord(mv.season)) : new Date(`${m.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const short = `${shortDate} · ↑${deg0(forecast.hours[hiI].temp)} ↓${deg0(forecast.hours[loI].temp)} · ${wetText}`;
+  $("summary").innerHTML = `<span class="sum-full">${esc(full)}</span><span class="sum-short" aria-hidden="true">${esc(short)}</span>`;
   $("cover").innerHTML = coverArt(forecast, m);
   $("cover").style.setProperty("--label", tempColor(forecast.hours[hiI].temp));
   const vinyl = document.querySelector(".vinyl");
