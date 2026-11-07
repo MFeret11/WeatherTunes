@@ -579,6 +579,8 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
 .sb-story::first-letter { font: 700 2.4em/0.8 var(--font-display); float: left; margin: 0.08em 0.1em 0 0; }
 .sb-listen-h { margin: 0.9em 0 0.35em; font: 600 0.78em var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: #8a7f6c; }
 .sb-listen { margin: 0; padding: 0; list-style: none; display: grid; gap: 0.25em; }
+.sb-over li { display: grid; grid-template-columns: 3.4em 1fr; }
+.sb-over b { font: 600 0.9em var(--font-mono); color: #1d1a15; }
 .sb-listen time { display: inline-block; min-width: 2.8em; font: 600 0.9em var(--font-mono); color: #1d1a15; }
 .sb-foot { display: flex; align-items: flex-end; gap: 1em; margin-top: 0.7em; padding-top: 0.6em; border-top: 1px solid rgba(0, 0, 0, 0.18); }
 .sb-code { flex: none; display: grid; justify-items: center; background: #fff; padding: 0.35em 0.5em 0.2em; }
@@ -717,6 +719,7 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
 /* ---------- Also today: moon, sky events, air ---------- */
 /* Plain text with an icon, so they don't look like buttons. */
 .chips { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 18px 0 0; padding: 0; list-style: none; }
+.chips:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 0.86rem; color: var(--muted); }
 .chip svg { width: 18px; height: 18px; flex: none; }
 .chip.event { color: var(--text); font-weight: 600; }
@@ -754,6 +757,9 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   .hour:not(.axis6) .lbl { display: none; }
   .hour .lbl { font-size: 0.65rem; }
   #geo { flex: 1 1 100%; justify-content: center; }
+  .extras { flex-wrap: nowrap; gap: 8px; }
+  .samples { flex: 1; min-width: 0; }
+  .samples select { width: 100%; }
   /* The player as one grid: the cover beside the place, then Play, then straight
      into the hour-by-hour chart, so all three fit on one screen while it plays.
      The weather paragraph and the extras move below the chart. */

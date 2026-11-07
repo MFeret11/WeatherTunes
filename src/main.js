@@ -9,7 +9,7 @@ import { describe } from "./describe.js";
 import { Player } from "./stream.js";
 import { cueTimes } from "./engine.js";
 import { toWav, wavName } from "./wav.js";
-import { weatherIcon, tempColor, moonDisc } from "./icons.js";
+import { weatherIcon, tempColor } from "./icons.js";
 import { coverArt } from "./cover.js";
 import { pressing } from "./vinyl.js";
 import { CODES, SUITE } from "./mapping.js";
@@ -305,7 +305,7 @@ function renderHours() {
     (dry ? "No rain expected." : `Best chance of rain ${Math.max(...pops)}% at ${hourLabel(pops.indexOf(Math.max(...pops)))}.`));
 }
 
-// ---- Also today: the moon, the sky's events and the air, as small chips ----
+// ---- Also today: the sky's rarer events, as small chips (the moon, air and UV are on the sleeve) ----
 
 const CHIP = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
 const CHIP_ICONS = {
@@ -314,21 +314,14 @@ const CHIP_ICONS = {
   meteor: CHIP('<path d="M4 4l11 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".55"/><circle cx="16.5" cy="16.5" r="3" fill="var(--sun)"/>'),
   season: CHIP('<path d="M4 18h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 18a5 5 0 0 1 10 0" fill="var(--sun)"/><path d="M12 6v3M6 9.5l1.6 1.6M18 9.5l-1.6 1.6" stroke="var(--sun)" stroke-width="1.6" stroke-linecap="round"/>'),
   holiday: CHIP('<path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z" fill="var(--sun)"/>'),
-  air: CHIP('<path d="M3 9h12a3 3 0 1 0-3-3M3 13h16M3 17h10a3 3 0 1 1-3 3" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>'),
-  uv: CHIP('<circle cx="12" cy="12" r="4" fill="var(--sun)"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" stroke="var(--sun)" stroke-width="1.6" stroke-linecap="round"/>'),
   snow: CHIP('<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" stroke="var(--accent-2)" stroke-width="1.6" stroke-linecap="round"/>'),
   frost: CHIP('<path d="M12 4v16M5 8l14 8M5 16l14-8" stroke="var(--accent-2)" stroke-width="1.3" stroke-linecap="round"/><circle cx="12" cy="12" r="2" fill="var(--accent-2)"/>'),
 };
 
 function renderChips() {
   const sk = score.meta.sky;
-  const m = sk.moon;
   const chips = [];
   const add = (icon, text, tone = "") => chips.push(`<li class="chip ${tone}">${icon}<span>${esc(text)}</span></li>`);
-  const phase = m.phase[0].toUpperCase() + m.phase.slice(1);
-  const times = [m.rise != null && `rises ${hourLabel(m.rise)}`, m.set != null && `sets ${hourLabel(m.set)}`].filter(Boolean);
-  add(CHIP(moonDisc(12, 12, 8, { illum: m.illum, waxing: m.waxing, south: forecast.lat < 0 })),
-    `${phase}, ${Math.round(m.illum * 100)}% lit${times.length ? ` · ${times.join(", ")}` : m.alt.some((a) => a > 0) ? " · up all day" : " · below the horizon"}`);
   if (sk.eclipse) add(CHIP_ICONS.eclipse, `${sk.eclipse.type === "total" ? "Total" : "Partial"} lunar eclipse · ${hourLabel(sk.eclipse.hour)}`, "event");
   const lights = forecast.lat >= 0 ? "Northern lights" : "Southern lights";
   const auroraBars = sk.aurora.map((a, b) => (a >= 0.25 ? b : -1)).filter((b) => b >= 0);
@@ -337,11 +330,6 @@ function renderChips() {
   if (sk.shower) add(CHIP_ICONS.meteor, `${sk.shower.name} meteor shower${sk.shower.peak ? " · peak" : ""}`, "event");
   if (sk.season) add(CHIP_ICONS.season, `${sk.season.name} · ${hourLabel(sk.season.hour)}`, "event");
   if (sk.holiday) add(CHIP_ICONS.holiday, sk.holiday.name, "event");
-  if (sk.aqiMax != null) {
-    const cat = aqiCategory(sk.aqiMax);
-    add(CHIP_ICONS.air, `Air quality ${Math.round(sk.aqiMax)}, ${cat}`, sk.aqiMax > 100 ? "warn" : "");
-  }
-  if (sk.uvMax != null && sk.uvMax >= 3) add(CHIP_ICONS.uv, `UV ${Math.round(sk.uvMax)}, ${uvCategory(sk.uvMax)} · ${hourLabel(sk.uvMaxHour)}`, sk.uvMax >= 8 ? "warn" : "");
   if (sk.snowCm >= 1) add(CHIP_ICONS.snow, `${units === "us" ? `${Math.round(sk.snowCm / 2.54)} in` : `${Math.round(sk.snowCm)} cm`} of snow on the ground`);
   if (sk.firstFrost) add(CHIP_ICONS.frost, "First frost of the season", "event");
   else if (sk.frostHours.length) add(CHIP_ICONS.frost, "Frost early");
@@ -378,6 +366,18 @@ function linerHtml(m) {
     (listen ? `<h3 class="sb-listen-h">Listen for</h3><ul class="sb-listen">${listen}</ul>` : "");
 }
 
+/** The moon, the air and the sun, for the back of the sleeve. */
+function overheadHtml() {
+  const sk = score.meta.sky;
+  const m = sk.moon;
+  const rows = [];
+  const times = [m.rise != null && `rises ${hourLabel(m.rise)}`, m.set != null && `sets ${hourLabel(m.set)}`].filter(Boolean);
+  rows.push(["Moon", `${cap(m.phase)}, ${Math.round(m.illum * 100)}% lit${times.length ? `, ${times.join(", ")}` : m.alt.some((a) => a > 0) ? ", up all day" : ", below the horizon"}`]);
+  if (sk.aqiMax != null) rows.push(["Air", `${Math.round(sk.aqiMax)}, ${aqiCategory(sk.aqiMax)}`]);
+  if (sk.uvMax != null) rows.push(["UV", `${Math.round(sk.uvMax)}, ${uvCategory(sk.uvMax)}${sk.uvMax >= 3 ? `, peaks ${hourLabel(sk.uvMaxHour)}` : ""}`]);
+  return `<h3 class="sb-listen-h">Overhead</h3><ul class="sb-listen sb-over">${rows.map(([k, v]) => `<li><b>${k}</b><span>${esc(v)}</span></li>`).join("")}</ul>`;
+}
+
 function renderSleeveBack() {
   const m = score.meta;
   const press = pressing(forecast, m);
@@ -398,7 +398,7 @@ function renderSleeveBack() {
     <h2 id="sleeve-title" class="sb-title">${esc(m.name.split(",")[0])}</h2>
     <p class="sb-date">${esc(date)}</p>
     <dl class="sb-credits">${credits.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>
-    <div class="sb-notes">${suite ? suiteNotes() : ""}${linerHtml(m)}</div>
+    <div class="sb-notes">${suite ? suiteNotes() : ""}${linerHtml(m)}${overheadHtml()}</div>
     <footer class="sb-foot">
       <div class="sb-code">${code.svg}<span>${code.digits}</span></div>
       <small>Played from the forecast. Weather data by Open-Meteo.com (CC BY 4.0).</small>
