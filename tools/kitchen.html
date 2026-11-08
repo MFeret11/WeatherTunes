@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeatherTunes</title>
+<style>html, body { margin: 0; background: transparent; }</style>
+</head>
+<body>
+<!-- The kitchen display's entry page, published by tools/kitchen_render.py next to
+     version.json, cache/ and v/<version>/ (one folder per version of the app).
+     Some servers (Home Assistant's /local/) let browsers keep files for weeks, so the
+     app is never changed in place: this page asks which version is current and opens
+     it, passing its own query on (?kitchen&widget...). Keep this page unchanged: a
+     browser may hold on to an old copy of it too. -->
+<script>
+(function go() {
+  var here = location.pathname.replace(/[^/]*$/, "");
+  fetch(here + "version.json", { cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (info) {
+      var q = new URLSearchParams(location.search);
+      q.set("data", here + "cache/");
+      q.set("entry", location.pathname + location.search);
+      location.replace(here + "v/" + encodeURIComponent(info.version) + "/index.html?" + q.toString().replace(/=(&|$)/g, "$1"));
+    })
+    .catch(function () { setTimeout(go, 60000); }); // not published yet, or the server is restarting
+})();
+</script>
+</body>
+</html>

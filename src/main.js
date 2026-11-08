@@ -6,7 +6,7 @@ import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, randomPl
 import { compose } from "./compose.js";
 import { hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./util.js";
 import { describe } from "./describe.js";
-import { Player } from "./stream.js";
+import { Player, SAMPLE_RATE } from "./stream.js";
 import { cueTimes } from "./engine.js";
 import { toWav, wavName } from "./wav.js";
 import { weatherIcon, tempColor } from "./icons.js";
@@ -35,6 +35,7 @@ const KIND_LABELS = {
   link: "Today in",
   geo: "Where you are",
   sample: "Sample day",
+  home: "Today's forecast",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -43,6 +44,14 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
+
+// Kitchen display (?kitchen): one place and its song, made ready each morning by
+// tools/kitchen_render.py, and nothing else on the page. See startKitchen().
+// &widget is the small version that sits on the dashboard itself.
+const KITCHEN = new URLSearchParams(location.search).has("kitchen");
+const WIDGET = KITCHEN && new URLSearchParams(location.search).has("widget");
+document.documentElement.classList.toggle("kitchen", KITCHEN);
+document.documentElement.classList.toggle("widget", WIDGET);
 
 let playing = false;
 let forecast = null;
@@ -88,8 +97,11 @@ function status(text, isError = false) {
 
 // ---- Loading a place ---------------------------------------------------------
 
-/** kind: featured | search | link | geo | sample.  place: { name, lat, lon }.  sample: fixture id. */
-async function choose({ kind, place, sample, reveal = false }) {
+/**
+ * kind: featured | search | link | geo | sample | home.  place: { name, lat, lon }.  sample: fixture id.
+ * storage: where fetchForecast looks for a cached forecast (the kitchen display's morning one).
+ */
+async function choose({ kind, place, sample, reveal = false, storage }) {
   const token = ++loadToken;
   const wasPlaying = playing;
   $("results").hidden = true;
@@ -102,12 +114,17 @@ async function choose({ kind, place, sample, reveal = false }) {
       f = normalizeForecast(await (await fetch(`samples/${sample}.json`)).json());
     } else {
       status(`Getting today's forecast for ${place.name}…`);
-      f = await fetchForecast(place);
+      f = await fetchForecast(place, { storage });
       status("");
     }
   } catch (e) {
     if (token !== loadToken) return;
     console.warn(e);
+    if (KITCHEN) { // a far-off sample day would only confuse the kitchen
+      status("Couldn't reach the weather service. Try again in a minute.", true);
+      $("place-kind").textContent = "";
+      return;
+    }
     const fallback = SAMPLES[Math.floor(Math.random() * SAMPLES.length)][0];
     status(`Couldn't reach the weather service right now, so here's a sample day instead.`, true);
     kind = "sample";
@@ -155,7 +172,9 @@ function rememberAndLink() {
 // ---- Rendering -----------------------------------------------------------------
 
 function render() {
-  player.prepare(score, retro, muted); // start rendering now, so Play has less to wait for
+  // Start rendering now, so Play has less to wait for. Not on the kitchen display: it
+  // plays the morning's recording, and stays open all day, so it shouldn't render unasked.
+  if (!KITCHEN) player.prepare(score, retro, muted);
   const m = score.meta;
   const mv = suite?.movements[suite.index];
   $("place-kind").textContent = mv ? `Season suite · ${suite.index + 1} of ${suite.movements.length}` : KIND_LABELS[current.kind];
@@ -232,7 +251,10 @@ function renderHours() {
   const moonLook = { illum: sk.moon.illum, waxing: sk.moon.waxing, south: forecast.lat < 0 };
 
   // Temperature labels: high and low always, then every third hour where there's room.
-  const tLabels = spaced([hiI, loI, ...hours.map((_, i) => i).filter((i) => i % 3 === 0)], 2);
+  // On a narrow chart (the kitchen widget on a phone) labels need more columns between them.
+  const colW = $("hours").clientWidth / 24;
+  const tGap = colW > 0 ? Math.max(2, Math.ceil(24 / colW)) : 2;
+  const tLabels = spaced([hiI, loI, ...hours.map((_, i) => i).filter((i) => i % 3 === 0)], tGap);
   // Rain labels: one at the start of each peak (a steady 100% all day gets one label), wettest first.
   const pops = hours.map((h) => h.pop);
   const dry = Math.max(...pops) < 10;
@@ -655,6 +677,7 @@ function setPlayState(on) {
   playBtn.querySelector("span").textContent = on ? (player.isWaiting ? waitLabel() : "Stop") : "Play";
   document.querySelector(".player").classList.toggle("playing", on);
   showWait(on && player.isWaiting);
+  kitchenIdle();
 }
 
 // While a song gets ready (or catches up mid-song), the button counts down and fills
@@ -883,9 +906,109 @@ async function geoAlreadyAllowed() {
   }
 }
 
+// ---- Kitchen display ------------------------------------------------------------
+// Each morning tools/kitchen_render.py saves today's forecast and the finished song
+// in cache/ next to this page, so the song plays the moment it's tapped.
+//   ?kitchen            this layout, for the place in cache/day.json
+//   &widget             the compact version, for a dashboard card: tap anywhere to play
+//   &autoplay           start playing at once, where the browser allows it
+//   &return=<seconds>   when embedded (a Home Assistant dashboard), go back to the
+//                       page that opened this one after that long without a song playing
+//   &data=<path>        where day.json and the song are (default cache/ next to this page)
+//   &entry=<path>       the page to reload through for a new day (kitchen.html, which
+//                       always points at the newest copy of the app)
+const kitchenQ = new URLSearchParams(location.search);
+const sameSitePath = (p) => (p && /^\/[\w./%-]*$/.test(p) && !p.startsWith("//") ? p : null);
+const KITCHEN_DATA = (sameSitePath(kitchenQ.get("data")) || "cache").replace(/\/?$/, "/");
+const KITCHEN_ENTRY = sameSitePath(kitchenQ.get("entry")?.split("?")[0]) ? kitchenQ.get("entry") : null;
+
+/** The morning's saved day, or null if there isn't one. Fields: date, place, raw, audio. */
+async function kitchenDay() {
+  try {
+    const r = await fetch(`${KITCHEN_DATA}day.json`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`day.json: ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    console.warn(e);
+    return null;
+  }
+}
+
+/** The morning's song, decoded, or null. */
+async function kitchenRecording(day) {
+  try {
+    const r = await fetch(`${KITCHEN_DATA}${day.audio}?d=${day.date}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`${day.audio}: ${r.status}`);
+    return await new OfflineAudioContext(2, 1, SAMPLE_RATE).decodeAudioData(await r.arrayBuffer());
+  } catch (e) {
+    console.warn(e);
+    return null;
+  }
+}
+
+const embedded = (() => { try { return window.parent !== window && !!window.parent.history; } catch { return false; } })();
+function kitchenBack() {
+  try { window.parent.history.back(); } catch { /* not ours to steer */ }
+}
+let idleTimer = null;
+function kitchenIdle() {
+  clearTimeout(idleTimer);
+  const secs = Number(new URLSearchParams(location.search).get("return"));
+  if (KITCHEN && embedded && secs > 0 && !playing) idleTimer = setTimeout(kitchenBack, secs * 1000);
+}
+
+/**
+ * The display stays open for days, so reload (when no song is playing) once the
+ * morning's new day is saved, or, if it never comes, once it's well into the day.
+ */
+async function kitchenRefresh() {
+  if (playing) return;
+  const shown = forecast?.date;
+  const day = await kitchenDay();
+  const today = new Date().toLocaleDateString("en-CA");
+  const reload = () => (KITCHEN_ENTRY ? location.replace(KITCHEN_ENTRY) : location.reload());
+  if (day?.date && day.date !== shown) reload();
+  else if (shown !== today && new Date().getHours() >= 7) reload();
+}
+
+async function startKitchen() {
+  const q = new URLSearchParams(location.search);
+  $("kitchen-back").hidden = !embedded || WIDGET;
+  // The widget is all one button: a tap anywhere plays or stops the song.
+  if (WIDGET) {
+    document.querySelector(".player").addEventListener("click", () => {
+      if (!playBtn.disabled) playing ? stop() : play();
+    });
+  }
+  $("kitchen-back").addEventListener("click", kitchenBack);
+  kitchenIdle();
+  const day = await kitchenDay();
+  if (!day || !day.place) {
+    $("place-kind").textContent = "";
+    status("Today's forecast isn't ready yet.", true);
+    return;
+  }
+  // A day from an earlier morning (the render failed): fetch and play today's live instead.
+  const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local time
+  const fresh = day.date === today && day.raw;
+  const storage = fresh ? { getItem: () => JSON.stringify({ savedAt: Date.now(), raw: day.raw }), setItem() {} } : undefined;
+  const recording = fresh && day.audio ? await kitchenRecording(day) : null;
+  await choose({ kind: "home", place: day.place, storage });
+  // Straight after choose(), before the player starts an early render of its own.
+  if (recording && score && !player.adopt(score, recording)) console.warn("The saved song doesn't match today's; making it here instead.");
+  setInterval(kitchenRefresh, 10 * 60 * 1000);
+  if (q.has("autoplay") && score) {
+    const ctx = player.wake();
+    await new Promise((r) => setTimeout(r, 300));
+    if (ctx.state === "running" && !playing) play();
+  }
+}
+
 const q = new URLSearchParams(location.search);
 const saved = store.get("wt:place");
-if (q.get("sample") && SAMPLES.some(([id]) => id === q.get("sample"))) {
+if (KITCHEN) {
+  await startKitchen();
+} else if (q.get("sample") && SAMPLES.some(([id]) => id === q.get("sample"))) {
   await choose({ kind: "sample", sample: q.get("sample") });
 } else if (/^[a-z0-9-]{1,40}$/.test(q.get("local") || "")) {
   // Dev only: a day from a local, unpublished tuning set (local/ordinary/, not in the repo).

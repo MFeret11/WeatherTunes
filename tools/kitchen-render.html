@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WeatherTunes kitchen render</title>
+</head>
+<body>
+<!-- Run by tools/kitchen_render.py in headless Chromium, not opened by hand:
+     ?name=&lat=&lon=&cc=  fetches today's forecast for that place, renders the song in
+     full and posts both back (/__day, then /__song as WAV), or /__error. -->
+<pre id="out">rendering…</pre>
+<script src="../vendor/tone-15.1.22.js"></script>
+<script type="module">
+import { fetchForecast, roundCoord } from "../src/weather.js";
+import { compose } from "../src/compose.js";
+import { Render, SAMPLE_RATE } from "../src/stream.js";
+import { toWav } from "../src/wav.js";
+
+const post = (path, body) => fetch(path, { method: "POST", body });
+const fail = (e) => post("/__error", String(e?.stack || e));
+window.addEventListener("error", (e) => fail(e.message));
+window.addEventListener("unhandledrejection", (e) => fail(e.reason));
+
+const q = new URLSearchParams(location.search);
+if (!q.get("lat") || !q.get("lon")) throw new Error("lat and lon are required");
+const place = { name: q.get("name") || "Home", lat: roundCoord(q.get("lat")), lon: roundCoord(q.get("lon")), cc: q.get("cc") || null };
+if (!Number.isFinite(place.lat) || !Number.isFinite(place.lon)) throw new Error("lat and lon must be numbers");
+
+// fetchForecast caches the raw forecast in `storage`; keep that copy, so the kitchen
+// page can rebuild exactly the same forecast (and so the same song) from it.
+let cached = null;
+const storage = { getItem: () => null, setItem: (k, v) => { cached = JSON.parse(v).raw; } };
+const forecast = await fetchForecast(place, { storage });
+if (!cached) throw new Error("the forecast wasn't cached");
+const score = compose(forecast);
+
+const t0 = performance.now();
+const render = new Render(score, { retro: false, sampleRate: SAMPLE_RATE });
+await render.promise;
+if (render.error) throw render.error;
+const seconds = render.frames / render.sampleRate;
+
+await post("/__day", JSON.stringify({ date: forecast.date, place, raw: cached, seconds }));
+await post("/__song", toWav(render.audio()));
+document.getElementById("out").textContent = `${forecast.date}: ${seconds.toFixed(0)} s song rendered in ${((performance.now() - t0) / 1000).toFixed(0)} s`;
+</script>
+</body>
+</html>

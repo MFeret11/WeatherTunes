@@ -838,3 +838,83 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
   .sleeve-card { transition: none; }
   .sleeve.turning .sleeve-card, .sleeve.turning .sleeve-front::after { animation: none; }
 }
+
+/* ---------- Kitchen display (?kitchen): today's forecast and song, nothing else ---------- */
+.kitchen-back { display: none; }
+.kitchen .site-header, .kitchen .top, .kitchen .foot,
+.kitchen .change-place, .kitchen #download, .kitchen #retro, .kitchen #suite,
+.kitchen #units, .kitchen #ios-hint, .kitchen #desc { display: none; }
+/* The finder card stays only for its status line (errors). */
+.kitchen .finder > :not(#status) { display: none; }
+.kitchen .finder { padding: 0; border: 0; background: none; box-shadow: none; }
+.kitchen .finder .status { font-size: 1.1rem; text-align: center; }
+.kitchen main.wrap { max-width: 1280px; padding-top: 16px; }
+@media (min-width: 700px) {
+  .kitchen .now-playing { --cs: 200px; }
+  .kitchen .now-info h2 { font-size: 2.6rem; }
+  .kitchen .summary { font-size: 1.2rem; }
+}
+.kitchen .play { min-height: 64px; padding: 0 34px 0 26px; font-size: 1.3rem; }
+.kitchen .play svg { width: 28px; height: 28px; }
+.kitchen .nowhour { font-size: 1.1rem; }
+.kitchen .kitchen-back:not([hidden]) {
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  order: 0; padding: 8px 18px 8px 12px; font-size: 1.05rem;
+}
+.kitchen-back svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The widget (?kitchen&widget): a card on the dashboard, any width (phone to PC).
+   The record on the left and a small hour-by-hour chart beside it, nothing else:
+   the dashboard's weather card already shows the date, high, low and summary.
+   The whole card is the play button (see startKitchen); a badge on the cover
+   shows play or stop. */
+.widget, .widget body { background: transparent; overflow: hidden; height: 100%; }
+.widget main.wrap { max-width: none; padding: 0; height: 100%; }
+.widget main.wrap > .card { margin: 0; }
+.widget .player {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto;
+  column-gap: 12px; align-items: start; align-content: center; height: 100%;
+  padding: 8px 12px; border: 0; box-shadow: none; background: transparent;
+  cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
+}
+.widget .player[data-phase] { box-shadow: none; }
+.widget .player > *, .widget .now-info > * { display: none; }
+.widget .now-playing, .widget .now-info { display: contents; }
+.widget .now-playing { --cs: 160px; } /* the cover: as tall as the chart (.widget .hours), so they line up */
+.widget .record { display: block; grid-column: 1; grid-row: 1; width: calc(var(--cs) * 1.2); height: var(--cs); }
+.widget .vinyl, .widget .player.playing .vinyl { transform: translateX(14%); }
+.widget .cover { pointer-events: none; }
+.widget .cover::after { display: none; }
+/* The badge: play, or stop while playing; it pulses while a song is still being made. */
+.widget .record::after {
+  content: ""; position: absolute; z-index: 3; left: calc(var(--cs) / 2); top: 50%;
+  width: clamp(30px, calc(var(--cs) * 0.36), 46px); aspect-ratio: 1; transform: translate(-50%, -50%);
+  border-radius: 50%; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6.5v11l9-5.5z' fill='white'/%3E%3C/svg%3E") center / 62% no-repeat;
+}
+.widget .player.playing .record::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='7' y='7' width='10' height='10' rx='1.5' fill='white'/%3E%3C/svg%3E");
+  opacity: 0.75;
+}
+.widget .player:has(.play.preparing) .record::after { animation: wt-pulse 1.2s ease-in-out infinite; }
+@keyframes wt-pulse { 50% { opacity: 0.4; } }
+.widget .player:active .record::after { transform: translate(-50%, -50%) scale(0.92); }
+/* The chart, shrunk to fit. */
+.widget .player > .stage { display: block; grid-column: 2; grid-row: 1; margin: 0; }
+/* 22 + 14 + 77 + 14 + 18 + 15 = 160px tall, the cover's size above. */
+.widget .hours, .widget .hours.dry { --ic: 22px; --lr: 14px; --zh: 77px; --rh: 18px; --ax: 15px; border-radius: 8px; }
+.widget .hour .icon { top: 3px; width: min(calc(100% - 2px), 18px); visibility: hidden; }
+.widget .hour.sky-narrow .icon { visibility: visible; }
+.widget .hour .run { --ic-w: 18px; top: calc(3px + var(--ic-w) / 2 - 1px); }
+.widget .hour .run.w { display: none; }
+.widget .hour .run.n { display: block; }
+.widget .hour .dot { width: 6px; height: 6px; }
+.widget .hour .tv { font-size: 0.66rem; }
+.widget .hour .rain b { font-size: 0.6rem; }
+.widget .hr-dry { font-size: 0.66rem; }
+.widget .hour .lbl { font-size: 0.6rem; }
+.widget .hour:not(.axis6) .lbl { display: none; }
+.widget .finder { display: none; }
+/* A problem (no forecast yet, no connection) shows over the card. */
+.widget .finder:has(#status:not(:empty)) { display: block; position: absolute; left: 12px; right: 12px; bottom: 8px; padding: 0; }
+.widget .finder > #status { display: block; margin: 0; font-size: 0.9rem; text-align: left; }

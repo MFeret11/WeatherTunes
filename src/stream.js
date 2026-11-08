@@ -220,6 +220,40 @@ export class Render {
   }
 }
 
+/**
+ * A song rendered earlier (the kitchen display's morning render), standing in for a
+ * Render: all of it is ready, so Play starts at once. `buffer` is the decoded audio.
+ */
+export class Recording {
+  constructor(score, buffer) {
+    this.score = score;
+    this.offset = 0;
+    this.sampleRate = buffer.sampleRate;
+    this.frames = buffer.length;
+    const data = [0, 1].map((c) => buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1)));
+    this.blocks = [{ at: 0, data }];
+    this.got = this.frames;
+    this.done = true;
+    this.error = null;
+    this.lag = 0;
+    this.listeners = new Set();
+    this.promise = Promise.resolve();
+  }
+
+  /** Any setting: there's only the one recording. */
+  matches(score) {
+    return this.score === score;
+  }
+
+  speed() { return 100; }
+  ready() { return true; }
+  waitFor() { return 0; }
+  audio() {
+    const [l, r] = this.blocks[0].data;
+    return { numberOfChannels: 2, sampleRate: this.sampleRate, length: this.frames, getChannelData: (c) => (c ? r : l) };
+  }
+}
+
 // iPhones mute web audio when the ring/silent switch is on silent, though
 // music and video still play. Asking for a "playback" audio session (iOS 17+)
 // makes the song play like music. Older iPhones get the same effect from a
@@ -307,6 +341,17 @@ export class Player {
       this.renders = [...this.renders.slice(-1), r];
     }
     return r;
+  }
+
+  /**
+   * Use a recording made earlier for `score`, if it's the right length (a recording
+   * from a different version of the song is ignored). Returns whether it was taken.
+   */
+  adopt(score, buffer) {
+    const expected = songSeconds(score) * buffer.sampleRate;
+    if (Math.abs(buffer.length - expected) > buffer.sampleRate * 0.5) return false;
+    this.renders = [new Recording(score, buffer)];
+    return true;
   }
 
   /**

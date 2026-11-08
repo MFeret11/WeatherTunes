@@ -27,6 +27,7 @@
 			var t;
 			try { t = localStorage.getItem("theme"); } catch (e) {}
 			if (!t) t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+			if (/[?&]kitchen(&|=|$)/.test(location.search)) t = "dark"; // the kitchen display is always dark
 			document.documentElement.dataset.theme = t;
 		})();
 	</script>
@@ -49,6 +50,7 @@
 		</div>
 	</header>
 	<main class="wrap">
+		<button id="kitchen-back" class="btn kitchen-back" type="button" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>Back</button>
 		<header class="top">
 			<h1>WeatherTunes</h1>
 			<p class="lede">A day's forecast, played as music.</p>
