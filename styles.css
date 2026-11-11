@@ -157,9 +157,9 @@ main.wrap > .card { margin: 10px 0; }
 .lights[aria-pressed="true"] .lights-track { background: #241c3d; }
 .lights[aria-pressed="true"] .lights-track::after { transform: translateX(12px); background: #a78bfa; box-shadow: 0 0 10px #7c4dff; }
 .lights:focus-visible, .brand:focus-visible, .site-nav a:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
-/* Phones: one row. The links become a strip you can swipe sideways (the logo
+/* Phones and tablets: one row. The links become a strip you can swipe sideways (the logo
    already goes home), fading out at the right edge to show there's more. */
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .header-inner { flex-wrap: nowrap; gap: 8px; min-height: 54px; padding-top: 6px; padding-bottom: 6px; }
   .brand { flex: none; }
   .site-nav {
@@ -174,8 +174,36 @@ main.wrap > .card { margin: 10px 0; }
   .lights { flex: none; margin-left: 0; }
   .lights-label { display: none; }
 }
+/* With the script running, phones get a Menu button instead of the strip (same as mferet.com):
+   the links drop down under the header, all six of them. */
+.menu-btn {
+  display: none; align-items: center; gap: 6px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  font: 500 0.85rem var(--font-body); padding: 6px 12px 6px 10px; border-radius: 999px; cursor: pointer;
+}
+.menu-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.menu-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.menu-btn:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 2px; }
+@media (min-width: 481px) and (max-width: 900px) {
+  .has-menu .lights-label { display: inline; }
+}
+@media (max-width: 900px) {
+  .has-menu .menu-btn { display: inline-flex; margin-left: auto; }
+  .has-menu .site-nav {
+    display: none; position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; gap: 2px; overflow: visible; padding: 8px 12px 12px;
+    background: var(--bg); border-bottom: 1px solid var(--border); box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+    -webkit-mask-image: none; mask-image: none;
+  }
+  .has-menu .site-nav.open { display: flex; }
+  .has-menu .site-nav a, .has-menu .site-nav a:first-child { display: block; padding: 12px; font-size: 1rem; }
+}
 @media (max-width: 480px) {
   .brand span { display: none; }
+  .has-menu .brand span { display: inline; }
+}
+@media (max-width: 340px) {
+  .has-menu .brand span { display: none; }
 }
 
 .lede { color: var(--muted); max-width: 60ch; font-size: 1.1rem; margin: 0; }
@@ -518,17 +546,16 @@ select, .btn {
 .cover svg { display: block; }
 /* Cover art is a picture: a long-press shouldn't select its lettering. */
 .cover svg, .sleeve-front { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-/* The cover is a button: it lifts slightly on hover, and a turn arrow says it has a back. */
+/* The cover is a button: it lifts slightly on hover, and a turn arrow in its corner (always showing) says it has a back. */
 button.cover { display: block; padding: 0; border: 0; cursor: pointer; font: inherit; color: inherit; transition: transform 0.2s, box-shadow 0.2s; }
 button.cover:hover { transform: translateY(-2px) rotate(-0.6deg); }
 button.cover:focus-visible { outline: 3px solid var(--accent-2); outline-offset: 3px; }
 button.cover::after {
-  content: ""; position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%;
+  content: ""; position: absolute; top: 7px; right: 7px; width: 26px; height: 26px; border-radius: 50%;
   background: rgba(0, 0, 0, 0.35) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3'/%3E%3Cpath d='M18 3v4h-4M6 21v-4h4'/%3E%3C/svg%3E") center / 14px no-repeat;
-  opacity: 0; transition: opacity 0.2s;
+  opacity: 0.85; transition: opacity 0.2s, transform 0.2s;
 }
-button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
-@media (pointer: coarse) { button.cover::after { opacity: 0.85; } }
+button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; transform: rotate(40deg); }
 
 /* ---------- The sleeve: the cover picked up and turned over ---------- */
 .sleeve {
@@ -593,6 +620,7 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; }
 .sb-credits dt { font: 600 0.72em var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: #8a7f6c; }
 .sb-credits dd { margin: 0; font-weight: 600; line-height: 1.25; }
 .sb-notes { flex: 1; min-height: 0; overflow-y: auto; line-height: 1.5; padding-right: 0.3em; }
+.sb-notes.notes-more { -webkit-mask-image: linear-gradient(#000 calc(100% - 3em), transparent); mask-image: linear-gradient(#000 calc(100% - 3em), transparent); }
 .sb-notes p { margin: 0 0 0.7em; }
 /* The season suite's notes, on card stock in either theme. */
 .sb-notes .suite-note { color: #6d6455; }

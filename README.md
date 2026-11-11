@@ -44,7 +44,7 @@ Headless: `tools/headless.sh --virtual-time-budget=20000 --dump-dom http://local
 - `src/sky.js`: the moon's phase, rise and set, lunar eclipses, solstices and equinoxes, meteor showers and magnetic latitude, all worked out in the browser.
 - `src/seasons.js`: the Season suite. Finds each season's most typical recent day from 30 years of daily weather ([Open-Meteo](https://open-meteo.com/)'s ERA5 archive), then fetches those days hour by hour.
 - `src/describe.js`: the forecast in plain words, like a forecaster would say it.
-- `src/main.js`: the page. Picks a place, plays the song, draws the hour-by-hour chart (with tonight's moon and any aurora), lights up each weather factor as its part plays, and shows the liner notes.
+- `src/main.js`: the page. Picks a place, plays the song, draws the hour-by-hour chart (with tonight's moon and any aurora), follows the song across it hour by hour, and turns the cover over to show the liner notes.
 - `src/cover.js`: draws the day's album cover from the forecast (sky colour by hour, sun at the hottest hour, rain, snow and lightning).
 - `samples/`: real forecasts for ten contrasting days, fetched with `tools/fetch_fixtures.py`.
 

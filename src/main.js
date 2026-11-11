@@ -452,10 +452,18 @@ $("cover").addEventListener("click", () => {
   turnSleeve(false);
   sleeve.showModal();
   $("sleeve-close").focus();
+  notesFade();
   // Picked up face first, held a moment to look at, then slowly turned over.
   if (reduceMotion()) turnSleeve(true);
   else sleeveTimer = setTimeout(() => turnSleeve(true, true), SLEEVE_HOLD);
 });
+// The notes scroll inside the sleeve; their bottom edge fades while there is more below.
+function notesFade() {
+  const n = sleeve.querySelector(".sb-notes");
+  if (n) n.classList.toggle("notes-more", n.scrollTop + n.clientHeight < n.scrollHeight - 4);
+}
+sleeve.addEventListener("scroll", notesFade, true); // scroll doesn't bubble, so catch it on the way down
+addEventListener("resize", notesFade);
 $("sleeve-turn").addEventListener("click", () => turnSleeve(!sleeve.classList.contains("flipped")));
 sleeve.querySelector(".sleeve-card").addEventListener("click", (e) => {
   if (!e.target.closest(".sb-notes")) turnSleeve(!sleeve.classList.contains("flipped"));
@@ -823,11 +831,29 @@ for (const b of document.querySelectorAll(".change-place")) b.addEventListener("
 
 // The site header is sticky and wraps to two rows on phones; scrolling leaves room for it.
 const siteHeader = document.querySelector(".site-header");
-// Phones: the nav is a sideways strip (same as mferet.com's site.js); start it with this page's link in view.
+// Phones: the links sit behind a Menu button (same as mferet.com's site.js). Without the script the nav is a swipe strip.
 {
-  const nav = document.querySelector(".site-nav");
-  const here = nav?.querySelector('[aria-current="page"]');
-  if (here && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = here.offsetLeft - nav.offsetLeft - (nav.clientWidth - here.offsetWidth) / 2;
+  const nav = siteHeader?.querySelector(".site-nav");
+  if (nav) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "menu-btn";
+    btn.setAttribute("aria-expanded", "false");
+    nav.id ||= "site-nav";
+    btn.setAttribute("aria-controls", nav.id);
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span>Menu</span>';
+    nav.before(btn);
+    siteHeader.classList.add("has-menu");
+    const set = (open) => {
+      nav.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+    };
+    btn.addEventListener("click", () => set(!nav.classList.contains("open")));
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && nav.classList.contains("open")) { set(false); btn.focus(); }
+    });
+    document.addEventListener("click", (e) => { if (!siteHeader.contains(e.target)) set(false); });
+  }
 }
 const headRoom = () => document.documentElement.style.setProperty("--head", `${siteHeader?.offsetHeight ?? 60}px`);
 headRoom();
