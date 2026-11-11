@@ -209,7 +209,9 @@ export async function fetchForecast(place, { fetchFn = fetch, storage = session(
   let raw = null;
   try {
     const hit = storage && JSON.parse(storage.getItem(key));
-    if (hit && now - hit.savedAt < CACHE_MINUTES * 60000 && hit.raw.extras) raw = hit.raw;
+    // Fresh, and saved on the place's same calendar day: after its midnight, "today" is a new forecast.
+    const localDay = (t) => Math.floor((t + (hit.raw.utc_offset_seconds || 0) * 1000) / 86400000);
+    if (hit && now - hit.savedAt < CACHE_MINUTES * 60000 && hit.raw.extras && localDay(hit.savedAt) === localDay(now)) raw = hit.raw;
   } catch { /* bad or blocked cache: fetch instead */ }
   if (!raw) {
     const extras = fetchExtras(lat, lon, place.cc, { fetchFn, now });
@@ -233,11 +235,14 @@ export async function fetchForecast(place, { fetchFn = fetch, storage = session(
  */
 export async function fetchExtras(lat, lon, cc, { fetchFn = fetch, now = Date.now(), ms = 4000 } = {}) {
   const quiet = (p) => p.catch(() => null);
-  const year = new Date(now).getUTCFullYear();
+  // The place's own date isn't known until the forecast is back, and around New Year
+  // it can be a year ahead of UTC or behind it (time zones run from −12 to +14 hours).
+  // So then both years are asked for; normalizeExtras() keeps the day that matches.
+  const years = [...new Set([-12, 14].map((h) => new Date(now + h * 3600000).getUTCFullYear()))];
   const [air, kp, holidays] = await Promise.all([
     quiet(getJson(airUrl(lat, lon), fetchFn, ms)),
     quiet(getJson(KP_API, fetchFn, ms)),
-    cc ? quiet(holidaysFor(year, cc, fetchFn, ms)) : null,
+    cc ? quiet(Promise.all(years.map((y) => holidaysFor(y, cc, fetchFn, ms))).then((lists) => lists.flat())) : null,
   ]);
   return {
     aqi: air?.hourly?.us_aqi ?? null,

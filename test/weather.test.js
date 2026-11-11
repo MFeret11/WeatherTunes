@@ -166,3 +166,24 @@ test("dew point and feels-like", () => {
   assert(f.hours.every((h) => Number.isFinite(h.dew) && Number.isFinite(h.feels) && Number.isFinite(h.uv)), "every hour has them");
   equal(f.country, "JP");
 });
+
+test("the cache isn't used across the place's midnight", async () => {
+  const storage = memoryStorage();
+  const f1 = fakeFetch((url) => (url.includes("/v1/forecast") ? { body: { ...sample, utc_offset_seconds: 9 * 3600 } } : { status: 404, body: {} }));
+  const calls = () => f1.calls.filter((u) => u.includes("/v1/forecast")).length;
+  const place = { name: "Kyoto, Japan", lat: 35.0, lon: 135.8 };
+  const lateEvening = Date.UTC(2025, 3, 26, 14, 40); // 11:40 pm in Kyoto
+  await fetchForecast(place, { fetchFn: f1, storage, now: lateEvening });
+  await fetchForecast(place, { fetchFn: f1, storage, now: lateEvening + 10 * 60000 });
+  equal(calls(), 1, "ten minutes later, the same evening: cached");
+  await fetchForecast(place, { fetchFn: f1, storage, now: lateEvening + 30 * 60000 });
+  equal(calls(), 2, "past midnight there: fetched again");
+});
+
+test("holidays around New Year are asked for both years", async () => {
+  for (const y of [2025, 2026]) try { localStorage.removeItem(`wt:holidays:AU:${y}`); } catch { /* blocked */ }
+  const f = fakeFetch((url) => (url.includes("nager") ? { body: [{ date: `${url.match(/Holidays\/(\d+)/)[1]}-01-01`, name: "New Year's Day", global: true }] } : { status: 404, body: {} }));
+  // 7 am on 1 January 2026 in Sydney, still 31 December in UTC.
+  const x = await fetchExtras(-33.9, 151.2, "AU", { fetchFn: f, now: Date.UTC(2025, 11, 31, 20) });
+  equal(x.holidays.map((h) => h.date), ["2025-01-01", "2026-01-01"]);
+});

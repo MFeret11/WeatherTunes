@@ -129,7 +129,16 @@ async function choose({ kind, place, sample, reveal = false, storage }) {
     status(`Couldn't reach the weather service right now, so here's a sample day instead.`, true);
     kind = "sample";
     sample = fallback;
-    f = normalizeForecast(await (await fetch(`samples/${sample}.json`)).json());
+    try {
+      f = normalizeForecast(await (await fetch(`samples/${sample}.json`)).json());
+    } catch (e2) { // offline altogether: say so instead of sitting on "Loading…"
+      console.warn(e2);
+      if (token !== loadToken) return;
+      status("Couldn't reach the weather service. Check your connection and try again.", true);
+      if (!score) $("place-kind").textContent = "";
+      playBtn.disabled = !score;
+      return;
+    }
   }
   if (token !== loadToken) return; // a newer choice won
 
@@ -583,7 +592,11 @@ async function startSuite() {
       status(`Couldn't put together ${place.name}'s seasons right now. Try again in a moment.`, true);
     }
   } finally {
-    if (token === loadToken) btn.disabled = playBtn.disabled = false;
+    // Another place may have been picked meanwhile: that load looks after Play,
+    // but this button is ours to hand back either way.
+    btn.disabled = false;
+    if (token === loadToken) playBtn.disabled = false;
+    else renderSuite();
   }
 }
 
