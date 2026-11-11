@@ -55,7 +55,7 @@ It's a portfolio piece, so the reasoning should be on screen. Every song comes w
   Shared links for past dates add `&past_days=N` (Open-Meteo allows up to 92) or use `start_date`/`end_date`.
 
 ### Sky, air and calendar (added 2026-10-24)
-All optional: each is fetched alongside the forecast with a 4-second limit, and a song simply leaves out anything that doesn't arrive. CORS open on all three (checked 2026-10-24).
+All optional: each is fetched alongside the forecast with a 2.5-second limit, and a song simply leaves out anything that doesn't arrive. CORS open on all three (checked 2026-10-24).
 - **Air quality:** Open-Meteo's air-quality API (`air-quality-api.open-meteo.com/v1/air-quality?hourly=us_aqi`), same terms and rounded coordinates as the forecast.
 - **Aurora activity:** NOAA SWPC's planetary Kp forecast (`services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json`), 3-hourly, public domain. No location is sent. Sample days use GFZ Potsdam's definitive Kp (CC BY 4.0).
 - **Public holidays:** Nager.Date (`date.nager.at/api/v3/PublicHolidays/{year}/{cc}`). Only the country code is sent; it comes from the city search, the featured-city list, a `cc` link parameter, or (for your own location) the browser's language region. Cached a week per country.
@@ -380,7 +380,7 @@ M1 is the riskiest part (does it sound good?), so it comes before any UI work.
 | User denies location | City search is always visible and the page works without location |
 | Mobile audio quirks | Start audio on tap, show the iOS ringer note, cap polyphony to keep CPU low |
 | Location privacy | Round coordinates to 0.1°, keep everything in the browser, use no third-party analytics |
-| An extra service (air, Kp, holidays) is slow or down | Each has a 4-second limit and is optional; the song is built without it |
+| An extra service (air, Kp, holidays) is slow or down | Each has a 2.5-second limit and is optional; the song is built without it |
 
 ## 13. Open questions (defaults chosen; change if you disagree)
 

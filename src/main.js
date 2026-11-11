@@ -2,7 +2,7 @@
 // city or a sample day), get today's forecast, play it, explain it.
 // Or hear the place's year: the Season suite plays a typical day from each season.
 
-import { normalizeForecast, fetchForecast, searchPlaces, featuredPlace, randomPlace, roundCoord } from "./weather.js";
+import { normalizeForecast, fetchForecast, searchPlaces, openingPlace, randomPlace, roundCoord } from "./weather.js";
 import { compose } from "./compose.js";
 import { hourLabel, formatTemp, formatSpeed, aqiCategory, uvCategory } from "./util.js";
 import { describe } from "./describe.js";
@@ -1052,15 +1052,11 @@ if (KITCHEN) {
 } else if (/^[a-z0-9-]{1,40}$/.test(q.get("local") || "")) {
   // Dev only: a day from a local, unpublished tuning set (local/ordinary/, not in the repo).
   await choose({ kind: "sample", sample: `../local/ordinary/${q.get("local")}` });
-} else if (q.get("lat") && q.get("lon") && Number.isFinite(+q.get("lat")) && Number.isFinite(+q.get("lon"))) {
-  const cc = /^[A-Za-z]{2}$/.test(q.get("cc") || "") ? q.get("cc").toUpperCase() : null;
-  await choose({ kind: "link", place: { name: q.get("name") || "Shared place", lat: +q.get("lat"), lon: +q.get("lon"), cc } });
-} else if (saved && saved.kind === "search" && saved.place) {
-  await choose({ kind: "search", place: saved.place });
-} else if (saved && saved.kind === "geo" && (await geoAlreadyAllowed())) {
-  await choose({ kind: "featured", place: featuredPlace() }); // something to show while the browser finds you
-  locate();
 } else {
-  await choose({ kind: "featured", place: featuredPlace() });
+  // The same choice warmUp() made (weather.js), so its forecast is already on the way.
+  const opening = openingPlace(q, saved);
+  await choose(opening);
+  // The featured city was something to show while the browser finds you.
+  if (opening.kind === "featured" && saved && saved.kind === "geo" && (await geoAlreadyAllowed())) locate();
 }
 if (q.get("suite") === "1" && current) startSuite();

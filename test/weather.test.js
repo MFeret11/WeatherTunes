@@ -1,5 +1,5 @@
 import { test, assert, equal } from "./harness.js";
-import { forecastUrl, todayOnly, fetchForecast, fetchExtras, searchPlaces, featuredPlace, randomPlace, RANDOM_CITIES, roundCoord, FEATURED, normalizeForecast, dewPoint, feelsLike } from "../src/weather.js";
+import { openingPlace, forecastUrl, todayOnly, fetchForecast, fetchExtras, searchPlaces, featuredPlace, randomPlace, RANDOM_CITIES, roundCoord, FEATURED, normalizeForecast, dewPoint, feelsLike } from "../src/weather.js";
 
 const sample = await (await fetch("../samples/kyoto-spring.json")).json();
 
@@ -186,4 +186,46 @@ test("holidays around New Year are asked for both years", async () => {
   // 7 am on 1 January 2026 in Sydney, still 31 December in UTC.
   const x = await fetchExtras(-33.9, 151.2, "AU", { fetchFn: f, now: Date.UTC(2025, 11, 31, 20) });
   equal(x.holidays.map((h) => h.date), ["2025-01-01", "2026-01-01"]);
+});
+
+test("index.html preloads exactly the modules the page imports", async () => {
+  const html = await (await fetch("../index.html")).text();
+  const listed = [...html.matchAll(/rel="modulepreload" href="([^"]+)"/g)].map((m) => new URL(m[1], new URL("../", location.href)).href).sort();
+  const seen = new Set();
+  const walk = async (url) => {
+    if (seen.has(url)) return;
+    seen.add(url);
+    const src = await (await fetch(url)).text();
+    await Promise.all([...src.matchAll(/from\s+"(\.[^"]+)"/g)].map((m) => walk(new URL(m[1], url).href)));
+  };
+  const main = new URL("../src/main.js", location.href).href;
+  await walk(main);
+  seen.delete(main);
+  equal(listed, [...seen].sort());
+});
+
+test("two requests for the same place at once share one fetch", async () => {
+  const storage = memoryStorage();
+  const f = fakeFetch((url) => (url.includes("/v1/forecast") ? { body: sample } : { status: 404, body: {} }));
+  const place = { name: "Kyoto, Japan", lat: 35.0, lon: 135.8 };
+  const [a, b] = await Promise.all([fetchForecast(place, { fetchFn: f, storage }), fetchForecast(place, { fetchFn: f, storage })]);
+  equal(f.calls.filter((u) => u.includes("/v1/forecast")).length, 1);
+  equal(a.hours, b.hours);
+  // A failure isn't kept: the next request tries again.
+  const down = fakeFetch(() => ({ status: 503, body: {} }));
+  const other = { name: "Oslo, Norway", lat: 59.9, lon: 10.8 };
+  let failed = 0;
+  for (let i = 0; i < 2; i++) await fetchForecast(other, { fetchFn: down, storage }).catch(() => failed++);
+  equal(failed, 2);
+  equal(down.calls.filter((u) => u.includes("/v1/forecast")).length, 2);
+});
+
+test("the opening place: a shared link, else the last search, else the featured city", () => {
+  const q = (s) => new URLSearchParams(s);
+  const saved = { kind: "search", place: { name: "Oslo, Norway", lat: 59.9, lon: 10.8, cc: "NO" } };
+  equal(openingPlace(q("lat=35.0&lon=135.8&name=Kyoto&cc=jp"), saved), { kind: "link", place: { name: "Kyoto", lat: 35, lon: 135.8, cc: "JP" } });
+  equal(openingPlace(q("lat=north&lon=1"), saved).kind, "search");
+  equal(openingPlace(q(""), saved).place.name, "Oslo, Norway");
+  equal(openingPlace(q(""), { kind: "geo" }).kind, "featured");
+  equal(openingPlace(q(""), null).kind, "featured");
 });

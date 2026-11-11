@@ -132,6 +132,7 @@ const FROST_DAYS = 60; // how far back to look for an earlier frost
 const GEOCODE_API = "https://geocoding-api.open-meteo.com/v1/search";
 const CACHE_MINUTES = 60; // Open-Meteo updates hourly
 const TIMEOUT_MS = 10000;
+const EXTRAS_MS = 2500; // the optional services (air, Kp, holidays) hold the song up no longer than this
 
 /** Coordinates are rounded to 0.1° (about 11 km) before they leave the browser. */
 export const roundCoord = (x) => Math.round(Number(x) * 10) / 10;
@@ -198,6 +199,8 @@ function session() {
   try { return window.sessionStorage; } catch { return null; }
 }
 
+const inflight = new WeakMap(); // storage → Map(cache key → the request under way)
+
 /**
  * Today's forecast (in the place's own time zone) as a normalized Forecast.
  * place = { name, lat, lon }. Cached for an hour per session.
@@ -214,12 +217,24 @@ export async function fetchForecast(place, { fetchFn = fetch, storage = session(
     if (hit && now - hit.savedAt < CACHE_MINUTES * 60000 && hit.raw.extras && localDay(hit.savedAt) === localDay(now)) raw = hit.raw;
   } catch { /* bad or blocked cache: fetch instead */ }
   if (!raw) {
-    const extras = fetchExtras(lat, lon, place.cc, { fetchFn, now });
-    const { minTemps, ...day } = todayOnly(await getJson(forecastUrl(lat, lon), fetchFn));
-    raw = day;
-    if (!raw.hourly || !raw.hourly.temperature_2m) throw new Error("forecast had no hourly data");
-    raw.extras = { ...(await extras), minTemps: minTemps ?? null };
-    try { storage && storage.setItem(key, JSON.stringify({ savedAt: now, raw })); } catch { /* full or blocked */ }
+    // A request for the same place that's already on its way is shared (warmUp() starts
+    // the opening one before the rest of the page has loaded).
+    const flights = storage && (inflight.get(storage) ?? inflight.set(storage, new Map()).get(storage));
+    let flight = flights?.get(key);
+    if (!flight) {
+      flight = (async () => {
+        const extras = fetchExtras(lat, lon, place.cc, { fetchFn, now });
+        const { minTemps, ...day } = todayOnly(await getJson(forecastUrl(lat, lon), fetchFn));
+        if (!day.hourly || !day.hourly.temperature_2m) throw new Error("forecast had no hourly data");
+        day.extras = { ...(await extras), minTemps: minTemps ?? null };
+        try { storage && storage.setItem(key, JSON.stringify({ savedAt: now, raw: day })); } catch { /* full or blocked */ }
+        return day;
+      })();
+      const landed = () => flights?.delete(key);
+      flights?.set(key, flight);
+      flight.then(landed, landed);
+    }
+    raw = { ...(await flight) };
   }
   raw.country_code = place.cc || null;
   const f = normalizeForecast(raw, place.name);
@@ -233,7 +248,7 @@ export async function fetchForecast(place, { fetchFn = fetch, storage = session(
  * (the recent lows come with the forecast itself). Each is optional: a slow or failed one is left out after a few
  * seconds, so it never holds up the song.
  */
-export async function fetchExtras(lat, lon, cc, { fetchFn = fetch, now = Date.now(), ms = 4000 } = {}) {
+export async function fetchExtras(lat, lon, cc, { fetchFn = fetch, now = Date.now(), ms = EXTRAS_MS } = {}) {
   const quiet = (p) => p.catch(() => null);
   // The place's own date isn't known until the forecast is back, and around New Year
   // it can be a year ahead of UTC or behind it (time zones run from −12 to +14 hours).
@@ -252,7 +267,7 @@ export async function fetchExtras(lat, lon, cc, { fetchFn = fetch, now = Date.no
 }
 
 /** A country's public holidays for a year, kept in this browser for a week. */
-export async function holidaysFor(year, cc, fetchFn = fetch, ms = 4000) {
+export async function holidaysFor(year, cc, fetchFn = fetch, ms = EXTRAS_MS) {
   const key = `wt:holidays:${cc}:${year}`;
   let store = null;
   try { store = window.localStorage; } catch { /* blocked */ }
@@ -305,6 +320,35 @@ export const FEATURED = [
 export function featuredPlace(date = new Date()) {
   const day = Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000);
   return FEATURED[day % FEATURED.length];
+}
+
+/**
+ * The place the page opens on when nothing else is asked for: a shared link's place,
+ * else the last city searched for, else today's featured city. { kind, place }.
+ * `q` is the page's URLSearchParams; `saved` is what main.js keeps as wt:place.
+ */
+export function openingPlace(q, saved, date = new Date()) {
+  if (q.get("lat") && q.get("lon") && Number.isFinite(+q.get("lat")) && Number.isFinite(+q.get("lon"))) {
+    const cc = /^[A-Za-z]{2}$/.test(q.get("cc") || "") ? q.get("cc").toUpperCase() : null;
+    return { kind: "link", place: { name: q.get("name") || "Shared place", lat: +q.get("lat"), lon: +q.get("lon"), cc } };
+  }
+  if (saved && saved.kind === "search" && saved.place) return { kind: "search", place: saved.place };
+  return { kind: "featured", place: featuredPlace(date) };
+}
+
+/**
+ * Ask for the opening place's forecast right away, while the rest of the page's code
+ * is still loading (index.html calls this first). main.js then finds the request
+ * under way, or already answered. Sample days and the kitchen display don't need it.
+ */
+export function warmUp() {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.has("kitchen") || q.get("sample") || q.get("local")) return;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem("wt:place")); } catch { /* blocked or bad */ }
+    fetchForecast(openingPlace(q, saved).place).catch(() => {}); // main.js asks again and reports any failure
+  } catch { /* the page asks again anyway */ }
 }
 
 // "Random city": the featured cities plus a spread of climates, from desert to

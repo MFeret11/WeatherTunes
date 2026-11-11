@@ -31,7 +31,40 @@
 			document.documentElement.dataset.theme = t;
 		})();
 	</script>
-	<script defer src="vendor/tone-15.1.22.js"></script>
+	<!-- The forecast is the first thing the page waits for: open the connection while the scripts load. -->
+	<link rel="preconnect" href="https://api.open-meteo.com" crossorigin>
+	<link rel="preconnect" href="https://air-quality-api.open-meteo.com" crossorigin>
+	<!-- Every module main.js imports, so they download together instead of one import level at a time.
+	     test/weather.test.js checks this list against the imports. Tone.js loads later, with the first render (src/stream.js). -->
+	<link rel="modulepreload" href="src/weather.js">
+	<link rel="modulepreload" href="src/compose.js">
+	<link rel="modulepreload" href="src/score/context.js">
+	<link rel="modulepreload" href="src/mapping.js">
+	<link rel="modulepreload" href="src/theory.js">
+	<link rel="modulepreload" href="src/util.js">
+	<link rel="modulepreload" href="src/score/analyze.js">
+	<link rel="modulepreload" href="src/score/story.js">
+	<link rel="modulepreload" href="src/score/harmony.js">
+	<link rel="modulepreload" href="src/score/sky.js">
+	<link rel="modulepreload" href="src/sky.js">
+	<link rel="modulepreload" href="src/score/traits.js">
+	<link rel="modulepreload" href="src/score/melody.js">
+	<link rel="modulepreload" href="src/score/rhythm.js">
+	<link rel="modulepreload" href="src/score/pad.js">
+	<link rel="modulepreload" href="src/score/texture.js">
+	<link rel="modulepreload" href="src/score/stretch.js">
+	<link rel="modulepreload" href="src/score/skylayers.js">
+	<link rel="modulepreload" href="src/score/automation.js">
+	<link rel="modulepreload" href="src/score/liner.js">
+	<link rel="modulepreload" href="src/describe.js">
+	<link rel="modulepreload" href="src/stream.js">
+	<link rel="modulepreload" href="src/engine.js">
+	<link rel="modulepreload" href="src/wav.js">
+	<link rel="modulepreload" href="src/icons.js">
+	<link rel="modulepreload" href="src/cover.js">
+	<link rel="modulepreload" href="src/vinyl.js">
+	<link rel="modulepreload" href="src/seasons.js">
+	<script type="module">import { warmUp } from "./src/weather.js"; warmUp();</script>
 	<script type="module" src="src/main.js"></script>
 </head>
 <body>

@@ -24,7 +24,7 @@ const SAFETY = 0.85; // plan as if the render will run this much slower than mea
 const MARGIN = 0.12; // how far past "now" the first block is scheduled, seconds
 const TAP = new URL("./tap.worklet.js", import.meta.url).href;
 const XFADE = 0.1; // crossfade when a new render takes over, seconds
-const PREPARE_DELAY = 0.8; // seconds after a song appears before rendering it early, so the page paints first
+const PREPARE_DELAY = 0.3; // seconds after a song appears before rendering it early, so the page paints first
 // A render from partway starts early enough to replay every note still ringing:
 const PRE = {
   tailSec: 3.5, // the longest release (the slow pads)
@@ -46,6 +46,23 @@ export function preRoll(score, offset) {
     }
   }
   return Math.max(0, Math.min(offset, PRE.maxSec, offset - from + 0.01));
+}
+
+// Tone.js is big (345 KB), and nothing needs it until a song is rendered, so it's
+// loaded then instead of with the page. Pages that load it themselves (the tests'
+// render page) already have window.Tone.
+const TONE = new URL("../vendor/tone-15.1.22.js", import.meta.url).href;
+let toneLoad = null;
+export function loadTone() {
+  if (window.Tone) return Promise.resolve(window.Tone);
+  toneLoad ??= new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = TONE;
+    el.onload = () => (window.Tone ? resolve(window.Tone) : reject(new Error("Tone.js loaded but isn't there")));
+    el.onerror = () => { toneLoad = null; el.remove(); reject(new Error("couldn't load Tone.js")); }; // the next render tries again
+    document.head.append(el);
+  });
+  return toneLoad;
 }
 
 // Tone.Offline swaps Tone's global context while a render is set up, so set up one
@@ -169,12 +186,12 @@ export class Render {
   }
 
   async run() {
-    const T = window.Tone;
     const prev = queue;
     let release;
     queue = new Promise((r) => (release = r));
     await prev;
     try {
+      const T = await loadTone();
       const out = await T.Offline(async (ctx) => {
         try {
           let tap;
@@ -364,6 +381,7 @@ export class Player {
     if (this.playing) return;
     const want = (this.wanted = { score, retro, muted: { ...muted } });
     clearTimeout(this.prepTimer);
+    loadTone().catch(() => {}); // fetched meanwhile; the render reports it if it can't be had
     const go = () => {
       if (this.wanted !== want || this.playing) return;
       const busy = this.renders.find((r) => !r.done);
