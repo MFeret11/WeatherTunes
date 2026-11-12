@@ -900,17 +900,24 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; trans
 .widget main.wrap { max-width: none; padding: 0; height: 100%; }
 .widget main.wrap > .card { margin: 0; }
 .widget .player {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto;
-  column-gap: 12px; align-items: start; align-content: center; height: 100%;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: 100%;
+  column-gap: 12px; align-items: center; height: 100%; box-sizing: border-box;
   padding: 8px 12px; border: 0; box-shadow: none; background: transparent;
   cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
 }
 .widget .player[data-phase] { box-shadow: none; }
 .widget .player > *, .widget .now-info > * { display: none; }
 .widget .now-playing, .widget .now-info { display: contents; }
-.widget .now-playing { --cs: 160px; } /* the cover: as tall as the chart (.widget .hours), so they line up */
+/* The cover: about a quarter of the card's width, never taller than the card, so the
+   chart gets the room (100vw/100vh are the card's own size inside its iframe). */
+.widget .now-playing { --cs: min(26vw, calc(100vh - 16px), 170px); }
 .widget .record { display: block; grid-column: 1; grid-row: 1; width: calc(var(--cs) * 1.2); height: var(--cs); }
 .widget .vinyl, .widget .player.playing .vinyl { transform: translateX(14%); }
+/* On a narrow card the record peeking out costs too much width: just the sleeve. */
+@media (max-width: 640px) {
+  .widget .record { width: var(--cs); }
+  .widget .vinyl { display: none; }
+}
 .widget .cover { pointer-events: none; }
 .widget .cover::after { display: none; }
 /* The badge: play, or stop while playing; it pulses while a song is still being made. */
@@ -920,28 +927,44 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; trans
   border-radius: 50%; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
   background: rgba(0, 0, 0, 0.55) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6.5v11l9-5.5z' fill='white'/%3E%3C/svg%3E") center / 62% no-repeat;
 }
+/* Once the song is playing the badge fades away so the cover shows whole; a tap
+   anywhere still stops it. It stays while the song is still being made. */
+.widget .record::after { transition: opacity 0.4s ease; }
 .widget .player.playing .record::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='7' y='7' width='10' height='10' rx='1.5' fill='white'/%3E%3C/svg%3E");
-  opacity: 0.75;
+  opacity: 0;
 }
+.widget .player.playing:has(.play.preparing) .record::after { opacity: 0.75; }
 .widget .player:has(.play.preparing) .record::after { animation: wt-pulse 1.2s ease-in-out infinite; }
 @keyframes wt-pulse { 50% { opacity: 0.4; } }
 .widget .player:active .record::after { transform: translate(-50%, -50%) scale(0.92); }
-/* The chart, shrunk to fit. */
-.widget .player > .stage { display: block; grid-column: 2; grid-row: 1; margin: 0; }
-/* 22 + 14 + 77 + 14 + 18 + 15 = 160px tall, the cover's size above. */
-.widget .hours, .widget .hours.dry { --ic: 22px; --lr: 14px; --zh: 77px; --rh: 18px; --ax: 15px; border-radius: 8px; }
-.widget .hour .icon { top: 3px; width: min(calc(100% - 2px), 18px); visibility: hidden; }
-.widget .hour.sky-narrow .icon { visibility: visible; }
-.widget .hour .run { --ic-w: 18px; top: calc(3px + var(--ic-w) / 2 - 1px); }
-.widget .hour .run.w { display: none; }
-.widget .hour .run.n { display: block; }
-.widget .hour .dot { width: 6px; height: 6px; }
-.widget .hour .tv { font-size: 0.66rem; }
-.widget .hour .rain b { font-size: 0.6rem; }
-.widget .hr-dry { font-size: 0.66rem; }
-.widget .hour .lbl { font-size: 0.6rem; }
-.widget .hour:not(.axis6) .lbl { display: none; }
+/* The widget's own chart (renderWidgetHours in src/main.js): temperature line with
+   the high and low, a thin rain line under it, three hour marks. */
+.widget .player > .stage { display: block; grid-column: 2; grid-row: 1; align-self: stretch; margin: 0; position: relative; }
+.widget .hours.wchart {
+  --wr: 24px; /* rain band */
+  --wa: 14px; /* hour marks */
+  display: block; position: absolute; inset: 0; height: auto; border-radius: 8px; overflow: hidden;
+  background: var(--daylight), linear-gradient(to bottom, var(--sky-top), transparent);
+}
+.widget .hours.wchart.dry { --wr: 14px; }
+.wchart svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.wh-temp { position: absolute; left: 0; right: 0; top: 22px; bottom: calc(var(--wr) + var(--wa) + 20px); }
+.wh-rain { position: absolute; left: 0; right: 0; bottom: calc(var(--wa) + 2px); height: var(--wr); }
+.wh-axis { position: absolute; left: 0; right: 0; bottom: 0; height: var(--wa); font-size: 0.62rem; line-height: var(--wa); color: var(--muted); }
+.wh-axis span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.wh-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: var(--text); transform: translate(-50%, -50%); box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); }
+.wh-t, .wh-pop { --tx: -50%; position: absolute; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wh-t.l, .wh-pop.l { --tx: -3px; }
+.wh-t.r, .wh-pop.r { --tx: calc(-100% + 3px); }
+.wh-t { font-size: 0.8rem; font-weight: 700; color: var(--text); }
+.wh-t.hi { transform: translate(var(--tx), calc(-100% - 5px)); }
+.wh-t.lo { transform: translate(var(--tx), 5px); color: var(--muted); }
+.wh-rain-fill { fill: var(--rain); opacity: 0.22; }
+.wh-rain-line { fill: none; stroke: var(--rain); stroke-width: 1.5; stroke-linejoin: round; }
+.wh-pop { font-size: 0.64rem; font-weight: 700; color: var(--rain); transform: translate(var(--tx), calc(-100% - 2px)); }
+.wh-dry { position: absolute; left: 0; bottom: 0; font-size: 0.62rem; color: var(--muted); }
+.wh-now { position: absolute; top: 0; bottom: var(--wa); width: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.55); transform: translateX(-50%); pointer-events: none; }
 .widget .finder { display: none; }
 /* A problem (no forecast yet, no connection) shows over the card. */
 .widget .finder:has(#status:not(:empty)) { display: block; position: absolute; left: 12px; right: 12px; bottom: 8px; padding: 0; }

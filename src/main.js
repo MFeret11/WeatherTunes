@@ -248,7 +248,73 @@ function smoothPath(pts) {
   return path;
 }
 
+// The widget's chart (?kitchen&widget): a dashboard card can be phone-narrow, where
+// 24 columns of icons and labels pile up. So the widget draws a plainer chart: the
+// temperature line with only the high and low marked, a thin rain line under it, and
+// three hour marks. Its vertical scale never stretches less than WIDGET_SPAN degrees
+// over the full height, so a mild day looks mild instead of like a mountain range.
+const WIDGET_SPAN = 14; // °C, about 25 °F
+
+function renderWidgetHours() {
+  const hours = forecast.hours;
+  const temps = hours.map((h) => h.temp);
+  const lo = Math.min(...temps), hi = Math.max(...temps);
+  const span = Math.max(hi - lo, WIDGET_SPAN);
+  const base = lo - (span - (hi - lo)) / 2;
+  const y = (c) => (1 - (c - base) / span) * 100;
+  const hiI = temps.indexOf(hi), loI = temps.indexOf(lo);
+  const pts = temps.map((c, i) => [i + 0.5, y(c)]);
+  const line = smoothPath([[0, pts[0][1]], ...pts, [24, pts[23][1]]]);
+  const stops = hours.map((h, i) => `<stop offset="${((i + 0.5) / 24).toFixed(4)}" stop-color="${tempColor(h.temp)}"/>`).join("");
+  // Daylight as a faint lighter band behind the line.
+  const day = hours.map((h) => h.isDay);
+  const dayStops = day.map((d, i) => `rgba(255,255,255,${d ? 0.05 : 0}) ${((i / 24) * 100).toFixed(2)}% ${(((i + 1) / 24) * 100).toFixed(2)}%`).join(", ");
+
+  const pops = hours.map((h) => h.pop);
+  const wet = Math.max(...pops);
+  const dry = wet < 10;
+  const wetI = pops.indexOf(wet);
+  const rainPts = pops.map((p, i) => [i + 0.5, 100 - p]);
+  const rain = smoothPath([[0, rainPts[0][1]], ...rainPts, [24, rainPts[23][1]]]);
+
+  // Labels are HTML over the stretched SVGs, so text never gets squashed.
+  const at = (i) => `left:${(((i + 0.5) / 24) * 100).toFixed(2)}%`;
+  const edge = (i) => (i < 2 ? " l" : i > 21 ? " r" : "");
+  const mark = (i, c, kind) =>
+    `<span class="wh-dot ${kind}" style="${at(i)};top:${y(c).toFixed(1)}%"></span>` +
+    `<b class="wh-t ${kind}${edge(i)}" style="${at(i)};top:${y(c).toFixed(1)}%">${deg(c)}</b>`;
+
+  const box = $("hours");
+  box.className = "hours wchart" + (dry ? " dry" : "");
+  box.style.setProperty("--daylight", `linear-gradient(to right, ${dayStops})`);
+  box.innerHTML = `
+    <div class="wh-temp">
+      <svg viewBox="0 0 24 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="wh-grad" x1="0" x2="1" y1="0" y2="0">${stops}</linearGradient>
+          <linearGradient id="wh-fade" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".4"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+          <mask id="wh-mask" maskContentUnits="userSpaceOnUse"><rect width="24" height="100" fill="url(#wh-fade)"/></mask>
+        </defs>
+        <path d="${line}V100H0Z" fill="url(#wh-grad)" mask="url(#wh-mask)"/>
+        <path d="${line}" fill="none" stroke="url(#wh-grad)" stroke-width="2.5" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+      ${mark(hiI, hi, "hi")}${loI !== hiI ? mark(loI, lo, "lo") : ""}
+    </div>
+    <div class="wh-rain">${dry ? `<span class="wh-dry">No rain expected</span>` : `
+      <svg viewBox="0 0 24 100" preserveAspectRatio="none" aria-hidden="true">
+        <path d="${rain}V100H0Z" class="wh-rain-fill"/>
+        <path d="${rain}" class="wh-rain-line" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <b class="wh-pop${edge(wetI)}" style="${at(wetI)};top:${(100 - wet).toFixed(1)}%">${wet}%</b>`}
+    </div>
+    <div class="wh-axis">${[6, 12, 18].map((i) => `<span style="left:${((i / 24) * 100).toFixed(2)}%">${shortHour(i)}</span>`).join("")}</div>
+    <span class="wh-now" hidden></span>`;
+  box.setAttribute("aria-label", `Hourly forecast. High ${deg(hi)} at ${hourLabel(hiI)}, low ${deg(lo)} at ${hourLabel(loI)}. ` +
+    (dry ? "No rain expected." : `Best chance of rain ${wet}% at ${hourLabel(wetI)}.`));
+}
+
 function renderHours() {
+  if (WIDGET) return renderWidgetHours();
   const hours = forecast.hours;
   const temps = hours.map((h) => h.temp);
   const lo = Math.min(...temps), hi = Math.max(...temps);
@@ -645,6 +711,12 @@ function onEvent(type) {
 }
 
 function highlight(bar) {
+  // The widget's chart has no hour columns: a line follows the song instead.
+  const now = WIDGET && $("hours").querySelector(".wh-now");
+  if (now) {
+    now.hidden = bar == null;
+    if (bar != null) now.style.left = `${(((bar + 0.5) / 24) * 100).toFixed(2)}%`;
+  }
   for (const [i, el] of [...$("hours").querySelectorAll(".hour")].entries()) el.classList.toggle("now", i === bar);
   if (bar == null) $("nowhour").textContent = "";
   else {
