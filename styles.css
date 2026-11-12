@@ -950,6 +950,13 @@ button.cover:hover::after, button.cover:focus-visible::after { opacity: 1; trans
 .widget .hours.wchart.dry { --wr: 14px; }
 .wchart svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .wh-temp { position: absolute; left: 0; right: 0; top: 22px; bottom: calc(var(--wr) + var(--wa) + 20px); }
+/* A short card (two dashboard rows): tighter margins so the line keeps its shape. */
+@media (max-height: 140px) {
+  .widget .hours.wchart { --wr: 16px; --wa: 12px; }
+  .wh-temp { top: 17px; bottom: calc(var(--wr) + var(--wa) + 14px); }
+  .wh-t { font-size: 0.72rem; }
+  .wh-axis { font-size: 0.58rem; }
+}
 .wh-rain { position: absolute; left: 0; right: 0; bottom: calc(var(--wa) + 2px); height: var(--wr); }
 .wh-axis { position: absolute; left: 0; right: 0; bottom: 0; height: var(--wa); font-size: 0.62rem; line-height: var(--wa); color: var(--muted); }
 .wh-axis span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
